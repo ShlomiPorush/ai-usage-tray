@@ -1,13 +1,13 @@
-<#
+﻿<#
 .SYNOPSIS
     One-step installer for AI Usage Tray (fork of costats) (per-user).
 
 .DESCRIPTION
     Downloads the latest release ZIP for your architecture, extracts it to
-    %LOCALAPPDATA%\costats\app, and creates a Start Menu shortcut.
+    %LOCALAPPDATA%\AIUsageTray\app, and creates a Start Menu shortcut.
 
 .PARAMETER InstallDir
-    Custom installation directory (defaults to %LOCALAPPDATA%\costats\app).
+    Custom installation directory (defaults to %LOCALAPPDATA%\AIUsageTray\app).
 
 .PARAMETER SkipShortcut
     Skip creating the Start Menu shortcut.
@@ -16,26 +16,28 @@
     .\install.ps1
 
 .EXAMPLE
-    .\install.ps1 -InstallDir "D:\Apps\costats" -SkipShortcut
+    .\install.ps1 -InstallDir "D:\Apps\AIUsageTray" -SkipShortcut
 #>
 
 param(
-    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "costats\\app"),
+    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "AIUsageTray\app"),
     [switch]$SkipShortcut
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Windows PowerShell 5.1 may default to TLS 1.0/1.1, which GitHub rejects.
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+
 $repo = "ShlomiPorush/ai-usage-tray"
 $apiUrl = "https://api.github.com/repos/$repo/releases/latest"
 
 function Get-ArchRid {
-    $arch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture
-    switch ($arch) {
-        "Arm64" { return "win-arm64" }
-        default { return "win-x64" }
-    }
+    # $env:PROCESSOR_ARCHITECTURE works on both Windows PowerShell 5.1 and PowerShell 7+
+    # (RuntimeInformation.ProcessArchitecture is unavailable under 5.1 with StrictMode).
+    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { return "win-arm64" }
+    return "win-x64"
 }
 
 function Get-LatestAssetUrl {
@@ -63,9 +65,6 @@ function Find-Executable {
     $preferred = $candidates | Where-Object { $_.Name -ieq "AIUsageTray.exe" } | Select-Object -First 1
     if ($preferred) { return $preferred.FullName }
 
-    $preferred = $candidates | Where-Object { $_.Name -ieq "AIUsageTray.exe" } | Select-Object -First 1
-    if ($preferred) { return $preferred.FullName }
-
     return ($candidates | Sort-Object Length -Descending | Select-Object -First 1).FullName
 }
 
@@ -78,6 +77,19 @@ function New-StartMenuShortcut {
     $shortcut.TargetPath = $TargetPath
     $shortcut.WorkingDirectory = Split-Path $TargetPath
     $shortcut.Save()
+}
+
+# Refuse dangerous install targets before anything is removed: the directory is
+# wiped during install, so an empty value or a drive/user-profile root would be
+# catastrophic.
+if ([string]::IsNullOrWhiteSpace($InstallDir)) {
+    throw "InstallDir is empty."
+}
+$InstallDir = [IO.Path]::GetFullPath($InstallDir)
+$forbidden = @([IO.Path]::GetPathRoot($InstallDir), $env:USERPROFILE, $env:LOCALAPPDATA, $env:APPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:windir) |
+    Where-Object { $_ } | ForEach-Object { $_.TrimEnd('/', [char]92) }
+if ($forbidden -contains $InstallDir.TrimEnd('/', [char]92)) {
+    throw "Refusing to install into '$InstallDir' - choose a dedicated subfolder."
 }
 
 Write-Host "Installing AI Usage Tray..." -ForegroundColor Cyan
