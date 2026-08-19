@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>costats — ניתוח מוצר</title>
+<style>
+  :root{--bg:#fff;--fg:#1c1c1e;--muted:#5b5f66;--line:#e3e5e8;--accent:#0a5bd3;--warn:#b45309;--ok:#1a7f37;--code:#f4f5f7}
+  @media (prefers-color-scheme:dark){:root{--bg:#151618;--fg:#e8e8ea;--muted:#a0a4ab;--line:#2c2f34;--accent:#6aa5ff;--warn:#f2a73b;--ok:#4cc26a;--code:#1f2125}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 "Segoe UI",Arial,sans-serif}
+  main{max-width:880px;margin:0 auto;padding:32px 24px 64px}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:20px;margin:36px 0 10px;padding-block-end:6px;border-block-end:1px solid var(--line)}
+  h3{font-size:16px;margin:20px 0 6px}
+  p{margin:8px 0}
+  .meta{color:var(--muted);font-size:14px}
+  code{direction:ltr;unicode-bidi:isolate;font-family:Consolas,"Courier New",monospace;font-size:.92em;background:var(--code);padding:1px 5px;border-radius:4px}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:15px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:start;vertical-align:top}
+  th{background:var(--code)}
+  ul,ol{padding-inline-start:22px;margin:6px 0}
+  li{margin:3px 0}
+  .tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:10px;border:1px solid var(--line);color:var(--muted);margin-inline-start:6px}
+  .box{border:1px solid var(--line);border-inline-start:4px solid var(--accent);border-radius:6px;padding:10px 14px;margin:12px 0;background:var(--code)}
+  .box.warn{border-inline-start-color:var(--warn)}
+  .box.ok{border-inline-start-color:var(--ok)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:12px 0}
+  .card{border:1px solid var(--line);border-radius:6px;padding:12px 14px}
+  .card h3{margin-top:0}
+  nav ol{columns:2;font-size:14px}
+  @media (max-width:600px){nav ol{columns:1}}
+  footer{margin-top:40px;color:var(--muted);font-size:13px;border-block-start:1px solid var(--line);padding-block-start:12px}
+</style>
+</head>
+<body>
+<main>
+<h1>ניתוח מוצר: <bdi>costats</bdi> <span class="tag">ריפו: <bdi>ShlomiPorush/ai-usage-tray</bdi></span></h1>
+<p class="meta">תאריך: 19.08.2026 · בסיס: גרסה <bdi>1.4.6</bdi> של <bdi>fmdz387/costats</bdi> · סוג מסמך: סקירת מוצר וארכיטקטורה</p>
+
+<nav><ol>
+<li><a href="#what">מה המוצר</a></li>
+<li><a href="#features">יכולות</a></li>
+<li><a href="#sources">מקורות נתונים</a></li>
+<li><a href="#arch">ארכיטקטורה</a></li>
+<li><a href="#quality">איכות ותחזוקה</a></li>
+<li><a href="#risks">חולשות וסיכונים</a></li>
+<li><a href="#fork">השלכות על הריפו שלך</a></li>
+<li><a href="#next">המלצות</a></li>
+</ol></nav>
+
+<h2 id="what">1. מה המוצר</h2>
+<p><bdi>costats</bdi> היא אפליקציית מגש (tray) ל-Windows, כתובה ב-<bdi>WPF / .NET 10</bdi>, שמציגה בזמן אמת את מצב המכסות, הטוקנים וההוצאות של כלי קידוד מבוססי AI: <bdi>Codex</bdi>, <bdi>Claude Code</bdi>, <bdi>GitHub Copilot</bdi> (ניסיוני) ו-<bdi>Z.ai</bdi>. זו המקבילה הווינדוסית ל-<bdi>CodexBar</bdi> של macOS.</p>
+<div class="box">הקוד בתיקייה הוא העתק של הפרויקט הפתוח <bdi>fmdz387/costats</bdi> (רישיון MIT). בסעיף 7 מפורט מה זה מחייב.</div>
+
+<h2 id="features">2. יכולות</h2>
+<div class="grid">
+  <div class="card"><h3>תצוגת שימוש</h3><ul><li>ניצול סשן ושבועי, טיימר איפוס ו"קצב" (pace)</li><li>טוקנים + עלות יומי ו-30 יום</li><li>יתרת קרדיט / חריגה (overage) כשזמינה</li></ul></div>
+  <div class="card"><h3>חוויית משתמש</h3><ul><li>ווידג'ט "זכוכית" (Mica/Acrylic) מהמגש</li><li>מקש קיצור גלובלי <code>Ctrl+Alt+U</code></li><li>הפעלה בכניסה, מופע יחיד, הגדרות ב-<code>%LOCALAPPDATA%\costats\settings.json</code></li></ul></div>
+  <div class="card"><h3>עדכון עצמי</h3><ul><li>בדיקה מול GitHub Releases כל 6 שעות</li><li>אימות <bdi>SHA-256</bdi>, החלפה עם גיבוי ו-rollback</li><li>תמיכה ב-MSIX/AppInstaller</li></ul></div>
+  <div class="card"><h3>הפצה ובונוס</h3><ul><li>התקנה ב-PowerShell one-liner, בינארים x64+arm64</li><li>CI ו-Release ב-GitHub Actions</li><li>CLI ב-Node: <code>npx costats ccinsights</code> — מרנדר כרטיס Insights של Claude Code (Playwright)</li></ul></div>
+</div>
+
+<h2 id="sources">3. מקורות נתונים</h2>
+<table>
+<tr><th>ספק</th><th>מקור ראשי</th><th>נפילה חזרה (fallback)</th></tr>
+<tr><td><bdi>Claude Code</bdi></td><td>OAuth usage endpoint דרך <code>~/.claude/.credentials.json</code></td><td>CLI probe → סריקת לוגי JSONL ב-<code>~/.claude/projects</code></td></tr>
+<tr><td><bdi>Codex</bdi></td><td>OAuth דרך <code>~/.codex/auth.json</code> + <bdi>app-server</bdi></td><td>CLI probe → לוגים ב-<code>~/.codex/sessions</code></td></tr>
+<tr><td><bdi>Copilot</bdi></td><td>endpoint לא רשמי, PAT קלאסי (scope <code>copilot</code>) ב-Credential Manager</td><td>—</td></tr>
+<tr><td><bdi>Z.ai</bdi></td><td>API usage</td><td>—</td></tr>
+</table>
+<p>הערכות עלות מחושבות מקומית מהלוגים (<code>LogDigestor</code>, <code>ExpenseAnalyzer</code>) לפי מחירון מוטמע בקוד.</p>
+
+<h2 id="arch">4. ארכיטקטורה</h2>
+<p>Clean Architecture בארבע שכבות, כ-10,000 שורות C#:</p>
+<table>
+<tr><th>פרויקט</th><th>תפקיד</th></tr>
+<tr><td><code>costats.Core</code></td><td>מודלים טהורים: <code>PulseState</code>, <code>ProviderReading</code>, <code>QuotaWindow</code>, <code>TokenLedger</code>, <code>TrayStatusComposer</code></td></tr>
+<tr><td><code>costats.Application</code></td><td>ה"לב": <code>PulseOrchestrator</code> (BackgroundService), <code>SourceSelector</code>, הפשטות (<code>ISignalSource</code>, <code>ICredentialVault</code>, <code>ISettingsStore</code>)</td></tr>
+<tr><td><code>costats.Infrastructure</code></td><td>מימושי ספקים, סורק לוגים, Credential Vault, Glass backdrop</td></tr>
+<tr><td><code>costats.App</code></td><td>WPF: חלונות, ViewModels, tray host, hotkey, עדכון עצמי, DI ב-<code>App.xaml.cs</code></td></tr>
+</table>
+<h3>זרימה</h3>
+<ol>
+<li><code>PulseOrchestrator</code> רץ בטיימר (ברירת מחדל 5 דקות) או לפי טריגר ידני.</li>
+<li>לכל ספק יש כמה <code>ISignalSource</code>; <code>SourceSelector</code> בוחר את הקריאה האמינה ביותר לפי <code>ReadingConfidence</code> (OAuth &gt; CLI &gt; לוגים).</li>
+<li>הקריאות רצות סדרתית (כדי לא להריץ סריקות קבצים כבדות במקביל), מתמזגות ל-<code>PulseState</code> ומשודרות כ-<code>IObservable</code> ל-ViewModels; snapshot נכתב ל-JSON.</li>
+</ol>
+<div class="box ok">הוספת ספק חדש = מימוש <code>ISignalSource</code> אחד ורישום ב-DI. זו נקודת הרחבה נקייה.</div>
+
+<h2 id="quality">5. איכות ותחזוקה</h2>
+<ul>
+<li><strong>בדיקות:</strong> פרויקט <code>costats.Core.Tests</code> מכסה פרסרים (Codex app-server, Z.ai, Claude subscription) ואת <code>TrayStatusComposer</code>. אין בדיקות ל-UI, ל-orchestrator או לעדכון העצמי.</li>
+<li><strong>CI:</strong> build + test ב-Debug וב-Release על <bdi>windows-latest</bdi>; workflow נפרד ל-release.</li>
+<li><strong>גרסאות:</strong> מקור אמת יחיד ב-<code>src/Directory.Build.props</code> (<bdi>1.4.6</bdi>), סקריפט <code>bump-version.ps1</code>.</li>
+<li><strong>קבצים גדולים:</strong> <code>StartupUpdateCoordinator.cs</code> (~970 שורות), <code>UsageLogScanner.cs</code> (~720), <code>LogDigestor.cs</code> (~620) — מועמדים לפיצול.</li>
+</ul>
+
+<h2 id="risks">6. חולשות וסיכונים</h2>
+<table>
+<tr><th>#</th><th>סיכון</th><th>חומרה</th><th>הסבר</th></tr>
+<tr><td>1</td><td>תלות ב-APIs לא רשמיים</td><td>גבוהה</td><td>ה-usage endpoints של Claude/Codex/Copilot אינם מתועדים ועלולים להישבר בלי התראה. ה-README מציין זאת במפורש לגבי Copilot.</td></tr>
+<tr><td>2</td><td>מחירון מוטמע בקוד</td><td>בינונית</td><td>כל שינוי מחיר או מודל חדש דורש עדכון קוד ושחרור גרסה; הערכות העלות עלולות להיות לא מדויקות.</td></tr>
+<tr><td>3</td><td>גישה לאישורים רגישים</td><td>בינונית</td><td>האפליקציה קוראת קבצי OAuth. אין טלמטריה, אך המשתמש חייב לסמוך על הבינארי ועל מנגנון העדכון.</td></tr>
+<tr><td>4</td><td>כיסוי בדיקות חלקי</td><td>בינונית</td><td>הקוד המורכב והמסוכן ביותר (החלפת בינארי בזמן ריצה) אינו מכוסה.</td></tr>
+<tr><td>5</td><td>Windows בלבד, .NET 10</td><td>נמוכה</td><td>דורש SDK עדכני; אין גרסת macOS/Linux (מפנים ל-CodexBar).</td></tr>
+</table>
+
+<h2 id="fork">7. השלכות על הריפו שלך</h2>
+<div class="box warn">
+<p><strong>העדכון העצמי מצביע על הריפו המקורי.</strong> ב-<code>appsettings.json</code>: <code>"Repository": "fmdz387/costats"</code>, ועוד כ-97 קבצים מפנים ל-<bdi>fmdz387</bdi>/<bdi>costats</bdi> (סקריפטי התקנה ופרסום, <bdi>AppxManifest</bdi>, README). כרגע גרסה שתבנה אצלך תוריד עדכונים מהפרויקט המקורי ותדרוס את עצמה.</p>
+</div>
+<ul>
+<li><strong>רישיון:</strong> MIT על שם fmdz — פורק ציבורי מותר, בתנאי שקובץ ה-LICENSE והקרדיט נשמרים. מומלץ להוסיף ל-README "Fork of <bdi>fmdz387/costats</bdi>".</li>
+<li><strong>מיתוג:</strong> שם הריפו (<bdi>ai-usage-tray</bdi>) שונה משם המוצר (<bdi>costats</bdi>). כדאי להחליט אם זה פורק-המשך או מוצר חדש.</li>
+<li><strong>סביבה מקומית:</strong> קיימים אצלך <code>~/.claude/.credentials.json</code> ו-<code>~/.codex/auth.json</code>, כך שהאפליקציה אמורה להציג נתונים מיד אחרי <code>dotnet build</code>.</li>
+<li><strong>מצב git:</strong> הקבצים עדיין לא עברו commit ולא נדחפו.</li>
+</ul>
+
+<h2 id="next">8. המלצות</h2>
+<ol>
+<li>להחליט: פורק נאמן (שומר שם ומנגנון עדכון מול המקור) או מוצר עצמאי (להחליף את כל ההפניות ל-<bdi>ShlomiPorush/ai-usage-tray</bdi>, לשנות <code>Update.Repository</code>, סקריפטים ו-manifest).</li>
+<li>להוסיף שורת שיוך ב-README ולשמור LICENSE.</li>
+<li>לבנות ולהריץ מקומית (<code>dotnet build .\costats.sln -c Release</code>) כדי לאמת שה-endpoints עדיין עובדים.</li>
+<li>אם מפתחים הלאה: להוסיף בדיקות ל-<code>PulseOrchestrator</code> ולעדכון העצמי, ולהוציא את המחירון לקובץ תצורה.</li>
+</ol>
+
+<footer>קובץ: <bdi>docs/product-analysis.html</bdi> · נוצר על-ידי Claude עבור <bdi>ShlomiPorush</bdi></footer>
+</main>
+</body>
+</html>

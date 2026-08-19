@@ -1,0 +1,50 @@
+{
+  "name": "costats",
+  "version": "1.0.1",
+  "description": "costats CLI for generating Claude Code Insights cards",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "costats": "dist/costats.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "cli",
+    "claude",
+    "insights",
+    "costats"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fmdz387/costats.git",
+    "directory": "tools/insights-cli"
+  },
+  "bugs": {
+    "url": "https://github.com/fmdz387/costats/issues"
+  },
+  "homepage": "https://github.com/fmdz387/costats#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "node scripts/build.js",
+    "prepack": "node scripts/build.js"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.0",
+    "open": "^10.1.0",
+    "ora": "^8.1.0",
+    "zod": "^3.23.8"
+  }
+}

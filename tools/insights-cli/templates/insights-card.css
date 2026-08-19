@@ -1,0 +1,202 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap");
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "IBM Plex Mono", monospace;
+  background: #0d0d0d;
+  color: #ffffff;
+  font-feature-settings: "tnum" 1;
+}
+
+.card {
+  width: 800px;
+  height: 640px;
+  padding: 32px 40px;
+  background: #0d0d0d;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.claude-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.claude-icon path {
+  fill: #f97316;
+}
+
+.brand-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.date-range {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.25);
+}
+
+/* Hero Section */
+.hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 0;
+}
+
+.hero-number {
+  font-size: 180px;
+  font-weight: 300;
+  line-height: 0.85;
+  letter-spacing: -0.05em;
+  color: #ffffff;
+  word-break: break-all;
+  overflow: hidden;
+}
+
+.hero-number.size-lg { font-size: 180px; }
+.hero-number.size-md { font-size: 140px; }
+.hero-number.size-sm { font-size: 110px; }
+.hero-number.size-xs { font-size: 90px; }
+
+.hero-label {
+  font-size: 14px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.35);
+  margin-top: 4px;
+}
+
+.roast {
+  font-size: 16px;
+  font-weight: 500;
+  color: #f472b6;
+  margin-top: 10px;
+  letter-spacing: -0.01em;
+}
+
+/* Stats Row */
+.stats-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stat-value {
+  font-size: 34px;
+  font-weight: 400;
+  color: #ffffff;
+  letter-spacing: -0.02em;
+}
+
+.stat-value.green { color: #22c55e; }
+.stat-value.red { color: #ef4444; }
+.stat-value.orange { color: #f97316; }
+.stat-value.purple { color: #a855f7; }
+.stat-value.cyan { color: #06b6d4; }
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Title Badge */
+.title-badge {
+  margin-top: 16px;
+  padding: 12px 18px;
+  background: rgba(249, 115, 22, 0.1);
+  border-left: 3px solid #f97316;
+}
+
+.user-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: #f97316;
+}
+
+.title-reason {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 4px;
+}
+
+/* Bottom Stats Row */
+.bottom-row {
+  display: flex;
+  gap: 32px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.bottom-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.bottom-value {
+  font-size: 18px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.bottom-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.25);
+  text-transform: lowercase;
+}
+
+/* Footer */
+.footer {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.peak-time {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.footer-text {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.15);
+  letter-spacing: 0.06em;
+}
