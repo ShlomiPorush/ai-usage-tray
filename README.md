@@ -22,8 +22,16 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 - Daily / 30-day token and cost estimates where the provider exposes them.
 
 ## Install / set up
-There are no pre-built releases yet — build from source (see **Build**), then follow
-**[docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md)** for the step-by-step account setup:
+**One-step PowerShell** (downloads the latest [release](https://github.com/ShlomiPorush/ai-usage-tray/releases/latest), installs per-user to `%LOCALAPPDATA%\AIUsageTraypp`, adds a Start Menu shortcut):
+```powershell
+iwr -useb https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/scripts/install.ps1 | iex
+```
+
+**Manual:** download `ai-usage-tray-win-x64-vX.Y.Z.zip` (or `arm64`) from [Releases](https://github.com/ShlomiPorush/ai-usage-tray/releases), verify the `.sha256`, extract and run `AIUsageTray.exe`. Builds are self-contained (no .NET runtime needed) and not code-signed, so SmartScreen may warn.
+
+**From source:** see **Build** below.
+
+Then follow **[docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md)** for the step-by-step account setup:
 
 1. Install the official Codex CLI and sign in to each OpenAI account with its own `CODEX_HOME` (`~/.codex-openai-1`, `~/.codex-openai-2`).
 2. Create the isolated Claude profile (`~/.claude-ai-usage-tray`) and sign in with Claude Code.
