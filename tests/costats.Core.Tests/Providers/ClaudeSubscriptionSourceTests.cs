@@ -1,0 +1,56 @@
+using costats.Infrastructure.Providers;
+using Xunit;
+
+namespace costats.Core.Tests.Providers;
+
+public sealed class ClaudeSubscriptionSourceTests
+{
+    [Fact]
+    public async Task ReadAsync_exposes_account_wide_session_and_weekly_subscription_usage()
+    {
+        var sessionReset = DateTimeOffset.Parse("2026-08-02T18:00:00Z");
+        var weeklyReset = DateTimeOffset.Parse("2026-08-08T18:00:00Z");
+        var client = new FakeClaudeSubscriptionUsageClient(new ClaudeOAuthUsageResult(
+            23.4,
+            sessionReset,
+            41.2,
+            weeklyReset,
+            false,
+            null,
+            null,
+            "pro",
+            null,
+            DateTimeOffset.Parse("2026-08-02T14:00:00Z")));
+
+        var source = new ClaudeSubscriptionSource(client);
+        var reading = await source.ReadAsync(CancellationToken.None);
+
+        Assert.NotNull(reading.Usage);
+        Assert.Equal("claude", reading.Usage!.ProviderId);
+        Assert.Equal(23, reading.Usage.SessionUsed);
+        Assert.Equal(100, reading.Usage.SessionLimit);
+        Assert.Equal(41, reading.Usage.WeekUsed);
+        Assert.Equal(100, reading.Usage.WeekLimit);
+        Assert.Equal(sessionReset, reading.Usage.SessionWindow!.ResetsAt);
+        Assert.Equal(weeklyReset, reading.Usage.WeekWindow!.ResetsAt);
+        Assert.Equal("Pro", reading.Identity!.Plan);
+    }
+
+    [Fact]
+    public async Task ReadAsync_does_not_invent_usage_when_subscription_profile_is_not_connected()
+    {
+        var source = new ClaudeSubscriptionSource(new FakeClaudeSubscriptionUsageClient(null));
+
+        var reading = await source.ReadAsync(CancellationToken.None);
+
+        Assert.Null(reading.Usage);
+        Assert.Equal("Claude subscription is not connected", reading.StatusSummary);
+    }
+
+    private sealed class FakeClaudeSubscriptionUsageClient(ClaudeOAuthUsageResult? result)
+        : IClaudeSubscriptionUsageClient
+    {
+        public Task<ClaudeOAuthUsageResult?> FetchAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(result);
+    }
+}
