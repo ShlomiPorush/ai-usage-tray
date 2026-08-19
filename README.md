@@ -22,7 +22,7 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 - Daily / 30-day token and cost estimates where the provider exposes them.
 
 ## Install / set up
-**One-step PowerShell** (downloads the latest [release](https://github.com/ShlomiPorush/ai-usage-tray/releases/latest), installs per-user to `%LOCALAPPDATA%\AIUsageTraypp`, adds a Start Menu shortcut):
+**One-step PowerShell** (downloads the latest [release](https://github.com/ShlomiPorush/ai-usage-tray/releases/latest), installs per-user to `%LOCALAPPDATA%\AIUsageTray\app`, adds a Start Menu shortcut):
 ```powershell
 iwr -useb https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/scripts/install.ps1 | iex
 ```
