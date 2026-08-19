@@ -32,10 +32,10 @@ jobs:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore costats.sln
 
       - name: Build
-        run: dotnet build --configuration ${{ matrix.configuration }} --no-restore
+        run: dotnet build costats.sln --configuration ${{ matrix.configuration }} --no-restore
 
       - name: Test
-        run: dotnet test --configuration ${{ matrix.configuration }} --no-build --verbosity normal
+        run: dotnet test costats.sln --configuration ${{ matrix.configuration }} --no-build --verbosity normal
