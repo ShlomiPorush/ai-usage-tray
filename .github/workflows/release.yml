@@ -136,25 +136,57 @@ jobs:
 
       - name: Generate changelog
         id: changelog
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          REPO: ${{ github.repository }}
         run: |
-          echo "## What's Changed" > CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          git log --pretty=format:"- %s (%h)" $(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")..HEAD >> CHANGELOG.md 2>/dev/null || echo "- Initial release" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "## Downloads" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "| Platform | Download |" >> CHANGELOG.md
-          echo "|----------|----------|" >> CHANGELOG.md
-          echo "| Windows x64 | \`ai-usage-tray-win-x64-v$VERSION.zip\` |" >> CHANGELOG.md
-          echo "| Windows ARM64 | \`ai-usage-tray-win-arm64-v$VERSION.zip\` |" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "## Installation" >> CHANGELOG.md
-          echo "" >> CHANGELOG.md
-          echo "1. Download the appropriate ZIP for your system" >> CHANGELOG.md
-          echo "2. Extract to a folder of your choice" >> CHANGELOG.md
-          echo "3. Run \`AIUsageTray.exe\`" >> CHANGELOG.md
-          echo "4. (Optional) Enable 'Start at login' in Settings" >> CHANGELOG.md
+          set -euo pipefail
+          CURRENT_TAG="v$VERSION"
+          # Previous release tag (excluding the current one), if any
+          PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -n 1 || true)
+
+          {
+            echo "## What's Changed"
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD"
+              echo ""
+              echo ""
+              echo "**Full changelog:** https://github.com/${REPO}/compare/${PREV_TAG}...${CURRENT_TAG}"
+            else
+              git log --pretty=format:"- %s (%h)" HEAD
+              echo ""
+              echo ""
+              echo "_Initial release._"
+            fi
+            echo ""
+            echo "## Downloads"
+            echo ""
+            echo "| Platform | Download | Checksum |"
+            echo "|----------|----------|----------|"
+            echo "| Windows x64 | \`ai-usage-tray-win-x64-v${VERSION}.zip\` | \`.sha256\` |"
+            echo "| Windows ARM64 | \`ai-usage-tray-win-arm64-v${VERSION}.zip\` | \`.sha256\` |"
+            echo ""
+            echo "Self-contained single-file build; no .NET runtime required."
+            echo ""
+            echo "## Installation"
+            echo ""
+            echo "**One-step PowerShell:**"
+            echo ""
+            echo '```powershell'
+            echo "iwr -useb https://raw.githubusercontent.com/${REPO}/main/scripts/install.ps1 | iex"
+            echo '```'
+            echo ""
+            echo "**Manual:**"
+            echo ""
+            echo "1. Download the ZIP for your architecture and verify it against the \`.sha256\` file"
+            echo "2. Extract to a folder of your choice"
+            echo "3. Run \`AIUsageTray.exe\` (Windows SmartScreen may warn — the build is not code-signed)"
+            echo "4. Follow [docs/WINDOWS-SETUP.md](https://github.com/${REPO}/blob/main/docs/WINDOWS-SETUP.md) to connect your accounts"
+            echo "5. (Optional) Enable 'Start at login' in Settings"
+          } > CHANGELOG.md
+
+          cat CHANGELOG.md
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
