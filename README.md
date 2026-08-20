@@ -98,7 +98,9 @@ dotnet test  .\costats.sln -c Release
 `tools/insights-cli` is inherited unchanged from upstream (`npx costats ccinsights`, renders a Claude Code Insights card). See [tools/insights-cli/README.md](tools/insights-cli/README.md).
 
 ## Credits & license
-- Original project: **[costats](https://github.com/fmdz387/costats)** by **fmdz** — architecture, UI, updater, packaging and the insights CLI all originate there.
-- Fork modifications (multi-account Claude/Codex, Z.AI, model-scoped limits, overview-first widget, themes, tray popup, tests): Shlomi Porush.
-- Licensed under the **MIT License** — see [LICENSE](LICENSE), which retains the upstream copyright notice.
+
+- **Original project**: [costats](https://github.com/fmdz387/costats) by **fmdz** — base architecture, UI, updater, packaging and the insights CLI.
+- **Multi-account foundation (v1.2.0)**: **[Yoav Yechiam](https://github.com/product-alliance)** / [Product Alliance](https://product-alliance.com) — original multi-account OpenAI/Codex and Claude subscription monitor design that this fork extends.
+- **Fork modifications** (multi-account Codex via app-server, Claude subscription source, Z.AI, dynamic tray icon, tests): **Shlomi Porush**.
+- Licensed under the **MIT License** — see [LICENSE](LICENSE), which retains both upstream copyright notices.
 - macOS/Linux alternative: [CodexBar](https://github.com/steipete/CodexBar).

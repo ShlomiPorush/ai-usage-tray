@@ -14,7 +14,7 @@
     <Description>One-icon tray monitor for a Claude subscription, two OpenAI Codex accounts and Z.AI/GLM. Fork of fmdz387/costats.</Description>
     <Company>Shlomi Porush</Company>
     <Authors>Shlomi Porush, fmdz (upstream costats)</Authors>
-    <Copyright>Copyright (c) 2026 Shlomi Porush. Based on costats, Copyright (c) 2026 fmdz (MIT).</Copyright>
+    <Copyright>Copyright (c) 2026 Shlomi Porush. Multi-account architecture (c) 2026 Yoav Yechiam / Product Alliance. Based on costats, Copyright (c) 2026 fmdz (MIT).</Copyright>
     <RepositoryUrl>https://github.com/ShlomiPorush/ai-usage-tray</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/ShlomiPorush/ai-usage-tray</PackageProjectUrl>
