@@ -8,7 +8,8 @@ public sealed record CodexAppServerRateLimitSnapshot(
     DateTimeOffset? SessionResetsAt,
     double? WeeklyRemainingPercent,
     TimeSpan? WeeklyWindowDuration,
-    DateTimeOffset? WeeklyResetsAt);
+    DateTimeOffset? WeeklyResetsAt,
+    string? PlanType = null);
 
 public static class CodexAppServerRateLimitParser
 {
@@ -57,13 +58,20 @@ public static class CodexAppServerRateLimitParser
                 weekly = secondary;
             }
 
+            string? planType = null;
+            if (rateLimits.TryGetProperty("planType", out var plan) && plan.ValueKind == JsonValueKind.String)
+            {
+                planType = plan.GetString();
+            }
+
             return new CodexAppServerRateLimitSnapshot(
                 session.RemainingPercent,
                 session.Duration,
                 session.ResetsAt,
                 weekly.RemainingPercent,
                 weekly.Duration,
-                weekly.ResetsAt);
+                weekly.ResetsAt,
+                planType);
         }
         catch (JsonException)
         {

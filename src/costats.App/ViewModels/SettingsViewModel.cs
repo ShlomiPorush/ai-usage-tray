@@ -52,10 +52,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         refreshMinutes = settings.RefreshMinutes;
         startAtLogin = GetStartupRegistryValue();
 
-        foreach (var account in settings.GetEffectiveAccounts())
-        {
-            AttachAccountRow(new AccountEditorViewModel(account));
-        }
+        _settings.Accounts = settings.GetEffectiveAccounts().ToList();
+        RebuildProviderRows();
 
         multiccDetected = _multiccDiscovery?.IsDetected ?? false;
         multiccEnabled = settings.MulticcEnabled;
@@ -74,7 +72,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool startAtLogin;
 
-    public System.Collections.ObjectModel.ObservableCollection<AccountEditorViewModel> Accounts { get; } = new();
+    /// <summary>One row per monitored provider: Claude/Codex accounts plus Z.AI and Copilot when configured.</summary>
+    public System.Collections.ObjectModel.ObservableCollection<ProviderRowViewModel> ProviderRows { get; } = new();
 
     [ObservableProperty]
     private string accountsRestartMessage = string.Empty;
@@ -164,38 +163,94 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ = SaveSettingsAsync();
     }
 
+    private void RebuildProviderRows()
+    {
+        ProviderRows.Clear();
+        foreach (var account in (_settings.Accounts ?? []).Where(a => a.IsValid))
+        {
+            ProviderRows.Add(new ProviderRowViewModel(
+                account.IsClaude ? MonitoredAccountSettings.ClaudeType : MonitoredAccountSettings.CodexType,
+                account.Id,
+                MonitoredAccountSettings.NormalizeDisplayName(account.DisplayName, account.Id),
+                account.ConfigDir));
+        }
+
+        if (_settings.HasZaiKey)
+        {
+            ProviderRows.Add(new ProviderRowViewModel("zai", null, _settings.ZAiDisplayName, "API key configured"));
+        }
+
+        if (_settings.CopilotEnabled)
+        {
+            ProviderRows.Add(new ProviderRowViewModel("copilot", null, "Copilot", "Token in Windows Credential Manager"));
+        }
+    }
+
+    /// <summary>Persists account changes and applies them live (no restart needed).</summary>
+    private void ApplyAccountsChanged(string message = "Saved and applied.")
+    {
+        _ = SaveSettingsAsync();
+        _accountSources?.Reload();
+        RebuildProviderRows();
+        AccountsRestartMessage = message;
+        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+    }
+
     /// <summary>Adds a Claude/Codex account from the Add-account dialog.</summary>
     public void AddAccountFromDialog(string type, string displayName, string configDir)
     {
-        var id = NextAccountId(type);
-        AttachAccountRow(new AccountEditorViewModel(new MonitoredAccountSettings
+        _settings.Accounts ??= [];
+        _settings.Accounts.Add(new MonitoredAccountSettings
         {
-            Id = id,
+            Id = NextAccountId(type),
             Type = type,
-            DisplayName = MonitoredAccountSettings.NormalizeDisplayName(displayName, id),
+            DisplayName = MonitoredAccountSettings.NormalizeDisplayName(displayName, type),
             ConfigDir = configDir
-        }));
-        SaveAccounts();
+        });
+        ApplyAccountsChanged();
     }
 
-    /// <summary>Stores the Z.AI key + display name from the Add-account dialog.</summary>
+    /// <summary>Updates an existing Claude/Codex account from the Edit dialog.</summary>
+    public void UpdateAccountFromDialog(string accountId, string displayName, string configDir)
+    {
+        var account = (_settings.Accounts ?? []).FirstOrDefault(a =>
+            string.Equals(a.Id, accountId, StringComparison.OrdinalIgnoreCase));
+        if (account is null)
+        {
+            return;
+        }
+
+        account.DisplayName = MonitoredAccountSettings.NormalizeDisplayName(displayName, account.Id);
+        account.ConfigDir = configDir;
+        ApplyAccountsChanged();
+    }
+
+    /// <summary>Stores the Z.AI key + display name. An empty key keeps the existing one (edit mode).</summary>
     public void ConfigureZai(string displayName, string apiKey)
     {
-        _settings.ZAiCodingApiKey = apiKey;
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            _settings.ZAiCodingApiKey = apiKey;
+        }
         if (!string.IsNullOrWhiteSpace(displayName))
         {
             _settings.ZAiDisplayName = displayName.Trim();
         }
 
-        _ = SaveSettingsAsync();
-        AccountsRestartMessage = "Z.AI configured.";
-        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+        ApplyAccountsChanged("Z.AI configured.");
     }
 
-    private void AttachAccountRow(AccountEditorViewModel row)
+    /// <summary>Enables Copilot and stores its token. An empty token keeps the existing one (edit mode).</summary>
+    public void ConfigureCopilot(string token)
     {
-        row.Saved += (_, _) => SaveAccounts();
-        Accounts.Add(row);
+        _settings.CopilotEnabled = true;
+        CopilotEnabled = true;
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            _ = SaveCopilotTokenAsync(token);
+        }
+
+        ApplyAccountsChanged("Copilot configured.");
     }
 
     private string NextAccountId(string type)
@@ -203,7 +258,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         for (var index = 1; ; index++)
         {
             var candidate = $"{type}-{index}";
-            if (!Accounts.Any(a => string.Equals(a.Id, candidate, StringComparison.OrdinalIgnoreCase)))
+            if (!(_settings.Accounts ?? []).Any(a => string.Equals(a.Id, candidate, StringComparison.OrdinalIgnoreCase)))
             {
                 return candidate;
             }
@@ -211,32 +266,34 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void RemoveAccount(AccountEditorViewModel? account)
+    private void RemoveProviderRow(ProviderRowViewModel? row)
     {
-        if (account is null)
+        if (row is null)
         {
             return;
         }
 
-        Accounts.Remove(account);
-        SaveAccounts();
-    }
+        switch (row.Kind)
+        {
+            case "zai":
+                _settings.ZAiCodingApiKey = null;
+                _settings.ZAiApiKey = null;
+                ApplyAccountsChanged("Z.AI removed.");
+                break;
 
-    /// <summary>
-    /// Persists the current editor rows into settings and applies them live:
-    /// the source registry is rebuilt and a refresh kicked off, so no restart
-    /// is needed. Called by row edits too.
-    /// </summary>
-    public void SaveAccounts()
-    {
-        _settings.Accounts = Accounts
-            .Select(a => a.ToSettings())
-            .Where(a => a.IsValid)
-            .ToList();
-        _ = SaveSettingsAsync();
-        _accountSources?.Reload();
-        AccountsRestartMessage = "Accounts saved and applied.";
-        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+            case "copilot":
+                _settings.CopilotEnabled = false;
+                CopilotEnabled = false;
+                _ = ClearCopilotTokenAsync();
+                ApplyAccountsChanged("Copilot removed.");
+                break;
+
+            default:
+                _settings.Accounts?.RemoveAll(a =>
+                    string.Equals(a.Id, row.AccountId, StringComparison.OrdinalIgnoreCase));
+                ApplyAccountsChanged("Account removed.");
+                break;
+        }
     }
 
     [RelayCommand]

@@ -193,41 +193,31 @@
                 <TextBlock Text="Each account points at the local profile folder its login lives in (CLAUDE_CONFIG_DIR for Claude, CODEX_HOME for Codex). Sign in with the official CLI inside that folder; this app never stores provider passwords."
                            FontSize="11" Foreground="{StaticResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,0,0,10" />
 
-                <ItemsControl ItemsSource="{Binding Accounts}" Focusable="False">
+                <ItemsControl ItemsSource="{Binding ProviderRows}" Focusable="False">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="1"
-                                    CornerRadius="8" Padding="10" Margin="0,0,0,8" Background="#66FFFFFF">
-                                <StackPanel>
-                                    <DockPanel Margin="0,0,0,6">
-                                        <Border DockPanel.Dock="Left" CornerRadius="4" Padding="6,2" VerticalAlignment="Center"
-                                                Background="#1A6366F1">
-                                            <TextBlock Text="{Binding TypeLabel}" FontSize="10" FontWeight="SemiBold"
-                                                       Foreground="{StaticResource TextSecondaryBrush}" />
-                                        </Border>
-                                        <Button Content="Remove" DockPanel.Dock="Right" HorizontalAlignment="Right"
-                                                Padding="8,3" FontSize="10"
-                                                Command="{Binding DataContext.RemoveAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                                CommandParameter="{Binding}"
-                                                Style="{StaticResource SettingsButton}" />
-                                        <TextBlock Text="{Binding Id}" FontSize="10" Foreground="{StaticResource TextFaintBrush}"
-                                                   VerticalAlignment="Center" Margin="8,0,0,0" />
-                                    </DockPanel>
-
-                                    <TextBlock Text="Display name" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" />
-                                    <TextBox Text="{Binding DisplayName, UpdateSourceTrigger=LostFocus}"
-                                             MaxLength="24" Style="{StaticResource SettingsTextBox}" Margin="0,4,0,8" />
-
-                                    <TextBlock Text="{Binding ConfigDirLabel}" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" />
-                                    <DockPanel Margin="0,4,0,0">
-                                        <Button Content="..." DockPanel.Dock="Right" Width="34" Margin="6,0,0,0"
-                                                Padding="0,5" ToolTip="Browse for folder"
-                                                Click="OnBrowseConfigDirClick"
-                                                Style="{StaticResource SettingsButton}" />
-                                        <TextBox Text="{Binding ConfigDir, UpdateSourceTrigger=LostFocus}"
-                                                 Style="{StaticResource SettingsTextBox}" FontFamily="Consolas" FontSize="10" />
-                                    </DockPanel>
-                                </StackPanel>
+                            <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,0,0,1" Padding="0,8">
+                                <DockPanel>
+                                    <Button Content="&#x2715;" DockPanel.Dock="Right" Width="26" Height="24" Padding="0"
+                                            FontSize="10" ToolTip="Remove"
+                                            Command="{Binding DataContext.RemoveProviderRowCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                            CommandParameter="{Binding}"
+                                            Style="{StaticResource SettingsButton}" Margin="6,0,0,0" />
+                                    <Button Content="Edit" DockPanel.Dock="Right" Height="24" Padding="8,0"
+                                            FontSize="10" Click="OnEditRowClick"
+                                            Style="{StaticResource SettingsButton}" />
+                                    <Border DockPanel.Dock="Left" CornerRadius="4" Padding="6,2" VerticalAlignment="Center"
+                                            Background="#1A6366F1" Margin="0,0,8,0" Width="54">
+                                        <TextBlock Text="{Binding KindLabel}" FontSize="10" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center" />
+                                    </Border>
+                                    <StackPanel VerticalAlignment="Center" Margin="0,0,8,0">
+                                        <TextBlock Text="{Binding Name}" FontSize="12" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Detail}" FontSize="9.5" FontFamily="Consolas"
+                                                   Foreground="{StaticResource TextFaintBrush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </DockPanel>
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -241,54 +231,6 @@
 
                 <!-- Divider -->
                 <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,16,0,16" />
-
-                <!-- Copilot Section -->
-                <TextBlock Text="COPILOT" FontSize="10" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,12" />
-
-                <CheckBox IsChecked="{Binding CopilotEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Enable GitHub Copilot usage" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" />
-                </CheckBox>
-                <TextBlock Text="Connect a GitHub personal access token to fetch usage data."
-                           FontSize="11" Foreground="{StaticResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
-
-                <TextBlock Text="Personal access token" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" />
-                <Grid Margin="0,6,0,8">
-                    <PasswordBox x:Name="CopilotTokenBox" Height="28"
-                                 IsEnabled="{Binding IsCopilotTokenBusy, Converter={x:Static local:BoolNegationConverter.Instance}}" />
-                    <TextBlock Text="********" FontSize="12" Foreground="{StaticResource TextFaintBrush}" Margin="10,0,10,0"
-                               HorizontalAlignment="Left" VerticalAlignment="Center" IsHitTestVisible="False">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding HasCopilotToken}" Value="True">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding ElementName=CopilotTokenBox, Path=IsKeyboardFocused}" Value="True">
-                                        <Setter Property="Visibility" Value="Collapsed" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
-                </Grid>
-
-                <DockPanel Margin="0,0,0,6">
-                    <Button Content="Save token"
-                            Click="OnSaveCopilotTokenClick"
-                            IsEnabled="{Binding IsCopilotTokenBusy, Converter={x:Static local:BoolNegationConverter.Instance}}"
-                            Style="{StaticResource SettingsButton}"
-                            DockPanel.Dock="Left" />
-                    <Button Content="Clear token"
-                            Command="{Binding ClearCopilotTokenCommand}"
-                            IsEnabled="{Binding IsCopilotTokenBusy, Converter={x:Static local:BoolNegationConverter.Instance}}"
-                            Style="{StaticResource SettingsButton}"
-                            DockPanel.Dock="Right" />
-                </DockPanel>
-
-                <TextBlock Text="{Binding CopilotTokenStatus}" FontSize="11" Foreground="{StaticResource TextFaintBrush}"
-                           Visibility="{Binding CopilotTokenStatus, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
 
                 <!-- Divider -->
                 <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,16,0,16" />

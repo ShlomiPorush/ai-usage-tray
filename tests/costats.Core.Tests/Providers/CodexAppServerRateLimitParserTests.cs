@@ -9,7 +9,7 @@ public sealed class CodexAppServerRateLimitParserTests
     public void Parse_converts_official_rate_limit_response_to_remaining_percentages()
     {
         const string json = """
-        {"id":6,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":66,"windowDurationMins":300,"resetsAt":1785674040},"secondary":{"usedPercent":40,"windowDurationMins":10080,"resetsAt":1785945600},"rateLimitReachedType":null}}}
+        {"id":6,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":66,"windowDurationMins":300,"resetsAt":1785674040},"secondary":{"usedPercent":40,"windowDurationMins":10080,"resetsAt":1785945600},"planType":"prolite","rateLimitReachedType":null}}}
         """;
 
         var result = CodexAppServerRateLimitParser.Parse(json, expectedId: 6);
@@ -21,6 +21,7 @@ public sealed class CodexAppServerRateLimitParserTests
         Assert.Equal(60, result.WeeklyRemainingPercent);
         Assert.Equal(TimeSpan.FromDays(7), result.WeeklyWindowDuration);
         Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1785945600), result.WeeklyResetsAt);
+        Assert.Equal("prolite", result.PlanType);
     }
 
     [Fact]

@@ -77,12 +77,26 @@ public sealed class CodexAppServerSource : ISignalSource
 
         return new ProviderReading(
             usage,
-            new IdentityCard(Profile.ProviderId, Profile.DisplayName, null, null, null, "Codex app-server"),
+            new IdentityCard(Profile.ProviderId, Profile.DisplayName, null, null, FormatPlan(snapshot.PlanType), "Codex app-server"),
             "Updated from official Codex app-server",
             now,
             ReadingConfidence.High,
             ReadingSource.Api);
     }
+
+    // ChatGPT plan slugs -> display names (mirrors how the Claude plan chip looks).
+    private static string? FormatPlan(string? planType) => planType?.ToLowerInvariant() switch
+    {
+        null or "" => null,
+        "prolite" => "Pro Lite",
+        "plus" => "Plus",
+        "pro" => "Pro",
+        "free" => "Free",
+        "team" => "Team",
+        "business" => "Business",
+        "enterprise" => "Enterprise",
+        var other => char.ToUpperInvariant(other[0]) + other[1..]
+    };
 
     private static long? ToUsedPercent(double? remainingPercent) =>
         remainingPercent.HasValue

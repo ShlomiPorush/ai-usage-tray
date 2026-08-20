@@ -53,6 +53,9 @@
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="#14000000" />
                             </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Opacity" Value="0.5" />
+                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -62,7 +65,7 @@
 
     <Border CornerRadius="14" BorderBrush="#30A0A0C0" BorderThickness="1" Background="#F5F3FA">
         <StackPanel Margin="20">
-            <TextBlock Text="Add account" FontSize="16" FontWeight="SemiBold"
+            <TextBlock x:Name="TitleText" Text="Add account" FontSize="16" FontWeight="SemiBold"
                        Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,4" />
             <TextBlock Text="Pick a provider; only the fields that provider needs are shown."
                        FontSize="11" Foreground="{StaticResource TextFaintBrush}" TextWrapping="Wrap" />
@@ -70,13 +73,16 @@
             <TextBlock Text="Provider" Style="{StaticResource FieldLabel}" />
             <ComboBox x:Name="ProviderBox" SelectionChanged="OnProviderChanged"
                       Padding="10,7" FontSize="12" SelectedIndex="0">
-                <ComboBoxItem Content="Claude (subscription)" Tag="claude" />
+                <ComboBoxItem Content="Claude" Tag="claude" />
                 <ComboBoxItem Content="OpenAI Codex" Tag="codex" />
                 <ComboBoxItem Content="Z.AI / GLM" Tag="zai" />
+                <ComboBoxItem Content="GitHub Copilot" Tag="copilot" />
             </ComboBox>
 
-            <TextBlock Text="Display name" Style="{StaticResource FieldLabel}" />
-            <TextBox x:Name="NameBox" MaxLength="24" Style="{StaticResource FieldBox}" />
+            <StackPanel x:Name="NamePanel">
+                <TextBlock Text="Display name" Style="{StaticResource FieldLabel}" />
+                <TextBox x:Name="NameBox" MaxLength="24" Style="{StaticResource FieldBox}" />
+            </StackPanel>
 
             <!-- Claude / Codex: profile folder -->
             <StackPanel x:Name="FolderPanel">
@@ -90,12 +96,12 @@
                            TextWrapping="Wrap" Margin="0,6,0,0" />
             </StackPanel>
 
-            <!-- Z.AI: API key -->
-            <StackPanel x:Name="ZaiPanel" Visibility="Collapsed">
-                <TextBlock Text="API key" Style="{StaticResource FieldLabel}" />
-                <PasswordBox x:Name="ZaiKeyBox" Padding="10,7" FontSize="12" />
-                <TextBlock FontSize="11" Foreground="{StaticResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,6,0,0"
-                           Text="Coding-plan key from z.ai/manage-apikey. Stored in settings.json." />
+            <!-- Z.AI / Copilot: secret -->
+            <StackPanel x:Name="SecretPanel" Visibility="Collapsed">
+                <TextBlock x:Name="SecretLabel" Text="API key" Style="{StaticResource FieldLabel}" />
+                <PasswordBox x:Name="SecretBox" Padding="10,7" FontSize="12" />
+                <TextBlock x:Name="SecretHint" FontSize="11" Foreground="{StaticResource TextFaintBrush}"
+                           TextWrapping="Wrap" Margin="0,6,0,0" />
             </StackPanel>
 
             <TextBlock x:Name="ErrorText" FontSize="11" Foreground="#DC2626" Margin="0,10,0,0"
@@ -103,7 +109,7 @@
 
             <DockPanel Margin="0,18,0,0">
                 <Button Content="Cancel" Click="OnCancelClick" Style="{StaticResource DialogButton}" DockPanel.Dock="Left" />
-                <Button Content="Add" Click="OnAddClick" Style="{StaticResource DialogButton}"
+                <Button x:Name="ConfirmButton" Content="Add" Click="OnAddClick" Style="{StaticResource DialogButton}"
                         DockPanel.Dock="Right" HorizontalAlignment="Right" FontWeight="SemiBold"
                         Background="#206366F1" />
             </DockPanel>
