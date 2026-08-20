@@ -30,6 +30,8 @@ namespace costats.App.Services
         private readonly IAccountSourceRegistry _accountSources;
         private Icon _currentIcon;
         private System.Windows.Controls.TextBlock _tooltipText = null!;
+        private Window? _hoverTooltipWindow;
+        private System.Windows.Threading.DispatcherTimer? _hoverHideTimer;
         private TrayStatus? _lastAppliedStatus;
         private readonly AppSettings _settings;
 
@@ -74,9 +76,37 @@ namespace costats.App.Services
             tooltipBorder.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "PanelBgBrush");
             tooltipBorder.SetResourceReference(System.Windows.Controls.Border.BorderBrushProperty, "WindowBorderBrush");
             _tooltipText.Text = "AI usage is loading";
-            // Custom WPF tooltip: not subject to the shell's 127-character cap,
-            // so every account fits.
-            _taskbarIcon.TrayToolTip = tooltipBorder;
+
+            // The shell tooltip is capped at 127 characters and custom
+            // TrayToolTip elements are ignored on modern Windows, so hovering
+            // shows our own borderless popup with the full account list instead.
+            _taskbarIcon.ToolTipText = string.Empty;
+            _hoverTooltipWindow = new Window
+            {
+                WindowStyle = WindowStyle.None,
+                ResizeMode = ResizeMode.NoResize,
+                ShowInTaskbar = false,
+                Topmost = true,
+                AllowsTransparency = true,
+                Background = System.Windows.Media.Brushes.Transparent,
+                ShowActivated = false,
+                Focusable = false,
+                IsHitTestVisible = false,
+                SizeToContent = SizeToContent.WidthAndHeight,
+                Left = -10000,
+                Top = -10000,
+                Content = tooltipBorder
+            };
+            _hoverHideTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(1400)
+            };
+            _hoverHideTimer.Tick += (_, _) =>
+            {
+                _hoverHideTimer!.Stop();
+                _hoverTooltipWindow!.Hide();
+            };
+            _taskbarIcon.TrayMouseMove += OnTrayMouseMove;
             _taskbarIcon.ContextMenu = BuildContextMenu();
             _taskbarIcon.TrayLeftMouseUp += OnTrayLeftClick;
             _taskbarIcon.ForceCreate(enablesEfficiencyMode: false);
@@ -88,7 +118,33 @@ namespace costats.App.Services
 
         private void OnTrayLeftClick(object? sender, EventArgs e)
         {
+            _hoverHideTimer?.Stop();
+            _hoverTooltipWindow?.Hide();
             ToggleWidget();
+        }
+
+        private void OnTrayMouseMove(object? sender, EventArgs e)
+        {
+            if (_hoverTooltipWindow is null || _widgetWindow.IsVisible)
+            {
+                return;
+            }
+
+            if (!_hoverTooltipWindow.IsVisible)
+            {
+                _hoverTooltipWindow.Show();
+            }
+
+            _hoverTooltipWindow.UpdateLayout();
+            var position = _taskbarPosition.GetWidgetPosition(
+                _hoverTooltipWindow.ActualWidth, _hoverTooltipWindow.ActualHeight, 8);
+            _hoverTooltipWindow.Left = position.X;
+            _hoverTooltipWindow.Top = position.Y;
+
+            // Keep the popup alive while the pointer stays over the icon;
+            // it fades out shortly after the mouse-move events stop.
+            _hoverHideTimer!.Stop();
+            _hoverHideTimer.Start();
         }
 
         private static Icon CreateIcon(TraySeverity severity, double? lowestRemainingPercent)
@@ -290,9 +346,6 @@ namespace costats.App.Services
 
         private void ApplyTrayStatus(TrayStatus status)
         {
-            _taskbarIcon.ToolTipText = string.IsNullOrWhiteSpace(status.Tooltip)
-                ? "No AI usage data available"
-                : status.Tooltip;
             _tooltipText.Text = string.IsNullOrWhiteSpace(status.FullTooltip)
                 ? "No AI usage data available"
                 : status.FullTooltip;
@@ -331,6 +384,8 @@ namespace costats.App.Services
 
         public void Dispose()
         {
+            _hoverHideTimer?.Stop();
+            _hoverTooltipWindow?.Close();
             _pulseSubscription.Dispose();
             _widgetWindow.SizeChanged -= OnWidgetSizeChanged;
             SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
