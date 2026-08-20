@@ -50,6 +50,21 @@ public sealed class ClaudeSubscriptionSourceTests
     }
 
     [Fact]
+    public async Task ReadAsync_includes_the_max_multiplier_from_the_rate_limit_tier()
+    {
+        var client = new FakeClaudeSubscriptionUsageClient(new ClaudeOAuthUsageResult(
+            10, null, 20, null, false, null, null,
+            "max",
+            "default_claude_max_20x",
+            DateTimeOffset.Parse("2026-08-20T09:00:00Z")));
+
+        var source = new ClaudeSubscriptionSource(new ClaudeAccountProfile("claude-1", "Claude", "/tmp/claude"), client);
+        var reading = await source.ReadAsync(CancellationToken.None);
+
+        Assert.Equal("Max 20x", reading.Identity!.Plan);
+    }
+
+    [Fact]
     public async Task ReadAsync_exposes_model_scoped_limits_such_as_fable()
     {
         var reset = DateTimeOffset.Parse("2026-08-21T12:00:00Z");

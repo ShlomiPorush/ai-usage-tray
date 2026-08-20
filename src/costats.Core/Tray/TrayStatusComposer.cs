@@ -88,9 +88,32 @@ public static class TrayStatusComposer
         return new TrayStatus(lowest, severity, tooltip) { FullTooltip = fullTooltip };
     }
 
-    private static string FormatAccount(AccountUsageStatus account, DateTimeOffset now)
+    /// <summary>
+    /// One display row per account for rich (non-shell) tooltips: label, the
+    /// formatted windows text, and the worst remaining percentage for colouring.
+    /// </summary>
+    public static IReadOnlyList<TrayAccountRow> ComposeRows(IEnumerable<AccountUsageStatus> accounts, DateTimeOffset now)
     {
-        var windows = new List<string>(2);
+        ArgumentNullException.ThrowIfNull(accounts);
+        return accounts.Select(account =>
+        {
+            var windows = BuildWindowTexts(account, now);
+            var remaining = new[] { account.SessionRemainingPercent, account.WeeklyRemainingPercent }
+                .Concat((account.ScopedQuotas ?? []).Select(q => (double?)(100 - q.UsedPercent)))
+                .Where(value => value.HasValue)
+                .Select(value => Math.Clamp(value!.Value, 0, 100))
+                .ToArray();
+
+            return new TrayAccountRow(
+                account.Label,
+                windows.Count == 0 ? "unavailable" : string.Join("  |  ", windows),
+                remaining.Length == 0 ? null : remaining.Min());
+        }).ToList();
+    }
+
+    private static List<string> BuildWindowTexts(AccountUsageStatus account, DateTimeOffset now)
+    {
+        var windows = new List<string>(3);
         if (account.SessionRemainingPercent.HasValue && account.SessionResetsAt.HasValue)
         {
             windows.Add(FormatWindow("Session", account.SessionRemainingPercent.Value, account.SessionResetsAt.Value, now, weekly: false));
@@ -99,7 +122,20 @@ public static class TrayStatusComposer
         {
             windows.Add(FormatWindow("Weekly", account.WeeklyRemainingPercent.Value, account.WeeklyResetsAt.Value, now, weekly: true));
         }
+        foreach (var scoped in account.ScopedQuotas ?? [])
+        {
+            var remaining = 100 - Math.Clamp(scoped.UsedPercent, 0, 100);
+            windows.Add(scoped.ResetsAt.HasValue
+                ? FormatWindow(scoped.Label, remaining, scoped.ResetsAt.Value, now, weekly: scoped.Group.Contains("week", StringComparison.OrdinalIgnoreCase))
+                : $"{scoped.Label} {remaining}%");
+        }
 
+        return windows;
+    }
+
+    private static string FormatAccount(AccountUsageStatus account, DateTimeOffset now)
+    {
+        var windows = BuildWindowTexts(account, now);
         return windows.Count == 0
             ? $"{account.Label} unavailable"
             : $"{account.Label} {string.Join(" | ", windows)}";
@@ -131,3 +167,6 @@ public static class TrayStatusComposer
         return $"{label} {percent}% · {totalHours}h{remaining.Minutes:00}m";
     }
 }
+
+/// <summary>One account line for rich tray tooltips.</summary>
+public sealed record TrayAccountRow(string Label, string WindowsText, double? WorstRemainingPercent);

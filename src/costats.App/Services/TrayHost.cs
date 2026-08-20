@@ -29,7 +29,7 @@ namespace costats.App.Services
         private readonly IEnumerable<ISignalSource> _staticSources;
         private readonly IAccountSourceRegistry _accountSources;
         private Icon _currentIcon;
-        private System.Windows.Controls.TextBlock _tooltipText = null!;
+        private System.Windows.Controls.StackPanel _tooltipPanel = null!;
         private Window? _hoverTooltipWindow;
         private System.Windows.Threading.DispatcherTimer? _hoverHideTimer;
         private TrayStatus? _lastAppliedStatus;
@@ -60,22 +60,19 @@ namespace costats.App.Services
             _taskbarIcon = new TaskbarIcon();
             _taskbarIcon.Icon = _currentIcon;
             _taskbarIcon.ToolTipText = "AI usage is loading";
-            _tooltipText = new System.Windows.Controls.TextBlock
-            {
-                FontSize = 12,
-                LineHeight = 18
-            };
-            _tooltipText.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "TextPrimaryBrush");
+            _tooltipPanel = new System.Windows.Controls.StackPanel();
+            var loadingText = new System.Windows.Controls.TextBlock { FontSize = 12, Text = "AI usage is loading" };
+            loadingText.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "TextPrimaryBrush");
+            _tooltipPanel.Children.Add(loadingText);
             var tooltipBorder = new System.Windows.Controls.Border
             {
                 CornerRadius = new CornerRadius(8),
                 BorderThickness = new Thickness(1),
-                Padding = new Thickness(12, 8, 12, 8),
-                Child = _tooltipText
+                Padding = new Thickness(12, 9, 12, 9),
+                Child = _tooltipPanel
             };
             tooltipBorder.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "PanelBgBrush");
             tooltipBorder.SetResourceReference(System.Windows.Controls.Border.BorderBrushProperty, "WindowBorderBrush");
-            _tooltipText.Text = "AI usage is loading";
 
             // The shell tooltip is capped at 127 characters and custom
             // TrayToolTip elements are ignored on modern Windows, so hovering
@@ -136,15 +133,32 @@ namespace costats.App.Services
             }
 
             _hoverTooltipWindow.UpdateLayout();
-            var position = _taskbarPosition.GetWidgetPosition(
-                _hoverTooltipWindow.ActualWidth, _hoverTooltipWindow.ActualHeight, 8);
-            _hoverTooltipWindow.Left = position.X;
-            _hoverTooltipWindow.Top = position.Y;
+
+            // Anchor to the tray icon itself: centred on the cursor's X, sitting
+            // just above the taskbar (the cursor is inside the taskbar on hover).
+            GetCursorPos(out var cursor);
+            var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(_hoverTooltipWindow);
+            var cursorX = cursor.X / dpi.DpiScaleX;
+            var workArea = SystemParameters.WorkArea;
+
+            var left = cursorX - _hoverTooltipWindow.ActualWidth / 2;
+            left = Math.Max(workArea.Left + 4, Math.Min(left, workArea.Right - _hoverTooltipWindow.ActualWidth - 4));
+            _hoverTooltipWindow.Left = left;
+            _hoverTooltipWindow.Top = workArea.Bottom - _hoverTooltipWindow.ActualHeight - 6;
 
             // Keep the popup alive while the pointer stays over the icon;
             // it fades out shortly after the mouse-move events stop.
             _hoverHideTimer!.Stop();
             _hoverHideTimer.Start();
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetCursorPos(out NativePoint point);
+
+        private struct NativePoint
+        {
+            public int X;
+            public int Y;
         }
 
         private static Icon CreateIcon(TraySeverity severity, double? lowestRemainingPercent)
@@ -306,6 +320,7 @@ namespace costats.App.Services
                 .ToArray();
 
             var status = TrayStatusComposer.Compose(accounts, DateTimeOffset.UtcNow);
+            var orderedAccounts = accounts;
 
             // When a primary account is configured, its status drives the icon
             // (colour + number); the tooltip still lists every account, primary first.
@@ -318,21 +333,24 @@ namespace costats.App.Services
                     ? AccountUsageStatus.FromUsagePulse(label, primaryUsage)
                     : new AccountUsageStatus(label, null, null, null, null);
                 var primaryStatus = TrayStatusComposer.Compose([primaryAccount], DateTimeOffset.UtcNow);
-                var ordered = TrayStatusComposer.Compose(
-                    accounts.OrderBy(a => a.Label.Equals(label, StringComparison.OrdinalIgnoreCase) ? 0 : 1).ToArray(),
-                    DateTimeOffset.UtcNow);
+                orderedAccounts = accounts
+                    .OrderBy(a => a.Label.Equals(label, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                    .ToArray();
+                var ordered = TrayStatusComposer.Compose(orderedAccounts, DateTimeOffset.UtcNow);
                 status = new TrayStatus(primaryStatus.LowestRemainingPercent, primaryStatus.Severity, ordered.Tooltip)
                 {
                     FullTooltip = ordered.FullTooltip
                 };
             }
+
+            var rows = TrayStatusComposer.ComposeRows(orderedAccounts, DateTimeOffset.UtcNow);
             var dispatcher = System.Windows.Application.Current?.Dispatcher;
             if (dispatcher is null)
             {
                 return;
             }
 
-            dispatcher.BeginInvoke(() => ApplyTrayStatus(status));
+            dispatcher.BeginInvoke(() => ApplyTrayStatus(status, rows));
         }
 
         public void OnError(Exception error)
@@ -344,11 +362,72 @@ namespace costats.App.Services
         {
         }
 
-        private void ApplyTrayStatus(TrayStatus status)
+        private void RebuildTooltipRows(IReadOnlyList<TrayAccountRow> rows)
         {
-            _tooltipText.Text = string.IsNullOrWhiteSpace(status.FullTooltip)
-                ? "No AI usage data available"
-                : status.FullTooltip;
+            _tooltipPanel.Children.Clear();
+            if (rows.Count == 0)
+            {
+                var empty = new System.Windows.Controls.TextBlock { FontSize = 12, Text = "No AI usage data available" };
+                empty.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "TextPrimaryBrush");
+                _tooltipPanel.Children.Add(empty);
+                return;
+            }
+
+            foreach (var row in rows)
+            {
+                var line = new System.Windows.Controls.StackPanel
+                {
+                    Orientation = System.Windows.Controls.Orientation.Horizontal,
+                    Margin = new Thickness(0, 2, 0, 2)
+                };
+
+                var dot = new System.Windows.Shapes.Ellipse
+                {
+                    Width = 8,
+                    Height = 8,
+                    Margin = new Thickness(0, 0, 8, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Fill = new System.Windows.Media.SolidColorBrush(
+                        (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
+                            RemainingColor(row.WorstRemainingPercent)))
+                };
+                line.Children.Add(dot);
+
+                var label = new System.Windows.Controls.TextBlock
+                {
+                    FontSize = 12,
+                    FontWeight = FontWeights.SemiBold,
+                    Text = row.Label,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                label.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "TextPrimaryBrush");
+                line.Children.Add(label);
+
+                var text = new System.Windows.Controls.TextBlock
+                {
+                    FontSize = 12,
+                    Text = "  " + row.WindowsText,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                text.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "TextMutedBrush");
+                line.Children.Add(text);
+
+                _tooltipPanel.Children.Add(line);
+            }
+        }
+
+        // Same thresholds as the tray icon severity.
+        private static string RemainingColor(double? remainingPercent) => remainingPercent switch
+        {
+            null => "#9CA3AF",
+            < 20 => "#EF4444",
+            <= 50 => "#F59E0B",
+            _ => "#10B981"
+        };
+
+        private void ApplyTrayStatus(TrayStatus status, IReadOnlyList<TrayAccountRow> rows)
+        {
+            RebuildTooltipRows(rows);
 
             // Only redraw the icon when the severity or percent actually changed,
             // so the tray isn't constantly invalidated every refresh.

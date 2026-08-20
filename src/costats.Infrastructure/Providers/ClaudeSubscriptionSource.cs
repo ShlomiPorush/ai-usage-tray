@@ -84,7 +84,7 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
                 Profile.DisplayName,
                 null,
                 null,
-                FormatPlan(result.SubscriptionType),
+                FormatPlan(result.SubscriptionType, result.RateLimitTier),
                 "Claude subscription OAuth"),
             "Updated from Claude subscription",
             result.FetchedAt,
@@ -98,8 +98,17 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
     private static QuotaWindow? CreateWindow(TimeSpan duration, DateTimeOffset? resetsAt, bool hasUsage) =>
         hasUsage || resetsAt.HasValue ? new QuotaWindow(duration, resetsAt) : null;
 
-    private static string FormatPlan(string? subscriptionType) =>
-        string.IsNullOrWhiteSpace(subscriptionType)
-            ? string.Empty
-            : char.ToUpperInvariant(subscriptionType[0]) + subscriptionType[1..].ToLowerInvariant();
+    private static string FormatPlan(string? subscriptionType, string? rateLimitTier)
+    {
+        if (string.IsNullOrWhiteSpace(subscriptionType))
+        {
+            return string.Empty;
+        }
+
+        var plan = char.ToUpperInvariant(subscriptionType[0]) + subscriptionType[1..].ToLowerInvariant();
+
+        // The tier carries the Max multiplier, e.g. "default_claude_max_5x" / "..._20x".
+        var multiplier = System.Text.RegularExpressions.Regex.Match(rateLimitTier ?? string.Empty, "_([0-9]+x)$");
+        return multiplier.Success ? plan + " " + multiplier.Groups[1].Value : plan;
+    }
 }

@@ -2,7 +2,7 @@
   <PropertyGroup>
     <!-- App version single source of truth (major.minor.patch).
          AI Usage Tray has its own version line; it was forked from upstream costats v1.4.6. -->
-    <VersionPrefix Condition="'$(VersionPrefix)' == ''">1.7.2</VersionPrefix>
+    <VersionPrefix Condition="'$(VersionPrefix)' == ''">1.7.3</VersionPrefix>
     <Version Condition="'$(Version)' == ''">$(VersionPrefix)</Version>
     <AssemblyVersion Condition="'$(AssemblyVersion)' == ''">$([System.Version]::Parse('$(VersionPrefix).0'))</AssemblyVersion>
     <FileVersion Condition="'$(FileVersion)' == ''">$([System.Version]::Parse('$(VersionPrefix).0'))</FileVersion>
