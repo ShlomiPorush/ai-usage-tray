@@ -1,15 +1,27 @@
 # AI Usage Tray, Windows setup
 
-This build shows one system-tray icon for any number of Claude and OpenAI/Codex accounts. Out of the box it monitors the standard `~/.claude` and `~/.codex` profiles; the steps below show how to add extra isolated accounts. Manage the account list in Settings (right-click the tray icon).
+This guide covers app version 1.7.3.
 
-Hovering over the icon shows all available accounts. OpenAI currently exposes a weekly Codex allowance for these accounts, not a five-hour window. The icon colour is based on the lowest remaining percentage across every quota window actually returned by a provider:
+AI Usage Tray shows one system-tray icon for any number of accounts: Claude subscriptions, OpenAI/ChatGPT Codex accounts, and optionally Z.AI / GLM and GitHub Copilot. Each Claude or Codex account points at its own local profile folder, so several accounts of the same provider can be monitored side by side.
+
+On a fresh install the app monitors the standard `~/.claude` (Claude Code login) and `~/.codex` (Codex CLI login) profiles. If you already use both tools, it shows data with no setup at all. Everything else is done in Settings (right-click the tray icon and choose **Settings...**).
+
+Hovering the tray icon shows a popup anchored to the icon that lists every account, one line each, with a coloured dot and the quota windows the provider returned. The icon itself shows the remaining percentage as a number. Both use the same colour scale, based on the lowest remaining percentage across the quota windows involved:
 
 - Green: more than 50% remaining
 - Amber: 20% to 50% remaining
 - Red: less than 20% remaining
 - Grey: no quota data available
 
-## 1. Install the official Codex CLI
+Left-click the icon (or press `Ctrl+Alt+U`) to open the widget; right-click for **Refresh Now**, **Settings...** and **Exit**.
+
+## 1. Install and run the app
+
+Follow the install steps in the [README](../README.md): the one-line PowerShell installer, or download the ZIP from Releases, verify the `.sha256` and extract it. Builds are self-contained and are not code-signed, so Windows may show a SmartScreen warning.
+
+Run `AIUsageTray.exe`. The app starts directly in the system tray. If the icon is hidden, open the tray overflow using the `^` button and drag the icon onto the taskbar.
+
+## 2. Install the Codex CLI and sign in
 
 Open PowerShell and run the official OpenAI installer:
 
@@ -17,30 +29,60 @@ Open PowerShell and run the official OpenAI installer:
 powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"
 ```
 
-Close and reopen PowerShell, then verify:
+Close and reopen PowerShell, then sign in with your paid ChatGPT account:
 
 ```powershell
 codex --version
-```
-
-## 2. Sign in to OpenAI account 1
-
-The two accounts must use separate `CODEX_HOME` folders. File credential storage is used because a shared Windows keyring entry may not isolate two simultaneous Codex accounts. These files remain inside your Windows user profile and must be treated like passwords.
-
-```powershell
-$env:CODEX_HOME = "$HOME\.codex-openai-1"
-New-Item -ItemType Directory -Force $env:CODEX_HOME | Out-Null
-Set-Content "$env:CODEX_HOME\config.toml" 'cli_auth_credentials_store = "file"'
 codex login
 codex login status
 ```
 
-Complete the browser login using the first paid ChatGPT account. Do not paste tokens into this app or into chat.
+This writes the login into the default `~/.codex` folder, which the app already monitors. Complete the browser login; do not paste tokens into this app or into chat.
 
-## 3. Sign in to OpenAI account 2
+## 3. Install Claude Code and sign in
+
+Claude desktop and Claude Code keep separate local sessions, but the 5-hour and weekly limits belong to the Claude subscription account. AI Usage Tray uses the Claude Code login only as an authentication bridge; you do not need to use Claude Code for conversations.
 
 ```powershell
-$env:CODEX_HOME = "$HOME\.codex-openai-2"
+irm https://claude.ai/install.ps1 | iex
+claude --version
+claude
+```
+
+In Claude Code, use `/login` if the browser does not open automatically, and sign in with the same Claude account used by the desktop app. Run `/usage` to confirm the values match. This writes the login into the default `~/.claude` folder, which the app already monitors.
+
+If `ANTHROPIC_API_KEY` is set in your environment, clear it first so Claude Code performs a subscription login rather than an API-key login:
+
+```powershell
+Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
+```
+
+## 4. Manage accounts in Settings
+
+Right-click the tray icon and choose **Settings...**. The **ACCOUNTS** section is a table with one row per monitored provider, showing its kind, display name and profile folder (or "API key configured" / "Token in Windows Credential Manager" for Z.AI and Copilot). Each row has three buttons:
+
+- **Star**: set this account as primary. The tray icon then shows this account's status, and the account is pinned to the top of the widget overview. Click the star again to clear it and go back to "worst window across all accounts".
+- **Edit**: reopens the add/edit dialog prefilled for that row, so you can change the display name, the profile folder, or replace a stored key/token.
+- **✕**: removes the account.
+
+**+ Add account** opens the dialog. Pick the provider first (**Claude**, **OpenAI Codex**, **Z.AI / GLM** or **GitHub Copilot**); only the fields that provider needs are shown:
+
+- Claude / Codex: a display name (up to 24 characters) and the profile folder, with a **...** button that opens a folder picker. The folder defaults to `~/.claude` or `~/.codex`.
+- Z.AI / GLM: a display name and the coding-plan API key from `z.ai/manage-apikey`.
+- GitHub Copilot: a classic personal access token with the `copilot` and `read:user` scopes.
+
+All changes are saved to `settings.json` and applied immediately, with a refresh triggered right away. No restart is needed. A **Restart app** button is available at the bottom of Settings if you ever want one anyway.
+
+## 5. Optional: additional isolated accounts
+
+To monitor more than one account of the same provider, give each extra account its own profile folder and sign in inside it with the official CLI. Then add it in Settings as described above, pointing the profile folder at that directory.
+
+### Extra Codex account
+
+Separate `CODEX_HOME` folders keep the logins apart. File credential storage is used because a shared Windows keyring entry may not isolate two simultaneous Codex accounts. These files stay inside your Windows user profile and must be treated like passwords.
+
+```powershell
+$env:CODEX_HOME = "$HOME\.codex-work"
 New-Item -ItemType Directory -Force $env:CODEX_HOME | Out-Null
 Set-Content "$env:CODEX_HOME\config.toml" 'cli_auth_credentials_store = "file"'
 codex login
@@ -48,67 +90,55 @@ codex login status
 Remove-Item Env:CODEX_HOME
 ```
 
-Complete the browser login using the second paid ChatGPT account.
+Complete the browser login with the second ChatGPT account, then add an **OpenAI Codex** account in Settings whose profile folder is `%USERPROFILE%\.codex-work`.
 
-## 4. Rename the OpenAI accounts
-
-Right-click the tray icon and choose **Settings**. Under **OpenAI accounts**, enter the two labels you want, for example:
-
-```text
-Account 1 name: PA
-Account 2 name: GPT
-```
-
-Names are saved automatically. Exit and restart AI Usage Tray to apply them to the selector and tray tooltip. Renaming does not change either account login or its `CODEX_HOME` folder.
-
-## 5. Connect the Claude desktop subscription
-
-Claude desktop and Claude Code keep separate local sessions, but the five-hour and weekly limits belong to the Claude subscription account. AI Usage Tray uses an isolated Claude login only as an authentication bridge. You do not need to use Claude Code for conversations.
-
-Open a new PowerShell window. Install or update the official Claude Code authentication client:
-
-```powershell
-irm https://claude.ai/install.ps1 | iex
-claude --version
-```
-
-Then create the isolated profile and start its login:
+### Extra Claude account
 
 ```powershell
 Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
-$env:CLAUDE_CONFIG_DIR = "$HOME\.claude-ai-usage-tray"
+$env:CLAUDE_CONFIG_DIR = "$HOME\.claude-work"
 New-Item -ItemType Directory -Force $env:CLAUDE_CONFIG_DIR | Out-Null
 claude
 ```
 
-In Claude Code, use `/login` if it does not open the browser automatically. Sign in with the same Claude Pro account used by the desktop app, then run `/usage` to confirm that the current-session and weekly values match the desktop app. Exit Claude Code and clear the temporary environment variable:
+Use `/login` inside Claude Code if the browser does not open, sign in with the second Claude account, then exit Claude Code and clear the variable:
 
 ```powershell
 Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
 ```
 
-Restart AI Usage Tray. It reads the account-wide subscription percentages from this isolated profile and does not read Claude desktop cookies or conversation data.
+Add a **Claude** account in Settings whose profile folder is `%USERPROFILE%\.claude-work`.
 
-## 6. Run the tray app
+A dedicated `CLAUDE_CONFIG_DIR` folder is only needed for these additional accounts. Your first Claude account can keep using the normal `~/.claude` login.
 
-Place all files from the ZIP in one folder, then run:
+## 6. What the widget shows
 
-```powershell
-.\AIUsageTray.exe
-```
+Click the tray icon or press `Ctrl+Alt+U`. The widget opens on an overview of all accounts, sized to fit them, with the primary account first if one is set. Click a card for the details of a single account.
 
-Windows may show a SmartScreen warning because this private build is not code-signed. Check the SHA-256 value supplied with the build before running it.
+- Quota windows as reported by each provider: 5-hour and weekly for Claude and Codex.
+- Model-scoped limits reported by Claude, for example the Fable weekly limit, listed per account.
+- Plan chips: Claude plans including the Max multiplier (`Max 5x`, `Max 20x`), and Codex plans (`Plus`, `Pro Lite`, ...).
+- Daily and 30-day cost estimates where the provider supplies them.
 
-The app starts directly in the system tray. If the icon is hidden, open the tray overflow using the `^` button and drag the icon onto the taskbar. Hover for the compact three-account summary, click for the full panel, or right-click for refresh/settings/exit.
+## 7. Other settings
+
+- **Start at login**: registers the app in the `Run` key and writes a Startup-folder shortcut.
+- **Show reset times in overview**: adds each window's reset countdown to the overview cards. Off by default to keep the overview compact.
+- **Theme**: **Follow system** (tracks the Windows apps theme), **Light** or **Dark**.
+- **Refresh interval**: how often usage is polled in the background, from 1 to 15 minutes; the default is 5.
+- **Check for updates** under **UPDATES**: checks this repository's releases, stages the update and restarts to apply it. The app also checks automatically in the background.
+
+Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (the path is kept from upstream so existing installs keep working). Logs go to `%LOCALAPPDATA%\costats\logs`.
 
 ## Data and security
 
 - OpenAI quota data comes from the official local `codex app-server` method `account/rateLimits/read`.
 - The app starts one short-lived Codex process per configured OpenAI account and does not read account tokens itself.
-- Claude percentages come from Anthropic's private OAuth usage endpoint using the isolated profile's local token. This is not a documented public API and may change.
-- The Claude token remains in the isolated profile folder. The app does not read Claude desktop cookies or conversation content and does not transmit the token anywhere except Anthropic's API.
+- Claude percentages come from Anthropic's private OAuth usage endpoint using the local token in each account's profile folder. This is not a documented public API and may change.
+- Claude tokens stay in their profile folders. The app does not read Claude desktop cookies or conversation content and does not transmit the token anywhere except Anthropic's API.
+- The Z.AI key is stored in `settings.json`. The Copilot token is stored in Windows Credential Manager, not in `settings.json`.
 - No telemetry is added.
-- Automatic updates from the upstream costats project are disabled because they would overwrite this custom multi-account build.
+- Automatic updates are enabled and point at this fork's repository, `ShlomiPorush/ai-usage-tray`. They will not pull builds from the upstream costats project.
 
 ## Upstream attribution
 

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>costats — ניתוח מוצר</title>
+<title>AI Usage Tray — ניתוח מוצר</title>
 <style>
   :root{--bg:#fff;--fg:#1c1c1e;--muted:#5b5f66;--line:#e3e5e8;--accent:#0a5bd3;--warn:#b45309;--ok:#1a7f37;--code:#f4f5f7}
   @media (prefers-color-scheme:dark){:root{--bg:#151618;--fg:#e8e8ea;--muted:#a0a4ab;--line:#2c2f34;--accent:#6aa5ff;--warn:#f2a73b;--ok:#4cc26a;--code:#1f2125}}
@@ -35,97 +35,113 @@
 </head>
 <body>
 <main>
-<h1>ניתוח מוצר: <bdi>costats</bdi> <span class="tag">ריפו: <bdi>ShlomiPorush/ai-usage-tray</bdi></span></h1>
-<p class="meta">תאריך: 19.08.2026 · בסיס: גרסה <bdi>1.4.6</bdi> של <bdi>fmdz387/costats</bdi> · סוג מסמך: סקירת מוצר וארכיטקטורה</p>
+<h1>ניתוח מוצר: <bdi>AI Usage Tray</bdi> <span class="tag">ריפו: <bdi>ShlomiPorush/ai-usage-tray</bdi></span></h1>
+<p class="meta">תאריך: 20.08.2026 · גרסה <bdi>1.7.3</bdi> · פורק של <bdi>fmdz387/costats</bdi> <bdi>1.4.6</bdi> · סוג מסמך: סקירת מוצר וארכיטקטורה</p>
 
 <nav><ol>
 <li><a href="#what">מה המוצר</a></li>
 <li><a href="#features">יכולות</a></li>
 <li><a href="#sources">מקורות נתונים</a></li>
 <li><a href="#arch">ארכיטקטורה</a></li>
+<li><a href="#ui">ממשק המשתמש</a></li>
 <li><a href="#quality">איכות ותחזוקה</a></li>
 <li><a href="#risks">חולשות וסיכונים</a></li>
-<li><a href="#fork">השלכות על הריפו שלך</a></li>
+<li><a href="#fork">מצב נוכחי מול המקור</a></li>
 <li><a href="#next">המלצות</a></li>
 </ol></nav>
 
 <h2 id="what">1. מה המוצר</h2>
-<p><bdi>costats</bdi> היא אפליקציית מגש (tray) ל-Windows, כתובה ב-<bdi>WPF / .NET 10</bdi>, שמציגה בזמן אמת את מצב המכסות, הטוקנים וההוצאות של כלי קידוד מבוססי AI: <bdi>Codex</bdi>, <bdi>Claude Code</bdi>, <bdi>GitHub Copilot</bdi> (ניסיוני) ו-<bdi>Z.ai</bdi>. זו המקבילה הווינדוסית ל-<bdi>CodexBar</bdi> של macOS.</p>
-<div class="box">הקוד בתיקייה הוא העתק של הפרויקט הפתוח <bdi>fmdz387/costats</bdi> (רישיון MIT). בסעיף 7 מפורט מה זה מחייב.</div>
+<p><bdi>AI Usage Tray</bdi> היא אפליקציית מגש (tray) ל-Windows, כתובה ב-<bdi>WPF / .NET 10</bdi>, שמציגה מאחורי אייקון אחד את מצב המכסות של כמה מנויי AI לקידוד בו-זמנית: <bdi>Claude</bdi>, <bdi>Codex</bdi> (OpenAI/ChatGPT), <bdi>Z.AI / GLM</bdi> (אופציונלי) ו-<bdi>GitHub Copilot</bdi> (ניסיוני). המיקוד הוא ריבוי חשבונות: כל מספר של חשבונות <bdi>Claude</bdi> וכל מספר של חשבונות <bdi>Codex</bdi>, כשלכל חשבון תיקיית פרופיל משלו.</p>
+<div class="box">הפרויקט הוא פורק של <bdi>fmdz387/costats</bdi> (רישיון MIT) מגרסה <bdi>1.4.6</bdi>. הוא שומר על הארכיטקטורה, ה-UI, מנגנון העדכון והאריזה של המקור, ומשנה את מה שמנוטר ואת אופן הקריאה. פירוט ההתאמות בסעיף 8. שמות הפרויקטים והתיקיות בקוד עדיין <code>costats.*</code> — כך גם נתיב ההגדרות, כדי שהתקנות קיימות ימשיכו לעבוד.</div>
 
 <h2 id="features">2. יכולות</h2>
 <div class="grid">
-  <div class="card"><h3>תצוגת שימוש</h3><ul><li>ניצול סשן ושבועי, טיימר איפוס ו"קצב" (pace)</li><li>טוקנים + עלות יומי ו-30 יום</li><li>יתרת קרדיט / חריגה (overage) כשזמינה</li></ul></div>
-  <div class="card"><h3>חוויית משתמש</h3><ul><li>ווידג'ט "זכוכית" (Mica/Acrylic) מהמגש</li><li>מקש קיצור גלובלי <code>Ctrl+Alt+U</code></li><li>הפעלה בכניסה, מופע יחיד, הגדרות ב-<code>%LOCALAPPDATA%\costats\settings.json</code></li></ul></div>
-  <div class="card"><h3>עדכון עצמי</h3><ul><li>בדיקה מול GitHub Releases כל 6 שעות</li><li>אימות <bdi>SHA-256</bdi>, החלפה עם גיבוי ו-rollback</li><li>תמיכה ב-MSIX/AppInstaller</li></ul></div>
-  <div class="card"><h3>הפצה ובונוס</h3><ul><li>התקנה ב-PowerShell one-liner, בינארים x64+arm64</li><li>CI ו-Release ב-GitHub Actions</li><li>CLI ב-Node: <code>npx costats ccinsights</code> — מרנדר כרטיס Insights של Claude Code (Playwright)</li></ul></div>
+  <div class="card"><h3>תצוגת שימוש</h3><ul><li>ניצול סשן (5 שעות) ושבועי לכל חשבון, עם טיימר איפוס</li><li>מגבלות ברמת מודל שמדווחות על ידי <bdi>Claude</bdi></li><li>שבבי תוכנית (<bdi>Max</bdi>, <bdi>Plus</bdi>, <bdi>Pro Lite</bdi>) ל-<bdi>Claude</bdi> ול-<bdi>Codex</bdi></li><li>הערכות עלות יומית ו-30 יום היכן שזמין</li></ul></div>
+  <div class="card"><h3>חוויית משתמש</h3><ul><li>ווידג'ט "זכוכית" (Mica/Acrylic) מהמגש, פתיחה בתצוגת סקירה</li><li>מקש קיצור גלובלי <code>Ctrl+Alt+U</code></li><li>ערכת נושא בהירה/כהה, ברירת מחדל לפי Windows</li><li>הפעלה בכניסה, מופע יחיד, הגדרות ב-<code>%LOCALAPPDATA%\costats\settings.json</code></li></ul></div>
+  <div class="card"><h3>ניהול חשבונות</h3><ul><li>טבלת ספקים בהגדרות עם דיאלוג הוספה/עריכה לכל חשבון</li><li>שינויים נכנסים לתוקף בלי הפעלה מחדש</li><li>חשבון ראשי (כוכב) שמכתיב את אייקון המגש</li><li>הגירה אוטומטית מהגדרות ישנות (<code>ClaudeConfigDir</code>, <code>OpenAiAccounts</code>)</li></ul></div>
+  <div class="card"><h3>הפצה ועדכון עצמי</h3><ul><li>בדיקת עדכון מול GitHub Releases של הריפו הזה כל 6 שעות</li><li>אימות <bdi>SHA-256</bdi>, החלפה עם גיבוי ו-rollback</li><li>התקנה ב-PowerShell one-liner, בינארים <bdi>x64</bdi>+<bdi>arm64</bdi> עצמאיים</li><li>CLI ב-Node שהועבר מהמקור: <code>npx costats ccinsights</code></li></ul></div>
 </div>
 
 <h2 id="sources">3. מקורות נתונים</h2>
 <table>
-<tr><th>ספק</th><th>מקור ראשי</th><th>נפילה חזרה (fallback)</th></tr>
-<tr><td><bdi>Claude Code</bdi></td><td>OAuth usage endpoint דרך <code>~/.claude/.credentials.json</code></td><td>CLI probe → סריקת לוגי JSONL ב-<code>~/.claude/projects</code></td></tr>
-<tr><td><bdi>Codex</bdi></td><td>OAuth דרך <code>~/.codex/auth.json</code> + <bdi>app-server</bdi></td><td>CLI probe → לוגים ב-<code>~/.codex/sessions</code></td></tr>
-<tr><td><bdi>Copilot</bdi></td><td>endpoint לא רשמי, PAT קלאסי (scope <code>copilot</code>) ב-Credential Manager</td><td>—</td></tr>
-<tr><td><bdi>Z.ai</bdi></td><td>API usage</td><td>—</td></tr>
+<tr><th>ספק</th><th>מקור</th><th>הערות</th></tr>
+<tr><td><bdi>Claude</bdi><br><span class="meta">כל מספר של חשבונות</span></td><td><code>ClaudeSubscriptionSource</code> + <code>ClaudeOAuthUsageFetcher</code>: endpoint ה-usage של OAuth ב-<code>api.anthropic.com/api/oauth/usage</code>, עם הטוקן של פרופיל <code>CLAUDE_CONFIG_DIR</code> ייעודי לכל חשבון</td><td>מזהי ספק <code>claude:&lt;id&gt;</code>. מדווחות מכסת סשן (5 שעות) ומכסה שבועית, וכן מגבלות ברמת מודל (מערך <code>limits</code>, למשל מכסה שבועית ל-<bdi>Fable</bdi>) שמוצגות פר חשבון. המכסה היא של המנוי כולו וכוללת שימוש מאפליקציית הדסקטופ.</td></tr>
+<tr><td><bdi>Codex</bdi><br><span class="meta">כל מספר של חשבונות</span></td><td><code>CodexAppServerSource</code>: ה-JSON-RPC המקומי הרשמי <code>codex app-server</code>, מתודה <code>account/rateLimits/read</code>, תהליך קצר-חיים לכל חשבון עם <code>CODEX_HOME</code> משלו</td><td>מזהי ספק <code>codex:&lt;id&gt;</code>. האפליקציה לא קוראת ולא מעתיקה טוקנים — <bdi>Codex</bdi> אחראי לאימות ולרענון.</td></tr>
+<tr><td><bdi>Z.AI / GLM</bdi></td><td>endpoints של <code>api.z.ai</code> (תוכנית coding או pay-as-you-go) עם Bearer token</td><td>מוסתר לגמרי בממשק כל עוד לא הוגדר מפתח API.</td></tr>
+<tr><td><bdi>Copilot</bdi></td><td>endpoint לא רשמי של GitHub, PAT קלאסי ב-Credential Manager</td><td>כבוי כברירת מחדל (<code>CopilotEnabled</code>), ניסיוני.</td></tr>
 </table>
-<p>הערכות עלות מחושבות מקומית מהלוגים (<code>LogDigestor</code>, <code>ExpenseAnalyzer</code>) לפי מחירון מוטמע בקוד.</p>
+<p>הערכות עלות מחושבות מקומית מהלוגים (<code>LogDigestor</code>, <code>ExpenseAnalyzer</code>) לפי מחירון מוטמע בקוד. אין טלמטריה; הבקשות היוצאות מגיעות רק ל-APIs שלמעלה.</p>
 
 <h2 id="arch">4. ארכיטקטורה</h2>
-<p>Clean Architecture בארבע שכבות, כ-10,000 שורות C#:</p>
+<p>Clean Architecture בארבע שכבות, כ-13,000 שורות C#:</p>
 <table>
 <tr><th>פרויקט</th><th>תפקיד</th></tr>
-<tr><td><code>costats.Core</code></td><td>מודלים טהורים: <code>PulseState</code>, <code>ProviderReading</code>, <code>QuotaWindow</code>, <code>TokenLedger</code>, <code>TrayStatusComposer</code></td></tr>
-<tr><td><code>costats.Application</code></td><td>ה"לב": <code>PulseOrchestrator</code> (BackgroundService), <code>SourceSelector</code>, הפשטות (<code>ISignalSource</code>, <code>ICredentialVault</code>, <code>ISettingsStore</code>)</td></tr>
-<tr><td><code>costats.Infrastructure</code></td><td>מימושי ספקים, סורק לוגים, Credential Vault, Glass backdrop</td></tr>
+<tr><td><code>costats.Core</code></td><td>מודלים טהורים: <code>PulseState</code>, <code>ProviderReading</code>, <code>QuotaWindow</code>, <code>ScopedQuota</code>, <code>TokenLedger</code>, <code>TrayStatusComposer</code></td></tr>
+<tr><td><code>costats.Application</code></td><td>ה"לב": <code>PulseOrchestrator</code> (BackgroundService), <code>SourceSelector</code>, <code>IAccountSourceRegistry</code>, הפשטות (<code>ISignalSource</code>, <code>ICredentialVault</code>, <code>ISettingsStore</code>), <code>AppSettings</code></td></tr>
+<tr><td><code>costats.Infrastructure</code></td><td>מימושי ספקים ו-<code>AccountSourceRegistry</code>, סורק לוגים, Credential Vault, Glass backdrop</td></tr>
 <tr><td><code>costats.App</code></td><td>WPF: חלונות, ViewModels, tray host, hotkey, עדכון עצמי, DI ב-<code>App.xaml.cs</code></td></tr>
 </table>
 <h3>זרימה</h3>
 <ol>
 <li><code>PulseOrchestrator</code> רץ בטיימר (ברירת מחדל 5 דקות) או לפי טריגר ידני.</li>
-<li>לכל ספק יש כמה <code>ISignalSource</code>; <code>SourceSelector</code> בוחר את הקריאה האמינה ביותר לפי <code>ReadingConfidence</code> (OAuth &gt; CLI &gt; לוגים).</li>
+<li>המקורות פר-חשבון נבנים ב-<code>AccountSourceRegistry</code> מתוך <code>AppSettings.GetEffectiveAccounts()</code>: לכל חשבון <bdi>Codex</bdi> נוצר <code>CodexAppServerSource</code> ולכל חשבון <bdi>Claude</bdi> נוצר <code>ClaudeSubscriptionSource</code> עם ה-fetcher של הפרופיל שלו.</li>
+<li>שמירת ההגדרות קוראת ל-<code>Reload()</code> של הרג'יסטרי, שמחליף את רשימת המקורות אטומית — לכן הוספה, עריכה או הסרה של חשבון נכנסות לתוקף חי, בלי הפעלה מחדש. רענון שכבר רץ ממשיך עם ה-snapshot שלו.</li>
+<li>לספק שיש לו כמה <code>ISignalSource</code>, <code>SourceSelector</code> בוחר את הקריאה האמינה ביותר לפי <code>ReadingConfidence</code> (OAuth &gt; CLI &gt; לוגים).</li>
 <li>הקריאות רצות סדרתית (כדי לא להריץ סריקות קבצים כבדות במקביל), מתמזגות ל-<code>PulseState</code> ומשודרות כ-<code>IObservable</code> ל-ViewModels; snapshot נכתב ל-JSON.</li>
 </ol>
-<div class="box ok">הוספת ספק חדש = מימוש <code>ISignalSource</code> אחד ורישום ב-DI. זו נקודת הרחבה נקייה.</div>
+<div class="box ok">הוספת ספק חדש = מימוש <code>ISignalSource</code> אחד ורישום ב-DI; הוספת סוג חשבון חדש = ענף נוסף ב-<code>AccountSourceRegistry</code>. שתי נקודות ההרחבה נקיות.</div>
 
-<h2 id="quality">5. איכות ותחזוקה</h2>
+<h2 id="ui">5. ממשק המשתמש</h2>
 <ul>
-<li><strong>בדיקות:</strong> פרויקט <code>costats.Core.Tests</code> מכסה פרסרים (Codex app-server, Z.ai, Claude subscription) ואת <code>TrayStatusComposer</code>. אין בדיקות ל-UI, ל-orchestrator או לעדכון העצמי.</li>
-<li><strong>CI:</strong> build + test ב-Debug וב-Release על <bdi>windows-latest</bdi>; workflow נפרד ל-release.</li>
-<li><strong>גרסאות:</strong> מקור אמת יחיד ב-<code>src/Directory.Build.props</code> (<bdi>1.4.6</bdi>), סקריפט <code>bump-version.ps1</code>.</li>
+<li><strong>סקירה תחילה:</strong> הווידג'ט נפתח על תצוגת סקירה עם כרטיס לכל חשבון, בגודל שמתאים למספר החשבונות בפועל; לחיצה על כרטיס פותחת את תצוגת הפירוט של אותו חשבון.</li>
+<li><strong>אייקון המגש:</strong> מציג את אחוז היתרה כמספר, בצבע ירוק/כתום/אדום לפי חומרה (<code>TrayStatusComposer</code>). מעבר עכבר פותח פופ-אפ מעוגן לאייקון שמפרט את כל החשבונות עם נקודת סטטוס צבועה לכל אחד.</li>
+<li><strong>חשבון ראשי:</strong> כוכב בטבלת הספקים בהגדרות (<code>PrimaryAccountId</code>). כשמוגדר — הוא זה שמכתיב את אייקון המגש והכרטיס שלו מוצמד לראש הסקירה; אחרת האייקון משקף את החלון הגרוע ביותר מבין כל החשבונות.</li>
+<li><strong>ערכת נושא:</strong> <code>system</code> / <code>light</code> / <code>dark</code> (<code>Theme</code>), ברירת מחדל לפי ערכת האפליקציות של Windows.</li>
+<li><strong>הגדרות:</strong> טבלת ספקים אחידה עם דיאלוג הוספה/עריכה לכל חשבון (בורר תיקייה ל-<code>ConfigDir</code>), הסרה, ומפתחות <bdi>Z.AI</bdi>/<bdi>Copilot</bdi>.</li>
+<li><strong>מתגים אופציונליים:</strong> הצגת זמני איפוס על כרטיסי הסקירה (<code>ShowOverviewResetTimes</code>, כבוי כברירת מחדל) ופאנל טקסט צמוד לשעון (<code>ShowClockPanel</code>).</li>
+</ul>
+
+<h2 id="quality">6. איכות ותחזוקה</h2>
+<ul>
+<li><strong>בדיקות:</strong> <code>tests/costats.Core.Tests</code> (xunit) — 42 בדיקות עוברות, מכסות את מקורות ה-<bdi>Claude</bdi> וה-<bdi>Codex</bdi>, את הפרסרים (<bdi>Codex app-server</bdi>, <bdi>Z.AI</bdi>), את הגדרות החשבונות וההגירה מהפורמט הישן, ואת <code>TrayStatusComposer</code>. אין בדיקות ל-UI, ל-orchestrator או לעדכון העצמי.</li>
+<li><strong>CI:</strong> ירוק על <bdi>windows-latest</bdi>, build + test ב-Debug וב-Release.</li>
+<li><strong>Release:</strong> workflow נפרד שמפרסם ZIP עצמאי ל-<bdi>win-x64</bdi> ול-<bdi>win-arm64</bdi>, כל אחד עם קובץ <code>.sha256</code> לאימות (אין חתימת קוד, ולכן SmartScreen עשוי להתריע).</li>
+<li><strong>גרסאות:</strong> מקור אמת יחיד ב-<code>src/Directory.Build.props</code> (<bdi>1.7.3</bdi>), סקריפט <code>bump-version.ps1</code>; קו הגרסאות עצמאי מהמקור.</li>
 <li><strong>קבצים גדולים:</strong> <code>StartupUpdateCoordinator.cs</code> (~970 שורות), <code>UsageLogScanner.cs</code> (~720), <code>LogDigestor.cs</code> (~620) — מועמדים לפיצול.</li>
 </ul>
 
-<h2 id="risks">6. חולשות וסיכונים</h2>
+<h2 id="risks">7. חולשות וסיכונים</h2>
 <table>
 <tr><th>#</th><th>סיכון</th><th>חומרה</th><th>הסבר</th></tr>
-<tr><td>1</td><td>תלות ב-APIs לא רשמיים</td><td>גבוהה</td><td>ה-usage endpoints של Claude/Codex/Copilot אינם מתועדים ועלולים להישבר בלי התראה. ה-README מציין זאת במפורש לגבי Copilot.</td></tr>
-<tr><td>2</td><td>מחירון מוטמע בקוד</td><td>בינונית</td><td>כל שינוי מחיר או מודל חדש דורש עדכון קוד ושחרור גרסה; הערכות העלות עלולות להיות לא מדויקות.</td></tr>
-<tr><td>3</td><td>גישה לאישורים רגישים</td><td>בינונית</td><td>האפליקציה קוראת קבצי OAuth. אין טלמטריה, אך המשתמש חייב לסמוך על הבינארי ועל מנגנון העדכון.</td></tr>
-<tr><td>4</td><td>כיסוי בדיקות חלקי</td><td>בינונית</td><td>הקוד המורכב והמסוכן ביותר (החלפת בינארי בזמן ריצה) אינו מכוסה.</td></tr>
-<tr><td>5</td><td>Windows בלבד, .NET 10</td><td>נמוכה</td><td>דורש SDK עדכני; אין גרסת macOS/Linux (מפנים ל-CodexBar).</td></tr>
+<tr><td>1</td><td>תלות ב-APIs לא מתועדים</td><td>גבוהה</td><td>ה-usage endpoint של <bdi>Claude</bdi> אינו API ציבורי מתועד ועלול להשתנות בלי התראה; אותו דבר לגבי ה-endpoint של <bdi>Copilot</bdi>. הצד של <bdi>Codex</bdi> נשען על ממשק מקומי רשמי ולכן חשוף פחות, אך גם הוא יכול להשתנות בין גרסאות CLI.</td></tr>
+<tr><td>2</td><td>מחירון מוטמע בקוד</td><td>בינונית</td><td>הערכות העלות מחושבות לפי טבלת מחירים בקוד; כל שינוי מחיר או מודל חדש דורש עדכון קוד ושחרור גרסה, ובינתיים ההערכה עלולה להיות לא מדויקת.</td></tr>
+<tr><td>3</td><td>גישה לקבצי אישורים מקומיים</td><td>בינונית</td><td>עבור <bdi>Claude</bdi> האפליקציה קוראת את טוקן ה-OAuth מתיקיית הפרופיל. אין טלמטריה, אך המשתמש חייב לסמוך על הבינארי ועל מנגנון העדכון. (עבור <bdi>Codex</bdi> אין קריאת טוקנים כלל.)</td></tr>
+<tr><td>4</td><td>אין בדיקות לעדכון העצמי</td><td>בינונית</td><td>הקוד המסוכן ביותר — החלפת בינארי בזמן ריצה עם גיבוי ו-rollback — אינו מכוסה בבדיקות, והוא כעת פעיל בברירת מחדל.</td></tr>
+<tr><td>5</td><td>ריבוי תהליכי <bdi>codex app-server</bdi></td><td>נמוכה</td><td>כל רענון מריץ תהליך קצר-חיים לכל חשבון <bdi>Codex</bdi>; עם הרבה חשבונות זו עלות זניחה אך מורגשת, ותלויה בכך ש-<bdi>Codex</bdi> מותקן ומחובר בכל פרופיל.</td></tr>
+<tr><td>6</td><td>Windows בלבד, .NET 10</td><td>נמוכה</td><td>דורש SDK עדכני לבנייה; אין גרסת macOS/Linux (מפנים ל-<bdi>CodexBar</bdi>).</td></tr>
 </table>
 
-<h2 id="fork">7. השלכות על הריפו שלך</h2>
-<div class="box warn">
-<p><strong>העדכון העצמי מצביע על הריפו המקורי.</strong> ב-<code>appsettings.json</code>: <code>"Repository": "fmdz387/costats"</code>, ועוד כ-97 קבצים מפנים ל-<bdi>fmdz387</bdi>/<bdi>costats</bdi> (סקריפטי התקנה ופרסום, <bdi>AppxManifest</bdi>, README). כרגע גרסה שתבנה אצלך תוריד עדכונים מהפרויקט המקורי ותדרוס את עצמה.</p>
-</div>
+<h2 id="fork">8. מצב נוכחי מול המקור</h2>
+<div class="box ok">כל הפערים שזוהו בייבוא הראשוני נסגרו: העדכון העצמי, המיתוג, השיוך והפרסום מיושרים לריפו הזה, והקוד מחויב ומשוחרר ב-GitHub.</div>
 <ul>
-<li><strong>רישיון:</strong> MIT על שם fmdz — פורק ציבורי מותר, בתנאי שקובץ ה-LICENSE והקרדיט נשמרים. מומלץ להוסיף ל-README "Fork of <bdi>fmdz387/costats</bdi>".</li>
-<li><strong>מיתוג:</strong> שם הריפו (<bdi>ai-usage-tray</bdi>) שונה משם המוצר (<bdi>costats</bdi>). כדאי להחליט אם זה פורק-המשך או מוצר חדש.</li>
-<li><strong>סביבה מקומית:</strong> קיימים אצלך <code>~/.claude/.credentials.json</code> ו-<code>~/.codex/auth.json</code>, כך שהאפליקציה אמורה להציג נתונים מיד אחרי <code>dotnet build</code>.</li>
-<li><strong>מצב git:</strong> הקבצים עדיין לא עברו commit ולא נדחפו.</li>
+<li><strong>עדכון עצמי:</strong> ב-<code>appsettings.json</code> תחת <code>Costats:Update</code> — <code>"Enabled": true</code>, <code>"Repository": "ShlomiPorush/ai-usage-tray"</code>, בדיקה כל 6 שעות. האפליקציה מושכת עדכונים מהריליסים של הפורק בלבד.</li>
+<li><strong>מיתוג ואריזה:</strong> הבינארי הוא <code>AIUsageTray.exe</code>, שם המוצר "AI Usage Tray", והנכסים הם <code>ai-usage-tray-win-x64-vX.Y.Z.zip</code> / <code>-arm64</code>; סקריפטי ההתקנה והפרסום ו-manifest מפנים לריפו הזה. ההתקנה היא per-user ל-<code>%LOCALAPPDATA%\AIUsageTray\app</code>.</li>
+<li><strong>רישיון ושיוך:</strong> קובץ ה-LICENSE (MIT) שומר את הודעת זכויות היוצרים של המקור, וה-README פותח בשורת "fork of <bdi>fmdz387/costats</bdi>" ומכיל טבלת השוואה מפורשת מול המקור וסעיף קרדיטים.</li>
+<li><strong>תאימות לאחור:</strong> נתיב ההגדרות נשאר <code>%LOCALAPPDATA%\costats\settings.json</code> ושמות הפרויקטים נשארו <code>costats.*</code>, כדי לא לשבור התקנות קיימות ולהקל על מיזוג שינויים עתידיים מהמקור.</li>
+<li><strong>קוד מקורי לא מחווט:</strong> נתיבים מהמקור שאינם בשימוש (<code>CodexLogSource</code>, <code>CodexOAuthUsageFetcher</code>, <code>MulticcClaudeLogSource</code>) נשמרו בעץ במכוון, מאותה סיבה.</li>
+<li><strong>מצב git:</strong> הכל מחויב ל-<code>main</code>; קיימים תגים עד <bdi>v1.7.3</bdi> עם ריליסים תואמים ב-GitHub.</li>
 </ul>
 
-<h2 id="next">8. המלצות</h2>
+<h2 id="next">9. המלצות</h2>
 <ol>
-<li>להחליט: פורק נאמן (שומר שם ומנגנון עדכון מול המקור) או מוצר עצמאי (להחליף את כל ההפניות ל-<bdi>ShlomiPorush/ai-usage-tray</bdi>, לשנות <code>Update.Repository</code>, סקריפטים ו-manifest).</li>
-<li>להוסיף שורת שיוך ב-README ולשמור LICENSE.</li>
-<li>לבנות ולהריץ מקומית (<code>dotnet build .\costats.sln -c Release</code>) כדי לאמת שה-endpoints עדיין עובדים.</li>
-<li>אם מפתחים הלאה: להוסיף בדיקות ל-<code>PulseOrchestrator</code> ולעדכון העצמי, ולהוציא את המחירון לקובץ תצורה.</li>
+<li>לתקן ב-README את המשפט שאומר שהעדכון העצמי מושבת — הוא כבר מופעל ומצביע על הריפו הזה.</li>
+<li>להוסיף בדיקות ל-<code>PulseOrchestrator</code> ולמסלול העדכון העצמי (במיוחד ה-rollback), שהם כיום הקוד הפעיל הכי פחות מכוסה.</li>
+<li>להוציא את מחירון העלויות מהקוד לקובץ תצורה, כדי שעדכון מחיר לא ידרוש שחרור גרסה.</li>
+<li>לפצל את שלושת הקבצים הגדולים (<code>StartupUpdateCoordinator</code>, <code>UsageLogScanner</code>, <code>LogDigestor</code>).</li>
+<li>לעטוף את הקריאה ל-endpoint של <bdi>Claude</bdi> בבדיקת רגרסיה על מבנה התשובה (כולל מערך <code>limits</code>), כדי לזהות שינוי סכימה מהר.</li>
 </ol>
 
-<footer>קובץ: <bdi>docs/product-analysis.html</bdi></footer>
+<footer>קובץ: <bdi>docs/product-analysis.html</bdi> · מתייחס לגרסה <bdi>1.7.3</bdi></footer>
 </main>
 </body>
 </html>
