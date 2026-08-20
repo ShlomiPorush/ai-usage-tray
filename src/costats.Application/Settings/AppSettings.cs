@@ -37,6 +37,17 @@ public sealed class AppSettings
     public bool CopilotEnabled { get; set; } = false;
 
     /// <summary>
+    /// When true, the widget overview cards also show each window's reset
+    /// countdown. Off by default to keep the overview compact.
+    /// </summary>
+    public bool ShowOverviewResetTimes { get; set; } = false;
+
+    /// <summary>True when any Z.AI API key is configured.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasZaiKey =>
+        !string.IsNullOrWhiteSpace(ZAiCodingApiKey) || !string.IsNullOrWhiteSpace(ZAiApiKey);
+
+    /// <summary>
     /// Bearer token for the Z.AI / GLM coding-plan usage endpoint
     /// (<c>https://api.z.ai/api/coding/paas/v4/usage</c>). When empty, the
     /// coding-plan path is skipped. Get the key from

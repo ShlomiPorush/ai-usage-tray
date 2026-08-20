@@ -202,6 +202,9 @@
                                                 <SolidColorBrush Color="{Binding SessionPercentColor}" />
                                             </TextBlock.Foreground>
                                         </TextBlock>
+                                        <TextBlock Text="{Binding SessionResetText}" FontSize="9.5" Foreground="{StaticResource TextFaintBrush}"
+                                                   DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0,4,0"
+                                                   Visibility="{Binding DataContext.ShowResetTimes, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibilityConverter}}" />
                                         <ProgressBar Style="{StaticResource UsageProgressBar}" Height="6"
                                                      Value="{Binding SessionProgress}" Maximum="1"
                                                      Foreground="{StaticResource SessionAccent}" VerticalAlignment="Center" />
@@ -217,6 +220,9 @@
                                                 <SolidColorBrush Color="{Binding WeekPercentColor}" />
                                             </TextBlock.Foreground>
                                         </TextBlock>
+                                        <TextBlock Text="{Binding WeekResetText}" FontSize="9.5" Foreground="{StaticResource TextFaintBrush}"
+                                                   DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0,4,0"
+                                                   Visibility="{Binding DataContext.ShowResetTimes, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibilityConverter}}" />
                                         <ProgressBar Style="{StaticResource UsageProgressBar}" Height="6"
                                                      Value="{Binding WeekProgress}" Maximum="1"
                                                      Foreground="{StaticResource WeeklyAccent}" VerticalAlignment="Center" />
@@ -237,6 +243,9 @@
                                                             <SolidColorBrush Color="{Binding PercentColor}" />
                                                         </TextBlock.Foreground>
                                                     </TextBlock>
+                                                    <TextBlock Text="{Binding ResetText}" FontSize="9.5" Foreground="{StaticResource TextFaintBrush}"
+                                                               DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0,4,0"
+                                                               Visibility="{Binding DataContext.ShowResetTimes, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibilityConverter}}" />
                                                     <ProgressBar Style="{StaticResource UsageProgressBar}" Height="6"
                                                                  Value="{Binding Progress, Mode=OneWay}" Maximum="1"
                                                                  Foreground="#F97316" VerticalAlignment="Center" />

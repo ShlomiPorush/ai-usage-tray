@@ -64,6 +64,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         multiccProfileCount = multiccProfileNames.Count;
 
         copilotEnabled = settings.CopilotEnabled;
+        showOverviewResetTimes = settings.ShowOverviewResetTimes;
         _ = LoadCopilotTokenStatusAsync();
     }
 
@@ -104,6 +105,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool copilotEnabled;
+
+    [ObservableProperty]
+    private bool showOverviewResetTimes;
 
     [ObservableProperty]
     private bool hasCopilotToken;
@@ -160,27 +164,32 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ = SaveSettingsAsync();
     }
 
-    [RelayCommand]
-    private void AddClaudeAccount() => AddAccount(MonitoredAccountSettings.ClaudeType, ".claude");
-
-    [RelayCommand]
-    private void AddCodexAccount() => AddAccount(MonitoredAccountSettings.CodexType, ".codex");
-
-    private void AddAccount(string type, string defaultFolder)
+    /// <summary>Adds a Claude/Codex account from the Add-account dialog.</summary>
+    public void AddAccountFromDialog(string type, string displayName, string configDir)
     {
         var id = NextAccountId(type);
-        var isFirstOfType = !Accounts.Any(a => string.Equals(a.Type, type, StringComparison.OrdinalIgnoreCase));
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         AttachAccountRow(new AccountEditorViewModel(new MonitoredAccountSettings
         {
             Id = id,
             Type = type,
-            DisplayName = MonitoredAccountSettings.NormalizeDisplayName(null, id),
-            // The default profile folder only fits the first account of each type;
-            // additional accounts need their own isolated folder.
-            ConfigDir = isFirstOfType ? Path.Combine(home, defaultFolder) : Path.Combine(home, $"{defaultFolder}-{id}")
+            DisplayName = MonitoredAccountSettings.NormalizeDisplayName(displayName, id),
+            ConfigDir = configDir
         }));
         SaveAccounts();
+    }
+
+    /// <summary>Stores the Z.AI key + display name from the Add-account dialog.</summary>
+    public void ConfigureZai(string displayName, string apiKey)
+    {
+        _settings.ZAiCodingApiKey = apiKey;
+        if (!string.IsNullOrWhiteSpace(displayName))
+        {
+            _settings.ZAiDisplayName = displayName.Trim();
+        }
+
+        _ = SaveSettingsAsync();
+        AccountsRestartMessage = "Z.AI configured.";
+        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
     }
 
     private void AttachAccountRow(AccountEditorViewModel row)
@@ -264,6 +273,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         MulticcRestartMessage = "Restart required to apply changes.";
         OnPropertyChanged(nameof(IsMulticcAllProfiles));
         _ = SaveSettingsAsync();
+    }
+
+    partial void OnShowOverviewResetTimesChanged(bool value)
+    {
+        _settings.ShowOverviewResetTimes = value;
+        _ = SaveSettingsAsync();
+        // Push a refresh so the widget picks the flag up immediately.
+        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
     }
 
     partial void OnCopilotEnabledChanged(bool value)

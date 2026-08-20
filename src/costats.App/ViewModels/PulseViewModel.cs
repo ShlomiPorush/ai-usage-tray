@@ -63,6 +63,10 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     [ObservableProperty]
     private bool isOverview = true;
 
+    /// <summary>Mirrors AppSettings.ShowOverviewResetTimes for the overview cards.</summary>
+    [ObservableProperty]
+    private bool showResetTimes;
+
     [ObservableProperty]
     private ProviderPulseViewModel selectedAccount = new();
 
@@ -210,6 +214,7 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
             IsCopilotEnabled = _settings.CopilotEnabled;
+            ShowResetTimes = _settings.ShowOverviewResetTimes;
             if (!IsCopilotEnabled && SelectedTabIndex > 1)
             {
                 SelectedTabIndex = 0;
@@ -242,6 +247,12 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                     var vm = ProviderPulseViewModel.FromReading(reading, displayName);
 
                     if (providerId.Equals("copilot", StringComparison.OrdinalIgnoreCase) && !IsCopilotEnabled)
+                    {
+                        continue;
+                    }
+
+                    // Z.AI without an API key is just noise - hide it entirely.
+                    if (providerId.Equals("zai", StringComparison.OrdinalIgnoreCase) && !_settings.HasZaiKey)
                     {
                         continue;
                     }

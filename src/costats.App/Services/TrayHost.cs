@@ -213,7 +213,7 @@ namespace costats.App.Services
             var accounts = state.Providers
                 .Where(pair =>
                     pair.Key.Equals("claude", StringComparison.OrdinalIgnoreCase) ||
-                    pair.Key.Equals("zai", StringComparison.OrdinalIgnoreCase) ||
+                    (pair.Key.Equals("zai", StringComparison.OrdinalIgnoreCase) && _settings.HasZaiKey) ||
                     pair.Key.StartsWith("claude:", StringComparison.OrdinalIgnoreCase) ||
                     pair.Key.StartsWith("codex:", StringComparison.OrdinalIgnoreCase))
                 .Select(pair =>

@@ -156,8 +156,14 @@
                 <CheckBox IsChecked="{Binding StartAtLogin}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
                     <TextBlock Text="Start at login" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" />
                 </CheckBox>
-                <TextBlock Text="Automatically launch costats when Windows starts."
-                           FontSize="11" Foreground="{StaticResource TextFaintBrush}" Margin="30,0,0,16" />
+                <TextBlock Text="Automatically launch AI Usage Tray when Windows starts."
+                           FontSize="11" Foreground="{StaticResource TextFaintBrush}" Margin="30,0,0,12" />
+
+                <CheckBox IsChecked="{Binding ShowOverviewResetTimes}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                    <TextBlock Text="Show reset times in overview" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" />
+                </CheckBox>
+                <TextBlock Text="Adds each window's reset countdown to the account cards on the widget's main screen."
+                           FontSize="11" Foreground="{StaticResource TextFaintBrush}" Margin="30,0,0,16" TextWrapping="Wrap" />
 
                 <!-- Divider -->
                 <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,0,0,16" />
@@ -227,12 +233,8 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
-                <DockPanel Margin="0,4,0,0">
-                    <Button Content="+ Claude account" Command="{Binding AddClaudeAccountCommand}"
-                            Style="{StaticResource SettingsButton}" DockPanel.Dock="Left" />
-                    <Button Content="+ Codex account" Command="{Binding AddCodexAccountCommand}"
-                            Style="{StaticResource SettingsButton}" DockPanel.Dock="Right" HorizontalAlignment="Right" />
-                </DockPanel>
+                <Button Content="+ Add account" Click="OnAddAccountClick"
+                        Style="{StaticResource SettingsButton}" HorizontalAlignment="Left" Margin="0,4,0,0" />
 
                 <TextBlock Text="{Binding AccountsRestartMessage}" FontSize="11" Foreground="#F97316" Margin="0,8,0,0"
                            Visibility="{Binding AccountsRestartMessage, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />

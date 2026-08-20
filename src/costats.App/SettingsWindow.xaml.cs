@@ -38,6 +38,29 @@ namespace costats.App
             Hide();
         }
 
+        private void OnAddAccountClick(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not SettingsViewModel viewModel)
+            {
+                return;
+            }
+
+            var dialog = new AddAccountWindow { Owner = this };
+            if (dialog.ShowDialog() != true)
+            {
+                return;
+            }
+
+            if (dialog.ProviderType == "zai")
+            {
+                viewModel.ConfigureZai(dialog.AccountName, dialog.ZaiApiKey);
+            }
+            else
+            {
+                viewModel.AddAccountFromDialog(dialog.ProviderType, dialog.AccountName, dialog.ConfigDir);
+            }
+        }
+
         private void OnBrowseConfigDirClick(object sender, RoutedEventArgs e)
         {
             if (sender is not FrameworkElement { DataContext: AccountEditorViewModel account })
