@@ -26,6 +26,7 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 - Light/dark theme, following the Windows theme by default.
 - Providers managed in Settings as a table with add/edit dialogs; changes apply without restarting.
 - Optional reset countdowns on the overview cards; daily / 30-day cost estimates where available.
+- Optional remote view: see your usage from a phone via a private link (self-hosted Cloudflare Worker + static page, off by default).
 - Self-update from this repository's releases.
 
 ## Install / set up
@@ -59,8 +60,14 @@ Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from up
 | `Theme` | `system` | `system` / `light` / `dark` |
 | `PrimaryAccountId` | empty | Provider id whose status drives the tray icon |
 | `ShowOverviewResetTimes` | `false` | Reset countdowns on overview cards |
+| `RemoteViewEnabled` + `RemoteViewUploadUrl` / `RemoteViewPageUrl` | `false` / empty | Remote view (see below) |
 
 `appsettings.json` (`Costats:Update`) controls the self-updater: enabled, checking this repository's releases every 6 hours, verifying the published SHA-256 before staging.
+
+## Remote view (phone / web)
+Optional and off by default. When enabled, after each refresh the app PUTs a small snapshot — provider, account nickname, plan, usage percentages and reset times; never tokens or folder paths — to a Cloudflare Worker you deploy yourself, keyed by a random 128-bit id that doubles as the only credential. A static page (served from your own domain) renders it; the share link is `{page}/?id={id}`. Entries expire server-side after 7 days without updates, so data from uninstalled apps cleans itself up.
+
+Setup: deploy the worker ([remote/worker/README.md](remote/worker/README.md)), host the page ([web/README.md](web/README.md)), then fill both URLs in Settings → Remote view and copy the link. Anyone with the link can view the data.
 
 ## Data sources & privacy
 - **OpenAI / Codex**: the official local `codex app-server` JSON-RPC method `account/rateLimits/read`, one short-lived process per account. The app never reads or copies account tokens — Codex owns authentication and refresh.

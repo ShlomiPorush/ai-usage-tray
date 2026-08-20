@@ -328,6 +328,7 @@ namespace costats.App
                     services.AddSingleton<TaskbarPositionService>();
                     services.AddSingleton<TrayHost>();
                     services.AddSingleton<HotkeyService>();
+                    services.AddSingleton<RemoteViewUploader>();
                 })
                 .Build();
 
@@ -337,6 +338,8 @@ namespace costats.App
             lifetime.ApplicationStopping.Register(() => Log.Warning("Host is stopping"));
 
             _ = _host.Services.GetRequiredService<HotkeyService>();
+            // Resolved eagerly: it subscribes to the pulse stream in its constructor.
+            _ = _host.Services.GetRequiredService<RemoteViewUploader>();
             return _host.Services.GetRequiredService<TrayHost>();
         }
 

@@ -1,0 +1,9 @@
+name = "ai-usage-tray-view"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+[[kv_namespaces]]
+binding = "USAGE"
+# Replace this placeholder with the id printed by:
+#   wrangler kv namespace create USAGE
+id = "0000000000000000000000000000000f"

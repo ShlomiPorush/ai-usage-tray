@@ -55,6 +55,34 @@ public sealed class AppSettings
     /// </summary>
     public string? PrimaryAccountId { get; set; }
 
+    /// <summary>
+    /// When true, every usage refresh also uploads a small non-sensitive
+    /// snapshot (provider, account nickname, plan, usage percentages and reset
+    /// times) to <see cref="RemoteViewUploadUrl"/> so it can be read from a
+    /// phone. Off by default: nothing leaves the machine unless asked for.
+    /// </summary>
+    public bool RemoteViewEnabled { get; set; } = false;
+
+    /// <summary>
+    /// Random 32-character lowercase hex id identifying this machine's snapshot
+    /// on the remote endpoint. Generated once, the first time remote view is
+    /// enabled, and then kept so the share link stays stable.
+    /// </summary>
+    public string? RemoteViewId { get; set; }
+
+    /// <summary>
+    /// Base URL of the upload endpoint (a Cloudflare Worker), e.g.
+    /// <c>https://usage-api.example.com</c>. Snapshots are PUT to
+    /// <c>{url}/u/{id}</c>.
+    /// </summary>
+    public string? RemoteViewUploadUrl { get; set; }
+
+    /// <summary>
+    /// Base URL of the public viewer page, e.g. <c>https://usage.example.com</c>.
+    /// The shareable link is <c>{url}/?id={id}</c>.
+    /// </summary>
+    public string? RemoteViewPageUrl { get; set; }
+
     /// <summary>True when any Z.AI API key is configured.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool HasZaiKey =>

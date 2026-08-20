@@ -1,0 +1,300 @@
+/* AI Usage Tray - remote view.
+   Light and dark are two hand-picked palettes, not an inversion of one another. */
+
+:root {
+  color-scheme: light dark;
+
+  --page: #F5F3FA;
+  --card: #FFFFFF;
+  --border: #E4E1EF;
+  --chip-bg: #EFECF7;
+
+  --ink: #1E1B2E;
+  --ink-2: #4A4760;
+  --ink-3: #6B6880;
+
+  /* Status: the fill and the dot. Every track is a lighter step of its own hue. */
+  --good: #10B981;
+  --good-track: #D1FAE5;
+  --warn: #F59E0B;
+  --warn-track: #FBE7BE;
+  --danger: #EF4444;
+  --danger-track: #FBD9D9;
+  --none: #9CA3AF;
+  --none-track: #E5E7EB;
+
+  --stale-bg: #FEF6E7;
+  --stale-border: #EFD79B;
+  --stale-ink: #7A4E07;
+
+  --shadow: 0 1px 2px rgba(30, 27, 46, 0.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --page: #211F30;
+    --card: #2A2840;
+    --border: #3A3752;
+    --chip-bg: #353252;
+
+    --ink: #F1EFFA;
+    --ink-2: #C9C6DE;
+    --ink-3: #A8A5C2;
+
+    --good: #34D399;
+    --good-track: #1F4D40;
+    --warn: #FBBF24;
+    --warn-track: #4E3C16;
+    --danger: #F87171;
+    --danger-track: #4E2A2A;
+    --none: #A1A0B8;
+    --none-track: #3A3852;
+
+    --stale-bg: #3A3016;
+    --stale-border: #6B551F;
+    --stale-ink: #FBD98D;
+
+    --shadow: none;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 20px 16px 48px;
+  background: var(--page);
+  color: var(--ink);
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-text-size-adjust: 100%;
+}
+
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.page-header {
+  margin: 0 0 16px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.updated {
+  margin: 2px 0 0;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* Notices ------------------------------------------------------------- */
+
+.notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.notice-stale {
+  background: var(--stale-bg);
+  border: 1px solid var(--stale-border);
+  color: var(--stale-ink);
+}
+
+.notice-quiet {
+  padding: 0 2px;
+  color: var(--ink-3);
+}
+
+/* Cards --------------------------------------------------------------- */
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--none);
+}
+
+.dot.is-good { background: var(--good); }
+.dot.is-warn { background: var(--warn); }
+.dot.is-danger { background: var(--danger); }
+
+.account-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.star {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin-left: 2px;
+}
+
+.chip {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.meters {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.meter-row + .meter-row {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.meter-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.meter-label {
+  color: var(--ink-2);
+  font-size: 13px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.meter-value {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.meter-value-suffix {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.meter-track {
+  margin-top: 6px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--none-track);
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--none);
+  transition: width 240ms ease;
+}
+
+.meter-row.is-good .meter-track { background: var(--good-track); }
+.meter-row.is-good .meter-fill { background: var(--good); }
+.meter-row.is-warn .meter-track { background: var(--warn-track); }
+.meter-row.is-warn .meter-fill { background: var(--warn); }
+.meter-row.is-danger .meter-track { background: var(--danger-track); }
+.meter-row.is-danger .meter-fill { background: var(--danger); }
+
+.meter-reset {
+  margin-top: 5px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.card-empty {
+  margin: 10px 0 0;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* Standalone messages -------------------------------------------------- */
+
+.message {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 18px 16px;
+}
+
+.message h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.message p {
+  margin: 0 0 8px;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.message p:last-child { margin-bottom: 0; }
+
+.message .example {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--chip-bg);
+  color: var(--ink-2);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meter-fill { transition: none; }
+}

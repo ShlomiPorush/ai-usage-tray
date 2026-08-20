@@ -222,6 +222,41 @@
                 <!-- Divider -->
                 <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,16,0,16" />
 
+                <!-- Remote View Section -->
+                <TextBlock Text="REMOTE VIEW" FontSize="10" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,12" />
+
+                <CheckBox IsChecked="{Binding RemoteViewEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                    <TextBlock Text="Enable remote view" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                </CheckBox>
+                <TextBlock Text="After each refresh, uploads a small snapshot to your endpoint: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The snapshot expires server-side after about a week without updates."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
+
+                <TextBlock Text="Upload endpoint URL" FontSize="12"
+                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
+                <TextBox Text="{Binding RemoteViewUploadUrl, UpdateSourceTrigger=LostFocus}"
+                         Style="{StaticResource SettingsTextBox}" Margin="0,0,0,4" />
+                <TextBlock Text="Base URL of the worker that stores the snapshot, e.g. https://usage-api.example.com"
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+
+                <TextBlock Text="Viewer page URL" FontSize="12"
+                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
+                <TextBox Text="{Binding RemoteViewPageUrl, UpdateSourceTrigger=LostFocus}"
+                         Style="{StaticResource SettingsTextBox}" Margin="0,0,0,4" />
+                <TextBlock Text="Base URL of the page you open on your phone, e.g. https://usage.example.com"
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+
+                <DockPanel Margin="0,0,0,6">
+                    <Button Content="Copy link" Command="{Binding CopyShareLinkCommand}"
+                            Style="{StaticResource SettingsButton}" Padding="10,5" FontSize="11"
+                            DockPanel.Dock="Right" HorizontalAlignment="Right" Margin="8,0,0,0" />
+                    <TextBox Text="{Binding ShareLink, Mode=OneWay}" IsReadOnly="True"
+                             Style="{StaticResource SettingsTextBox}" FontSize="11"
+                             VerticalAlignment="Center" VerticalContentAlignment="Center" />
+                </DockPanel>
+                <TextBlock Text="Anyone with the link can view this data."
+                           FontSize="11" Foreground="#EF4444" Margin="0,0,0,0" TextWrapping="Wrap" />
+
                 <!-- Divider -->
                 <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,16,0,16" />
 

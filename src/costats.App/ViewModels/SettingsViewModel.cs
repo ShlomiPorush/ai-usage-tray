@@ -63,6 +63,11 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         copilotEnabled = settings.CopilotEnabled;
         showOverviewResetTimes = settings.ShowOverviewResetTimes;
+
+        remoteViewEnabled = settings.RemoteViewEnabled;
+        remoteViewUploadUrl = settings.RemoteViewUploadUrl ?? string.Empty;
+        remoteViewPageUrl = settings.RemoteViewPageUrl ?? string.Empty;
+
         _ = LoadCopilotTokenStatusAsync();
     }
 
@@ -107,6 +112,24 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool showOverviewResetTimes;
+
+    [ObservableProperty]
+    private bool remoteViewEnabled;
+
+    [ObservableProperty]
+    private string remoteViewUploadUrl = string.Empty;
+
+    [ObservableProperty]
+    private string remoteViewPageUrl = string.Empty;
+
+    /// <summary>
+    /// The link to open on a phone. Empty until both the viewer page URL and
+    /// the generated id exist.
+    /// </summary>
+    public string ShareLink =>
+        string.IsNullOrWhiteSpace(_settings.RemoteViewPageUrl) || string.IsNullOrWhiteSpace(_settings.RemoteViewId)
+            ? string.Empty
+            : $"{_settings.RemoteViewPageUrl.TrimEnd('/')}/?id={_settings.RemoteViewId}";
 
     public static IReadOnlyList<ThemeOption> ThemeOptions { get; } =
     [
@@ -394,6 +417,54 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ = SaveSettingsAsync();
         // Push a refresh so the widget picks the flag up immediately.
         _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+    }
+
+    partial void OnRemoteViewEnabledChanged(bool value)
+    {
+        _settings.RemoteViewEnabled = value;
+
+        // The id is minted on first enable and then kept, so the share link
+        // a user has already sent to their phone keeps working.
+        if (value && string.IsNullOrWhiteSpace(_settings.RemoteViewId))
+        {
+            _settings.RemoteViewId = Guid.NewGuid().ToString("N");
+        }
+
+        _ = SaveSettingsAsync();
+        OnPropertyChanged(nameof(ShareLink));
+    }
+
+    partial void OnRemoteViewUploadUrlChanged(string value)
+    {
+        _settings.RemoteViewUploadUrl = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        _ = SaveSettingsAsync();
+    }
+
+    partial void OnRemoteViewPageUrlChanged(string value)
+    {
+        _settings.RemoteViewPageUrl = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        _ = SaveSettingsAsync();
+        OnPropertyChanged(nameof(ShareLink));
+    }
+
+    [RelayCommand]
+    private void CopyShareLink()
+    {
+        var link = ShareLink;
+        if (string.IsNullOrEmpty(link))
+        {
+            return;
+        }
+
+        try
+        {
+            System.Windows.Clipboard.SetText(link);
+        }
+        catch (Exception ex)
+        {
+            // The clipboard can be locked by another process; nothing to recover.
+            Debug.WriteLine($"Share link copy failed: {ex.Message}");
+        }
     }
 
     partial void OnCopilotEnabledChanged(bool value)
