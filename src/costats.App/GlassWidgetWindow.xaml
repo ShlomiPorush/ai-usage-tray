@@ -95,163 +95,184 @@
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-            <!-- Tab bar with icons -->
-            <Grid Grid.Row="0" Margin="0,0,0,16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition>
-                        <ColumnDefinition.Style>
-                            <Style TargetType="ColumnDefinition">
-                                <Setter Property="Width" Value="*" />
+            <!-- Header: overview title, or back button + account name in detail view -->
+            <DockPanel Grid.Row="0" Margin="0,0,0,12">
+                <Button DockPanel.Dock="Left" Width="30" Height="30" Margin="0,0,10,0"
+                        Command="{Binding BackToOverviewCommand}" ToolTip="All accounts"
+                        Background="Transparent" BorderBrush="{StaticResource DividerBrush}" BorderThickness="1"
+                        Cursor="Hand" Padding="0"
+                        Visibility="{Binding IsOverview, Converter={x:Static local:BoolToVisibilityConverter.Instance}, ConverterParameter=Invert}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="border" Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="8">
+                                <TextBlock Text="&#x2190;" FontSize="15" Foreground="{StaticResource TextPrimaryBrush}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="border" Property="Background" Value="#15000000" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Text" Value="{Binding SelectedAccount.DisplayName}" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsCopilotEnabled}" Value="False">
-                                        <Setter Property="Width" Value="0" />
+                                    <DataTrigger Binding="{Binding IsOverview}" Value="True">
+                                        <Setter Property="Text" Value="AI usage" />
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </ColumnDefinition.Style>
-                    </ColumnDefinition>
-                </Grid.ColumnDefinitions>
-
-                <!-- Codex Tab -->
-                <RadioButton Grid.Column="0" GroupName="ProviderTabs"
-                             IsChecked="{Binding SelectedTabIndex, Converter={x:Static local:IndexToBoolConverter.Instance}, ConverterParameter=0}"
-                             Cursor="Hand" Margin="0,0,6,0">
-                    <RadioButton.Template>
-                        <ControlTemplate TargetType="RadioButton">
-                            <Border x:Name="TabBorder" Background="Transparent" CornerRadius="10" Padding="12,8">
-                                <StackPanel HorizontalAlignment="Center">
-                                    <Path x:Name="TabIcon" Data="{StaticResource CodexIconPath}"
-                                          Width="20" Height="20" Stretch="Uniform"
-                                          Fill="{StaticResource CodexAccent}" HorizontalAlignment="Center" />
-                                    <TextBlock x:Name="TabText" Text="Codex" FontSize="12" FontWeight="Medium"
-                                               HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}" Margin="0,6,0,0" />
-                                    <Border x:Name="TabIndicator" Height="3" Width="20" CornerRadius="1.5"
-                                            Background="{StaticResource CodexAccent}" Margin="0,6,0,0" Opacity="0" />
-                                </StackPanel>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="TabText" Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-                                    <Setter TargetName="TabIndicator" Property="Opacity" Value="1" />
-                                </Trigger>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="TabBorder" Property="Background" Value="#25A0A0C0" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </RadioButton.Template>
-                </RadioButton>
-
-                <!-- Claude Tab -->
-                <RadioButton Grid.Column="1" GroupName="ProviderTabs"
-                             IsChecked="{Binding SelectedTabIndex, Converter={x:Static local:IndexToBoolConverter.Instance}, ConverterParameter=1}"
-                             Cursor="Hand" Margin="6,0,0,0">
-                    <RadioButton.Template>
-                        <ControlTemplate TargetType="RadioButton">
-                            <Border x:Name="TabBorder" Background="Transparent" CornerRadius="10" Padding="12,8">
-                                <StackPanel HorizontalAlignment="Center">
-                                    <Path x:Name="TabIcon" Data="{StaticResource ClaudeIconPath}"
-                                          Width="20" Height="20" Stretch="Uniform"
-                                          Fill="{StaticResource ClaudeAccent}" HorizontalAlignment="Center" />
-                                    <TextBlock x:Name="TabText" Text="Claude" FontSize="12" FontWeight="Medium"
-                                               HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}" Margin="0,6,0,0" />
-                                    <Border x:Name="TabIndicator" Height="3" Width="20" CornerRadius="1.5"
-                                            Background="{StaticResource ClaudeAccent}" Margin="0,6,0,0" Opacity="0" />
-                                </StackPanel>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="TabText" Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-                                    <Setter TargetName="TabIndicator" Property="Opacity" Value="1" />
-                                </Trigger>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="TabBorder" Property="Background" Value="#25A0A0C0" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </RadioButton.Template>
-                </RadioButton>
-
-                <!-- Copilot Tab -->
-                <RadioButton Grid.Column="2" GroupName="ProviderTabs"
-                             IsChecked="{Binding SelectedTabIndex, Converter={x:Static local:IndexToBoolConverter.Instance}, ConverterParameter=2}"
-                             Cursor="Hand" Margin="6,0,0,0"
-                             Visibility="{Binding IsCopilotEnabled, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <RadioButton.Template>
-                        <ControlTemplate TargetType="RadioButton">
-                            <Border x:Name="TabBorder" Background="Transparent" CornerRadius="10" Padding="12,8">
-                                <StackPanel HorizontalAlignment="Center">
-                                    <Viewbox Width="20" Height="20" Stretch="Uniform">
-                                        <Grid Width="96" Height="96">
-                                            <Path Data="{StaticResource CopilotIconPath}" Fill="{StaticResource CopilotAccent}" />
-                                            <Path Data="{StaticResource CopilotIconPathDetail}" Fill="{StaticResource CopilotAccent}" />
-                                        </Grid>
-                                    </Viewbox>
-                                    <TextBlock x:Name="TabText" Text="Copilot" FontSize="12" FontWeight="Medium"
-                                               HorizontalAlignment="Center" Foreground="{StaticResource TextMutedBrush}" Margin="0,6,0,0" />
-                                    <Border x:Name="TabIndicator" Height="3" Width="20" CornerRadius="1.5"
-                                            Background="{StaticResource CopilotAccent}" Margin="0,6,0,0" Opacity="0" />
-                                </StackPanel>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="TabText" Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-                                    <Setter TargetName="TabIndicator" Property="Opacity" Value="1" />
-                                </Trigger>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="TabBorder" Property="Background" Value="#25A0A0C0" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </RadioButton.Template>
-                </RadioButton>
-            </Grid>
+                        </TextBlock.Style>
+                    </TextBlock>
+                    <TextBlock Text="{Binding UpdatedLabel}" FontSize="11" Foreground="{StaticResource TextFaintBrush}" Margin="0,2,0,0" />
+                </StackPanel>
+            </DockPanel>
 
             <!-- Divider -->
             <Border Grid.Row="1" Height="1" Background="{StaticResource DividerBrush}" Margin="0,0,0,16" />
 
-            <!-- Content area: Single provider view (shown when NOT multicc active on Claude tab) -->
-            <!-- Both panels overlay in Grid.Row="2". Using Hidden (not Collapsed) prevents
-                 layout-pass thrashing during tab switch — no element is removed/added to layout,
-                 only render visibility toggles, eliminating the flicker. -->
-            <StackPanel Grid.Row="2" DataContext="{Binding SelectedProvider}">
-                <StackPanel.Style>
-                    <Style TargetType="StackPanel">
-                        <Setter Property="Visibility" Value="Visible" />
-                        <Style.Triggers>
-                            <MultiDataTrigger>
-                                <MultiDataTrigger.Conditions>
-                                    <Condition Binding="{Binding DataContext.SelectedTabIndex, RelativeSource={RelativeSource AncestorType=Window}}" Value="1" />
-                                    <Condition Binding="{Binding DataContext.IsMulticcActive, RelativeSource={RelativeSource AncestorType=Window}}" Value="True" />
-                                </MultiDataTrigger.Conditions>
-                                <Setter Property="Visibility" Value="Hidden" />
-                            </MultiDataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </StackPanel.Style>
+            <!-- Overview: one clickable card per account -->
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Focusable="False"
+                          Visibility="{Binding IsOverview, Converter={StaticResource BoolToVisibilityConverter}}">
+                <ItemsControl ItemsSource="{Binding Providers}" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Command="{Binding DataContext.OpenAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    CommandParameter="{Binding}" Cursor="Hand" Margin="0,0,0,8"
+                                    HorizontalContentAlignment="Stretch">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="CardBorder" Background="#66FFFFFF" CornerRadius="10"
+                                                BorderBrush="{StaticResource DividerBrush}" BorderThickness="1" Padding="12,10">
+                                            <ContentPresenter />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="CardBorder" Property="Background" Value="#99FFFFFF" />
+                                                <Setter TargetName="CardBorder" Property="BorderBrush" Value="#806366F1" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                                <StackPanel>
+                                    <DockPanel Margin="0,0,0,6">
+                                        <Border DockPanel.Dock="Right" CornerRadius="4" Padding="6,1" VerticalAlignment="Center"
+                                                Visibility="{Binding PlanText, Converter={x:Static local:StringToVisibilityConverter.Instance}}">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="#1F10B981" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding ProviderKind}" Value="claude">
+                                                            <Setter Property="Background" Value="#1FF97316" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
+                                                            <Setter Property="Background" Value="#1F6E40C9" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="{Binding PlanText}" FontSize="9.5" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource TextSecondaryBrush}" />
+                                        </Border>
+                                        <Ellipse DockPanel.Dock="Left" Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,8,0">
+                                            <Ellipse.Fill>
+                                                <SolidColorBrush Color="{Binding OverallStatusColor}" />
+                                            </Ellipse.Fill>
+                                        </Ellipse>
+                                        <TextBlock Text="{Binding DisplayName}" FontSize="13.5" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </DockPanel>
 
-                <!-- OpenAI account selector, visible when both configured accounts are available -->
-                <ComboBox ItemsSource="{Binding DataContext.CodexProfiles, RelativeSource={RelativeSource AncestorType=Window}}"
-                          SelectedItem="{Binding DataContext.Codex, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay}"
-                          DisplayMemberPath="DisplayName"
-                          MinWidth="150" HorizontalAlignment="Left" Margin="0,0,0,12" Padding="8,4">
-                    <ComboBox.Style>
-                        <Style TargetType="ComboBox">
-                            <Setter Property="Visibility" Value="Collapsed" />
-                            <Style.Triggers>
-                                <MultiDataTrigger>
-                                    <MultiDataTrigger.Conditions>
-                                        <Condition Binding="{Binding DataContext.SelectedTabIndex, RelativeSource={RelativeSource AncestorType=Window}}" Value="0" />
-                                        <Condition Binding="{Binding DataContext.CodexProfiles.Count, RelativeSource={RelativeSource AncestorType=Window}}" Value="2" />
-                                    </MultiDataTrigger.Conditions>
-                                    <Setter Property="Visibility" Value="Visible" />
-                                </MultiDataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </ComboBox.Style>
-                </ComboBox>
+                                    <!-- Session row -->
+                                    <DockPanel Margin="0,0,0,4"
+                                               Visibility="{Binding HasSessionData, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="Session" FontSize="10.5" Width="48" Foreground="{StaticResource TextMutedBrush}"
+                                                   DockPanel.Dock="Left" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding SessionPercentText}" FontSize="11.5" FontWeight="SemiBold" Width="40"
+                                                   DockPanel.Dock="Right" TextAlignment="Right" VerticalAlignment="Center">
+                                            <TextBlock.Foreground>
+                                                <SolidColorBrush Color="{Binding SessionPercentColor}" />
+                                            </TextBlock.Foreground>
+                                        </TextBlock>
+                                        <ProgressBar Style="{StaticResource UsageProgressBar}" Height="6"
+                                                     Value="{Binding SessionProgress}" Maximum="1"
+                                                     Foreground="{StaticResource SessionAccent}" VerticalAlignment="Center" />
+                                    </DockPanel>
+
+                                    <!-- Weekly row -->
+                                    <DockPanel Visibility="{Binding HasWeekData, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="Weekly" FontSize="10.5" Width="48" Foreground="{StaticResource TextMutedBrush}"
+                                                   DockPanel.Dock="Left" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding WeekPercentText}" FontSize="11.5" FontWeight="SemiBold" Width="40"
+                                                   DockPanel.Dock="Right" TextAlignment="Right" VerticalAlignment="Center">
+                                            <TextBlock.Foreground>
+                                                <SolidColorBrush Color="{Binding WeekPercentColor}" />
+                                            </TextBlock.Foreground>
+                                        </TextBlock>
+                                        <ProgressBar Style="{StaticResource UsageProgressBar}" Height="6"
+                                                     Value="{Binding WeekProgress}" Maximum="1"
+                                                     Foreground="{StaticResource WeeklyAccent}" VerticalAlignment="Center" />
+                                    </DockPanel>
+
+                                    <!-- Model-scoped limits (e.g. Fable weekly) -->
+                                    <ItemsControl ItemsSource="{Binding ScopedLimits}" Focusable="False"
+                                                  Visibility="{Binding HasScopedLimits, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <DockPanel Margin="0,4,0,0">
+                                                    <TextBlock Text="{Binding Label}" FontSize="10.5" Width="48"
+                                                               Foreground="{StaticResource TextMutedBrush}" TextTrimming="CharacterEllipsis"
+                                                               DockPanel.Dock="Left" VerticalAlignment="Center" />
+                                                    <TextBlock Text="{Binding PercentText}" FontSize="11.5" FontWeight="SemiBold" Width="40"
+                                                               DockPanel.Dock="Right" TextAlignment="Right" VerticalAlignment="Center">
+                                                        <TextBlock.Foreground>
+                                                            <SolidColorBrush Color="{Binding PercentColor}" />
+                                                        </TextBlock.Foreground>
+                                                    </TextBlock>
+                                                    <ProgressBar Style="{StaticResource UsageProgressBar}" Height="6"
+                                                                 Value="{Binding Progress, Mode=OneWay}" Maximum="1"
+                                                                 Foreground="#F97316" VerticalAlignment="Center" />
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <!-- Status line when no quota data -->
+                                    <TextBlock Text="{Binding StatusSummary}" FontSize="10.5" Foreground="{StaticResource TextFaintBrush}"
+                                               TextTrimming="CharacterEllipsis" Margin="0,2,0,0">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <MultiDataTrigger>
+                                                        <MultiDataTrigger.Conditions>
+                                                            <Condition Binding="{Binding HasSessionData}" Value="False" />
+                                                            <Condition Binding="{Binding HasWeekData}" Value="False" />
+                                                        </MultiDataTrigger.Conditions>
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </MultiDataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <!-- Detail view for the selected account -->
+            <StackPanel Grid.Row="2" DataContext="{Binding SelectedAccount}"
+                        Visibility="{Binding DataContext.IsOverview, RelativeSource={RelativeSource AncestorType=Window}, Converter={x:Static local:BoolToVisibilityConverter.Instance}, ConverterParameter=Invert}">
 
                 <!-- Provider header -->
                 <DockPanel Margin="0,0,0,14">
@@ -274,7 +295,7 @@
                                 </Setter>
                                 <Style.Triggers>
                                     <!-- Claude: orange -->
-                                    <DataTrigger Binding="{Binding ProviderId}" Value="claude">
+                                    <DataTrigger Binding="{Binding ProviderKind}" Value="claude">
                                         <Setter Property="BorderBrush" Value="{StaticResource ClaudeAccent}" />
                                         <Setter Property="Background">
                                             <Setter.Value>
@@ -283,7 +304,7 @@
                                         </Setter>
                                     </DataTrigger>
                                     <!-- Copilot: purple -->
-                                    <DataTrigger Binding="{Binding ProviderId}" Value="copilot">
+                                    <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
                                         <Setter Property="BorderBrush" Value="{StaticResource CopilotAccent}" />
                                         <Setter Property="Background">
                                             <Setter.Value>
@@ -301,11 +322,11 @@
                                     <Setter Property="Foreground" Value="#047857" />
                                     <Style.Triggers>
                                         <!-- Claude: dark orange for contrast -->
-                                        <DataTrigger Binding="{Binding ProviderId}" Value="claude">
+                                        <DataTrigger Binding="{Binding ProviderKind}" Value="claude">
                                             <Setter Property="Foreground" Value="#C2410C" />
                                         </DataTrigger>
                                         <!-- Copilot: dark purple for contrast -->
-                                        <DataTrigger Binding="{Binding ProviderId}" Value="copilot">
+                                        <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
                                             <Setter Property="Foreground" Value="#4C1D95" />
                                         </DataTrigger>
                                     </Style.Triggers>
@@ -326,7 +347,7 @@
                             <Style TargetType="TextBlock">
                                 <Setter Property="Text" Value="Session" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding ProviderId}" Value="copilot">
+                                    <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
                                         <Setter Property="Text" Value="Premium requests" />
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -348,7 +369,7 @@
                             <Style TargetType="TextBlock">
                                 <Setter Property="Text" Value="Weekly" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding ProviderId}" Value="copilot">
+                                    <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
                                         <Setter Property="Text" Value="Chat requests" />
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -367,7 +388,7 @@
                             <Style TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding ProviderId}" Value="copilot">
+                                    <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
                                         <Setter Property="Visibility" Value="Visible" />
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -383,7 +404,7 @@
                             <Style TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding ProviderId}" Value="codex">
+                                    <DataTrigger Binding="{Binding ProviderKind}" Value="codex">
                                         <Setter Property="Visibility" Value="Visible" />
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -399,7 +420,7 @@
                             <Style TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
-                                    <DataTrigger Binding="{Binding ProviderId}" Value="claude">
+                                    <DataTrigger Binding="{Binding ProviderKind}" Value="claude">
                                         <Setter Property="Visibility" Value="Visible" />
                                     </DataTrigger>
                                 </Style.Triggers>
@@ -412,6 +433,38 @@
                     </TextBlock>
                 </StackPanel>
 
+                <!-- Model-scoped limits section (e.g. Fable weekly limit) -->
+                <StackPanel Margin="0,0,0,16"
+                            Visibility="{Binding HasScopedLimits, Converter={StaticResource BoolToVisibilityConverter}}">
+                    <TextBlock Text="Model limits" FontSize="14" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,8" />
+                    <ItemsControl ItemsSource="{Binding ScopedLimits}" Focusable="False">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,0,0,10">
+                                    <DockPanel Margin="0,0,0,6">
+                                        <TextBlock FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" DockPanel.Dock="Left">
+                                            <Run Text="{Binding Label, Mode=OneWay}" FontWeight="SemiBold" />
+                                            <Run Text="{Binding GroupLabel, Mode=OneWay}" />
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding PercentText}" FontSize="12" FontWeight="SemiBold"
+                                                   DockPanel.Dock="Right" HorizontalAlignment="Right">
+                                            <TextBlock.Foreground>
+                                                <SolidColorBrush Color="{Binding PercentColor}" />
+                                            </TextBlock.Foreground>
+                                        </TextBlock>
+                                    </DockPanel>
+                                    <ProgressBar Style="{StaticResource UsageProgressBar}"
+                                                 Value="{Binding Progress, Mode=OneWay}" Maximum="1" Foreground="#F97316" />
+                                    <TextBlock Text="{Binding ResetText}" FontSize="11" Foreground="{StaticResource TextMutedBrush}"
+                                               Margin="0,4,0,0" HorizontalAlignment="Right"
+                                               Visibility="{Binding ResetText, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
                 <!-- Divider -->
                 <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,4,0,16" />
 
@@ -421,7 +474,7 @@
                         <Style TargetType="StackPanel">
                             <Setter Property="Visibility" Value="Visible" />
                             <Style.Triggers>
-                                <DataTrigger Binding="{Binding ProviderId}" Value="copilot">
+                                <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
                                     <Setter Property="Visibility" Value="Collapsed" />
                                 </DataTrigger>
                             </Style.Triggers>
@@ -451,24 +504,6 @@
                 </StackPanel>
 
             </StackPanel>
-
-            <!-- Multicc stacked view (shown when multicc active AND Claude tab selected) -->
-            <views:ClaudeMultiPanelView Grid.Row="2">
-                <views:ClaudeMultiPanelView.Style>
-                    <Style TargetType="views:ClaudeMultiPanelView">
-                        <Setter Property="Visibility" Value="Hidden" />
-                        <Style.Triggers>
-                            <MultiDataTrigger>
-                                <MultiDataTrigger.Conditions>
-                                    <Condition Binding="{Binding SelectedTabIndex}" Value="1" />
-                                    <Condition Binding="{Binding IsMulticcActive}" Value="True" />
-                                </MultiDataTrigger.Conditions>
-                                <Setter Property="Visibility" Value="Visible" />
-                            </MultiDataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </views:ClaudeMultiPanelView.Style>
-            </views:ClaudeMultiPanelView>
 
             <!-- Footer note -->
             <StackPanel Grid.Row="3" Margin="0,20,0,0">

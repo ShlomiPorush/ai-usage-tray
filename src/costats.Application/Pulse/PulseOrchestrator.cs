@@ -8,7 +8,8 @@ namespace costats.Application.Pulse;
 
 public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
 {
-    private readonly IEnumerable<ISignalSource> _sources;
+    private readonly IEnumerable<ISignalSource> _staticSources;
+    private readonly IAccountSourceRegistry _accountSources;
     private readonly ISourceSelector _selector;
     private readonly IClock _clock;
     private readonly PulseBroadcaster _broadcaster;
@@ -24,6 +25,7 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
 
     public PulseOrchestrator(
         IEnumerable<ISignalSource> sources,
+        IAccountSourceRegistry accountSources,
         ISourceSelector selector,
         IClock clock,
         PulseBroadcaster broadcaster,
@@ -31,7 +33,8 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
         IOptions<PulseOptions> options,
         ILogger<PulseOrchestrator> logger)
     {
-        _sources = sources;
+        _staticSources = sources;
+        _accountSources = accountSources;
         _selector = selector;
         _clock = clock;
         _broadcaster = broadcaster;
@@ -41,6 +44,10 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
     }
 
     public IObservable<PulseState> PulseStream => _broadcaster;
+
+    // Account sources come from the registry so Settings edits apply on the
+    // next refresh; static sources (Copilot, Z.AI) stay DI-registered.
+    private IEnumerable<ISignalSource> AllSources() => _staticSources.Concat(_accountSources.Current);
 
     public void UpdateRefreshInterval(TimeSpan interval)
     {
@@ -63,7 +70,7 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
                 PublishRefreshing(trigger);
             }
 
-            var byProvider = _sources
+            var byProvider = AllSources()
                 .GroupBy(source => source.Profile.ProviderId)
                 .ToDictionary(group => group.Key, group => (IReadOnlyList<ISignalSource>)group.ToList());
 
@@ -127,7 +134,7 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
 
         try
         {
-            var providerSources = _sources
+            var providerSources = AllSources()
                 .Where(s => s.Profile.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 

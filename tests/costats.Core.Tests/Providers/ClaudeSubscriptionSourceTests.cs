@@ -49,6 +49,33 @@ public sealed class ClaudeSubscriptionSourceTests
         Assert.Equal("Claude: Claude subscription is not connected", reading.StatusSummary);
     }
 
+    [Fact]
+    public async Task ReadAsync_exposes_model_scoped_limits_such_as_fable()
+    {
+        var reset = DateTimeOffset.Parse("2026-08-21T12:00:00Z");
+        var client = new FakeClaudeSubscriptionUsageClient(new ClaudeOAuthUsageResult(
+            7,
+            null,
+            88,
+            null,
+            false,
+            null,
+            null,
+            "max",
+            null,
+            DateTimeOffset.Parse("2026-08-20T09:00:00Z"),
+            [new costats.Core.Pulse.ScopedQuota("Fable", "weekly", 100, reset, true)]));
+
+        var source = new ClaudeSubscriptionSource(new ClaudeAccountProfile("claude-1", "Claude", "/tmp/claude"), client);
+        var reading = await source.ReadAsync(CancellationToken.None);
+
+        var scoped = Assert.Single(reading.Usage!.ScopedQuotas);
+        Assert.Equal("Fable", scoped.Label);
+        Assert.Equal(100, scoped.UsedPercent);
+        Assert.Equal(reset, scoped.ResetsAt);
+        Assert.True(scoped.IsActive);
+    }
+
     private sealed class FakeClaudeSubscriptionUsageClient(ClaudeOAuthUsageResult? result)
         : IClaudeSubscriptionUsageClient
     {

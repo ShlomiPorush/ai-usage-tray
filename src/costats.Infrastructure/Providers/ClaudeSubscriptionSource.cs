@@ -72,7 +72,10 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
             null,
             null,
             CreateWindow(SessionDuration, result.FiveHourResetsAt, sessionUsed.HasValue),
-            CreateWindow(WeekDuration, result.SevenDayResetsAt, weeklyUsed.HasValue));
+            CreateWindow(WeekDuration, result.SevenDayResetsAt, weeklyUsed.HasValue))
+        {
+            ScopedQuotas = result.ScopedLimits ?? []
+        };
 
         return new ProviderReading(
             usage,

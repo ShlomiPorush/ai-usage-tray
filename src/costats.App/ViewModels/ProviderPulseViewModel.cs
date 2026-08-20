@@ -8,6 +8,18 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     [ObservableProperty]
     private string providerId = string.Empty;
 
+    /// <summary>Provider family ("claude", "codex", "copilot", "zai") regardless of account suffix.</summary>
+    public string ProviderKind
+    {
+        get
+        {
+            var separator = ProviderId.IndexOf(':');
+            return separator > 0 ? ProviderId[..separator] : ProviderId;
+        }
+    }
+
+    partial void OnProviderIdChanged(string value) => OnPropertyChanged(nameof(ProviderKind));
+
     [ObservableProperty]
     private string displayName = string.Empty;
 
@@ -51,6 +63,13 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
 
     [ObservableProperty]
     private string weekResetText = string.Empty;
+
+    /// <summary>Model-scoped quota rows (e.g. Claude's Fable weekly limit).</summary>
+    [ObservableProperty]
+    private IReadOnlyList<ScopedLimitRow> scopedLimits = [];
+
+    [ObservableProperty]
+    private bool hasScopedLimits;
 
     [ObservableProperty]
     private string weekPaceText = string.Empty;
@@ -143,6 +162,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
 
         PopulateSessionMetrics(vm, reading);
         PopulateWeekMetrics(vm, reading);
+        PopulateScopedLimits(vm, reading);
         PopulateExtraUsage(vm, reading);
         PopulateCostData(vm, reading);
 
@@ -233,6 +253,26 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         vm.WeekStatusColor = GetUtilizationColor(usedPercent);
         vm.WeekPercentText = $"{(int)Math.Round(usedPercent)}%";
         vm.WeekPercentColor = GetPercentTextColor(usedPercent);
+    }
+
+    private static void PopulateScopedLimits(ProviderPulseViewModel vm, ProviderReading reading)
+    {
+        var quotas = reading.Usage?.ScopedQuotas;
+        if (quotas is not { Count: > 0 })
+        {
+            return;
+        }
+
+        vm.ScopedLimits = quotas
+            .Select(q => new ScopedLimitRow(
+                q.Label,
+                char.ToUpperInvariant(q.Group[0]) + q.Group[1..].Replace('_', ' '),
+                $"{q.UsedPercent}%",
+                q.UsedPercent / 100.0,
+                GetPercentTextColor(q.UsedPercent),
+                q.ResetsAt is { } resets ? $"Resets {UsageFormatter.ResetCountdown(resets)}" : string.Empty))
+            .ToList();
+        vm.HasScopedLimits = true;
     }
 
     private static void PopulateExtraUsage(ProviderPulseViewModel vm, ProviderReading reading)
@@ -393,3 +433,12 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         };
     }
 }
+
+/// <summary>One display row for a model-scoped quota window.</summary>
+public sealed record ScopedLimitRow(
+    string Label,
+    string GroupLabel,
+    string PercentText,
+    double Progress,
+    string PercentColor,
+    string ResetText);

@@ -86,4 +86,24 @@ public sealed class TrayStatusComposerTests
 
         Assert.Equal(expected, TrayStatusComposer.Compose(accounts, Now).Severity);
     }
+
+    [Fact]
+    public void Scoped_limits_drive_severity_and_lowest_remaining()
+    {
+        var accounts = new[]
+        {
+            new AccountUsageStatus(
+                "Claude",
+                SessionRemainingPercent: 93,
+                SessionResetsAt: DateTimeOffset.UtcNow.AddHours(2),
+                WeeklyRemainingPercent: 60,
+                WeeklyResetsAt: DateTimeOffset.UtcNow.AddDays(3),
+                ScopedQuotas: [new costats.Core.Pulse.ScopedQuota("Fable", "weekly", 100, null, true)])
+        };
+
+        var status = TrayStatusComposer.Compose(accounts, DateTimeOffset.UtcNow);
+
+        Assert.Equal(0, status.LowestRemainingPercent);
+        Assert.Equal(TraySeverity.Red, status.Severity);
+    }
 }

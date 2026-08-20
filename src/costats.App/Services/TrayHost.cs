@@ -26,7 +26,8 @@ namespace costats.App.Services
         private readonly PulseViewModel _viewModel;
         private readonly TaskbarPositionService _taskbarPosition;
         private readonly IDisposable _pulseSubscription;
-        private readonly IReadOnlyDictionary<string, string> _displayNames;
+        private readonly IEnumerable<ISignalSource> _staticSources;
+        private readonly IAccountSourceRegistry _accountSources;
         private Icon _currentIcon;
         private TrayStatus? _lastAppliedStatus;
         private readonly AppSettings _settings;
@@ -39,6 +40,7 @@ namespace costats.App.Services
             IPulseOrchestrator pulseOrchestrator,
             TaskbarPositionService taskbarPosition,
             IEnumerable<ISignalSource> sources,
+            IAccountSourceRegistry accountSources,
             AppSettings settings)
         {
             _viewModel = viewModel;
@@ -48,13 +50,8 @@ namespace costats.App.Services
             _pulseOrchestrator = pulseOrchestrator;
             _taskbarPosition = taskbarPosition;
             _settings = settings;
-            _displayNames = sources
-                .Select(source => source.Profile)
-                .GroupBy(profile => profile.ProviderId, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(
-                    group => group.Key,
-                    group => group.First().DisplayName,
-                    StringComparer.OrdinalIgnoreCase);
+            _staticSources = sources;
+            _accountSources = accountSources;
 
             _currentIcon = CreateIcon(TraySeverity.Unknown, null);
             _taskbarIcon = new TaskbarIcon();
@@ -168,6 +165,7 @@ namespace costats.App.Services
 
             if (!wasVisible)
             {
+                _viewModel.ResetToOverview();
                 _widgetWindow.Show();
             }
 
@@ -206,6 +204,12 @@ namespace costats.App.Services
 
         public void OnNext(PulseState state)
         {
+            var displayNames = _staticSources
+                .Concat(_accountSources.Current)
+                .Select(source => source.Profile)
+                .GroupBy(profile => profile.ProviderId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().DisplayName, StringComparer.OrdinalIgnoreCase);
+
             var accounts = state.Providers
                 .Where(pair =>
                     pair.Key.Equals("claude", StringComparison.OrdinalIgnoreCase) ||
@@ -214,7 +218,7 @@ namespace costats.App.Services
                     pair.Key.StartsWith("codex:", StringComparison.OrdinalIgnoreCase))
                 .Select(pair =>
                 {
-                    var label = _displayNames.TryGetValue(pair.Key, out var displayName)
+                    var label = displayNames.TryGetValue(pair.Key, out var displayName)
                         ? displayName
                         : pair.Key;
                     return pair.Value.Usage is { } usage

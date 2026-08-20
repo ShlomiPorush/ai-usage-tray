@@ -38,6 +38,27 @@ namespace costats.App
             Hide();
         }
 
+        private void OnBrowseConfigDirClick(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { DataContext: AccountEditorViewModel account })
+            {
+                return;
+            }
+
+            var dialog = new Microsoft.Win32.OpenFolderDialog
+            {
+                Title = "Select the account's profile folder",
+                InitialDirectory = System.IO.Directory.Exists(account.ConfigDir)
+                    ? account.ConfigDir
+                    : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+            };
+
+            if (dialog.ShowDialog(this) == true)
+            {
+                account.ConfigDir = dialog.FolderName;
+            }
+        }
+
         private async void OnSaveCopilotTokenClick(object sender, RoutedEventArgs e)
         {
             if (DataContext is SettingsViewModel viewModel)

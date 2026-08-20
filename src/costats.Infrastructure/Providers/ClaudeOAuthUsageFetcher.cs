@@ -486,6 +486,8 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                 }
             }
 
+            var scopedLimits = ParseScopedLimits(root);
+
             return new ClaudeOAuthUsageResult(
                 fiveHourPercent,
                 fiveHourResetsAt,
@@ -496,12 +498,74 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                 extraLimit,
                 subscriptionType,
                 rateLimitTier,
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow,
+                scopedLimits);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Reads model/surface-scoped windows from the "limits" array (e.g. the
+    /// Fable-specific weekly limit). Unscoped entries duplicate five_hour /
+    /// seven_day and are skipped.
+    /// </summary>
+    private static IReadOnlyList<costats.Core.Pulse.ScopedQuota> ParseScopedLimits(JsonElement root)
+    {
+        if (!root.TryGetProperty("limits", out var limits) || limits.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var result = new List<costats.Core.Pulse.ScopedQuota>();
+        foreach (var entry in limits.EnumerateArray())
+        {
+            if (!entry.TryGetProperty("scope", out var scope) || scope.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            string? label = null;
+            if (scope.TryGetProperty("model", out var model) && model.ValueKind == JsonValueKind.Object &&
+                model.TryGetProperty("display_name", out var modelName) && modelName.ValueKind == JsonValueKind.String)
+            {
+                label = modelName.GetString();
+            }
+            else if (scope.TryGetProperty("surface", out var surface) && surface.ValueKind == JsonValueKind.String)
+            {
+                label = surface.GetString();
+            }
+
+            if (string.IsNullOrWhiteSpace(label) ||
+                !entry.TryGetProperty("percent", out var percent) || percent.ValueKind != JsonValueKind.Number)
+            {
+                continue;
+            }
+
+            var group = entry.TryGetProperty("group", out var groupProp) && groupProp.ValueKind == JsonValueKind.String
+                ? groupProp.GetString() ?? "weekly"
+                : "weekly";
+
+            DateTimeOffset? resetsAt = null;
+            if (entry.TryGetProperty("resets_at", out var resets) && resets.ValueKind == JsonValueKind.String &&
+                DateTimeOffset.TryParse(resets.GetString(), out var resetsTime))
+            {
+                resetsAt = resetsTime;
+            }
+
+            var isActive = entry.TryGetProperty("is_active", out var active) && active.ValueKind == JsonValueKind.True;
+
+            result.Add(new costats.Core.Pulse.ScopedQuota(
+                label!,
+                group,
+                (long)Math.Round(Math.Clamp(percent.GetDouble(), 0, 100)),
+                resetsAt,
+                isActive));
+        }
+
+        return result;
     }
 
     private static (double used, double limit) NormalizeMonetaryValues(double rawUsed, double rawLimit, string? tier)
@@ -544,4 +608,5 @@ public sealed record ClaudeOAuthUsageResult(
     double? OverageCeilingUsd,
     string? SubscriptionType,
     string? RateLimitTier,
-    DateTimeOffset FetchedAt);
+    DateTimeOffset FetchedAt,
+    IReadOnlyList<costats.Core.Pulse.ScopedQuota>? ScopedLimits = null);

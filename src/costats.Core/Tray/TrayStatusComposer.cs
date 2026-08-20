@@ -16,7 +16,8 @@ public sealed record AccountUsageStatus(
     double? SessionRemainingPercent,
     DateTimeOffset? SessionResetsAt,
     double? WeeklyRemainingPercent,
-    DateTimeOffset? WeeklyResetsAt)
+    DateTimeOffset? WeeklyResetsAt,
+    IReadOnlyList<ScopedQuota>? ScopedQuotas = null)
 {
     public static AccountUsageStatus FromUsagePulse(string label, UsagePulse usage)
     {
@@ -26,7 +27,8 @@ public sealed record AccountUsageStatus(
             RemainingPercent(usage.SessionUsed, usage.SessionLimit),
             usage.SessionWindow?.ResetsAt,
             RemainingPercent(usage.WeekUsed, usage.WeekLimit),
-            usage.WeekWindow?.ResetsAt);
+            usage.WeekWindow?.ResetsAt,
+            usage.ScopedQuotas);
     }
 
     private static double? RemainingPercent(long? used, long? limit)
@@ -56,7 +58,8 @@ public static class TrayStatusComposer
 
         var materialized = accounts.ToArray();
         var remainingValues = materialized
-            .SelectMany(account => new[] { account.SessionRemainingPercent, account.WeeklyRemainingPercent })
+            .SelectMany(account => new[] { account.SessionRemainingPercent, account.WeeklyRemainingPercent }
+                .Concat((account.ScopedQuotas ?? []).Select(q => (double?)(100 - q.UsedPercent))))
             .Where(value => value.HasValue)
             .Select(value => Math.Clamp(value!.Value, 0, 100))
             .ToArray();

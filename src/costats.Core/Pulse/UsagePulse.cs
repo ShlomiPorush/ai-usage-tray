@@ -10,4 +10,8 @@ public sealed record UsagePulse(
     MonetaryBucket? SpendingBucket,
     ConsumptionDigest? Consumption,
     QuotaWindow? SessionWindow,
-    QuotaWindow? WeekWindow);
+    QuotaWindow? WeekWindow)
+{
+    /// <summary>Model/surface-scoped quota windows (e.g. a per-model weekly limit); empty when none.</summary>
+    public IReadOnlyList<ScopedQuota> ScopedQuotas { get; init; } = [];
+}

@@ -213,8 +213,14 @@
                                              MaxLength="24" Style="{StaticResource SettingsTextBox}" Margin="0,4,0,8" />
 
                                     <TextBlock Text="{Binding ConfigDirLabel}" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" />
-                                    <TextBox Text="{Binding ConfigDir, UpdateSourceTrigger=LostFocus}"
-                                             Style="{StaticResource SettingsTextBox}" FontFamily="Consolas" FontSize="10" Margin="0,4,0,0" />
+                                    <DockPanel Margin="0,4,0,0">
+                                        <Button Content="..." DockPanel.Dock="Right" Width="34" Margin="6,0,0,0"
+                                                Padding="0,5" ToolTip="Browse for folder"
+                                                Click="OnBrowseConfigDirClick"
+                                                Style="{StaticResource SettingsButton}" />
+                                        <TextBox Text="{Binding ConfigDir, UpdateSourceTrigger=LostFocus}"
+                                                 Style="{StaticResource SettingsTextBox}" FontFamily="Consolas" FontSize="10" />
+                                    </DockPanel>
                                 </StackPanel>
                             </Border>
                         </DataTemplate>
@@ -312,9 +318,13 @@
                                FontSize="11" Foreground="{StaticResource TextMutedBrush}"
                                DockPanel.Dock="Right" HorizontalAlignment="Right"
                                VerticalAlignment="Center" />
+                    <Button Content="Restart app" Command="{Binding RestartAppCommand}"
+                            ToolTip="Restart AI Usage Tray"
+                            Style="{StaticResource SettingsButton}" Padding="10,5" FontSize="11"
+                            DockPanel.Dock="Left" HorizontalAlignment="Left" />
                     <TextBlock Text="Changes are saved automatically."
                                FontSize="11" Foreground="{StaticResource TextFaintBrush}"
-                               DockPanel.Dock="Left" VerticalAlignment="Center" />
+                               Margin="10,0,0,0" VerticalAlignment="Center" />
                 </DockPanel>
             </StackPanel>
         </Grid>

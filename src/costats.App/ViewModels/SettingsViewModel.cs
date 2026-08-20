@@ -24,6 +24,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly CopilotUsageFetcher _copilotFetcher;
     private readonly StartupUpdateCoordinator? _updateCoordinator;
     private readonly IMulticcDiscovery? _multiccDiscovery;
+    private readonly IAccountSourceRegistry? _accountSources;
     private const string StartupRegistryKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
     // Renamed from "costats" so the entry does not collide with upstream builds.
     private const string AppName = "AiUsageTray";
@@ -35,12 +36,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         IPulseOrchestrator pulseOrchestrator,
         ICredentialVault credentialVault,
         CopilotUsageFetcher copilotFetcher,
+        IAccountSourceRegistry? accountSources = null,
         StartupUpdateCoordinator? updateCoordinator = null,
         IMulticcDiscovery? multiccDiscovery = null)
     {
         _settingsStore = settingsStore;
         _settings = settings;
         _pulseOrchestrator = pulseOrchestrator;
+        _accountSources = accountSources;
         _credentialVault = credentialVault;
         _copilotFetcher = copilotFetcher;
         _updateCoordinator = updateCoordinator;
@@ -210,15 +213,42 @@ public sealed partial class SettingsViewModel : ObservableObject
         SaveAccounts();
     }
 
-    /// <summary>Persists the current editor rows into settings. Called by row edits too.</summary>
+    /// <summary>
+    /// Persists the current editor rows into settings and applies them live:
+    /// the source registry is rebuilt and a refresh kicked off, so no restart
+    /// is needed. Called by row edits too.
+    /// </summary>
     public void SaveAccounts()
     {
         _settings.Accounts = Accounts
             .Select(a => a.ToSettings())
             .Where(a => a.IsValid)
             .ToList();
-        AccountsRestartMessage = "Accounts saved. Restart AI Usage Tray to apply.";
         _ = SaveSettingsAsync();
+        _accountSources?.Reload();
+        AccountsRestartMessage = "Accounts saved and applied.";
+        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+    }
+
+    [RelayCommand]
+    private void RestartApp()
+    {
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrWhiteSpace(exe))
+        {
+            return;
+        }
+
+        // Relaunch after a short delay so the single-instance mutex is released
+        // before the new process tries to acquire it.
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = $"/c timeout /t 2 /nobreak >nul & start \"\" \"{exe}\"",
+            CreateNoWindow = true,
+            UseShellExecute = false
+        });
+        System.Windows.Application.Current.Shutdown(0);
     }
 
     partial void OnMulticcEnabledChanged(bool value)

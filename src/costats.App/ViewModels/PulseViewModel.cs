@@ -13,21 +13,31 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     private readonly IPulseOrchestrator _orchestrator;
     private readonly AppSettings _settings;
     private readonly IDisposable _subscription;
-    private readonly Dictionary<string, string> _displayNames;
+    private readonly IEnumerable<ISignalSource> _staticSources;
+    private readonly IAccountSourceRegistry _accountSources;
 
-    public PulseViewModel(IPulseOrchestrator orchestrator, AppSettings settings, IEnumerable<ISignalSource> sources)
+    public PulseViewModel(
+        IPulseOrchestrator orchestrator,
+        AppSettings settings,
+        IEnumerable<ISignalSource> sources,
+        IAccountSourceRegistry accountSources)
     {
         _orchestrator = orchestrator;
         _settings = settings;
         isCopilotEnabled = settings.CopilotEnabled;
-        _displayNames = sources
-            .Select(source => source.Profile)
-            .GroupBy(profile => profile.ProviderId)
-            .ToDictionary(group => group.Key, group => group.First().DisplayName, StringComparer.OrdinalIgnoreCase);
+        _staticSources = sources;
+        _accountSources = accountSources;
 
         Providers = new ObservableCollection<ProviderPulseViewModel>();
         _subscription = orchestrator.PulseStream.Subscribe(this);
     }
+
+    // Recomputed per update so account renames/additions apply without restart.
+    private Dictionary<string, string> CurrentDisplayNames() => _staticSources
+        .Concat(_accountSources.Current)
+        .Select(source => source.Profile)
+        .GroupBy(profile => profile.ProviderId, StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(group => group.Key, group => group.First().DisplayName, StringComparer.OrdinalIgnoreCase);
 
     public ObservableCollection<ProviderPulseViewModel> Providers { get; }
 
@@ -48,6 +58,31 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
 
     [ObservableProperty]
     private int selectedTabIndex;
+
+    /// <summary>True while the widget shows the all-accounts overview; false in single-account detail.</summary>
+    [ObservableProperty]
+    private bool isOverview = true;
+
+    [ObservableProperty]
+    private ProviderPulseViewModel selectedAccount = new();
+
+    [RelayCommand]
+    private void OpenAccount(ProviderPulseViewModel? account)
+    {
+        if (account is null)
+        {
+            return;
+        }
+
+        SelectedAccount = account;
+        IsOverview = false;
+    }
+
+    [RelayCommand]
+    private void BackToOverview() => IsOverview = true;
+
+    /// <summary>Called when the widget is (re)opened so it always starts at the overview.</summary>
+    public void ResetToOverview() => IsOverview = true;
 
     [ObservableProperty]
     private bool isRefreshing = true; // Start true to show spinner on initial load
@@ -132,7 +167,14 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     {
         try
         {
-            await _orchestrator.RefreshProviderAsync(SelectedProviderId, CancellationToken.None);
+            if (IsOverview)
+            {
+                await _orchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+            }
+            else
+            {
+                await _orchestrator.RefreshProviderAsync(SelectedAccount.ProviderId, CancellationToken.None);
+            }
         }
         catch
         {
@@ -190,12 +232,13 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                 long totalTodayTokens = 0;
                 decimal totalWeekCost = 0;
                 long totalWeekTokens = 0;
+                var displayNames = CurrentDisplayNames();
                 var today = DateOnly.FromDateTime(DateTime.Now);
                 var weekStart = today.AddDays(-((int)today.DayOfWeek == 0 ? 6 : (int)today.DayOfWeek - 1)); // Monday
 
                 foreach (var (providerId, reading) in value.Providers)
                 {
-                    var displayName = _displayNames.TryGetValue(providerId, out var name) ? name : providerId;
+                    var displayName = displayNames.TryGetValue(providerId, out var name) ? name : providerId;
                     var vm = ProviderPulseViewModel.FromReading(reading, displayName);
 
                     if (providerId.Equals("copilot", StringComparison.OrdinalIgnoreCase) && !IsCopilotEnabled)
@@ -302,8 +345,37 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                 CodexProfiles.Clear();
                 foreach (var profile in codexProfileList) CodexProfiles.Add(profile);
 
+                // Overview order: Claude accounts, Codex accounts, then the rest.
+                static int KindRank(ProviderPulseViewModel vm) => vm.ProviderKind switch
+                {
+                    "claude" => 0,
+                    "codex" => 1,
+                    "zai" => 2,
+                    _ => 3
+                };
+                newProviders.Sort((a, b) =>
+                {
+                    var rank = KindRank(a).CompareTo(KindRank(b));
+                    return rank != 0 ? rank : string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
+                });
+
                 Providers.Clear();
                 foreach (var p in newProviders) Providers.Add(p);
+
+                // Keep the open detail view bound to the refreshed instance of the same account.
+                if (!IsOverview)
+                {
+                    var refreshedSelection = newProviders.FirstOrDefault(p =>
+                        p.ProviderId.Equals(SelectedAccount.ProviderId, StringComparison.OrdinalIgnoreCase));
+                    if (refreshedSelection is not null)
+                    {
+                        SelectedAccount = refreshedSelection;
+                    }
+                    else
+                    {
+                        IsOverview = true; // account was removed in Settings
+                    }
+                }
 
                 ClaudeProfiles.Clear();
                 foreach (var p in claudeProfileList) ClaudeProfiles.Add(p);

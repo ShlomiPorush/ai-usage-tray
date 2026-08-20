@@ -18,7 +18,8 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 ## What it shows
 - Tray icon coloured by the **lowest remaining percentage** across all accounts (green > 50 %, amber 20–50 %, red < 20 %, grey = no data), with the number drawn on the icon.
 - Hover tooltip with a compact summary of every account; optional always-on-top text panel next to the clock (`ShowClockPanel`, off by default).
-- Click the icon (or press `Ctrl+Alt+U`) for the full widget: session and weekly utilisation with reset timers and pace, a selector to switch between the two OpenAI accounts, and per-provider details.
+- Click the icon (or press `Ctrl+Alt+U`) for the widget: it opens on an **overview of every account** (session/weekly bars per account); click an account card for its full detail view (reset timers, pace, model-scoped limits, cost estimates).
+- **Model-scoped limits** reported by Claude (e.g. the Fable weekly limit) are parsed from the usage API and shown per account, and feed the tray icon severity.
 - Daily / 30-day token and cost estimates where the provider exposes them.
 
 ## Install / set up
@@ -34,7 +35,7 @@ iwr -useb https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/scri
 Then follow **[docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md)** for the step-by-step account setup:
 
 1. Out of the box the app monitors the standard `~/.claude` (Claude Code login) and `~/.codex` (Codex CLI login) profiles — if you use both tools, it shows data immediately.
-2. To monitor more accounts, open Settings → Accounts → "+ Claude account" / "+ Codex account", point each at its own profile folder, and sign in with the official CLI inside that folder (`CLAUDE_CONFIG_DIR=<dir> claude` / `CODEX_HOME=<dir> codex login`). Restart to apply.
+2. To monitor more accounts, open Settings → Accounts → "+ Claude account" / "+ Codex account", point each at its own profile folder (a folder-picker is available), and sign in with the official CLI inside that folder (`CLAUDE_CONFIG_DIR=<dir> claude` / `CODEX_HOME=<dir> codex login`). Changes apply immediately — no restart needed.
 3. Optionally add a Z.AI key (`ZAiCodingApiKey` / `ZAiApiKey`) or a Copilot token in Settings.
 
 ## Configuration

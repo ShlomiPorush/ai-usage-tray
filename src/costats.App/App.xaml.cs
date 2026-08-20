@@ -243,27 +243,9 @@ namespace costats.App
                     services.AddSingleton<CopilotUsageFetcher>();
                     services.AddSingleton<ICodexAppServerClient, CodexAppServerClient>();
 
-                    // One signal source per configured account, any mix of Claude and Codex.
-                    foreach (var account in settings.GetEffectiveAccounts())
-                    {
-                        var displayName = MonitoredAccountSettings.NormalizeDisplayName(account.DisplayName, account.Id);
-                        if (account.IsCodex)
-                        {
-                            var profile = new CodexAccountProfile(account.Id, displayName, account.ConfigDir);
-                            services.AddSingleton<ISignalSource>(provider =>
-                                new CodexAppServerSource(
-                                    profile,
-                                    provider.GetRequiredService<ICodexAppServerClient>()));
-                        }
-                        else if (account.IsClaude)
-                        {
-                            var profile = new ClaudeAccountProfile(account.Id, displayName, account.ConfigDir);
-                            services.AddSingleton<ISignalSource>(_ =>
-                                new ClaudeSubscriptionSource(
-                                    profile,
-                                    new ClaudeOAuthUsageFetcher(account.ConfigDir)));
-                        }
-                    }
+                    // Per-account sources live in a registry so Settings edits
+                    // apply at the next refresh without restarting the app.
+                    services.AddSingleton<IAccountSourceRegistry, AccountSourceRegistry>();
 
                     services.AddSingleton<ISignalSource, CopilotPersonalSource>();
                     // Keep multicc discovery available for legacy settings compatibility.
