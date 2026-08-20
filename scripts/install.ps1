@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     One-step installer for AI Usage Tray (fork of costats) (per-user).
 
