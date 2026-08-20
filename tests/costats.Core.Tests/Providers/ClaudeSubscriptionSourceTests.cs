@@ -22,11 +22,11 @@ public sealed class ClaudeSubscriptionSourceTests
             null,
             DateTimeOffset.Parse("2026-08-02T14:00:00Z")));
 
-        var source = new ClaudeSubscriptionSource(client);
+        var source = new ClaudeSubscriptionSource(new ClaudeAccountProfile("claude-1", "Claude", "/tmp/claude"), client);
         var reading = await source.ReadAsync(CancellationToken.None);
 
         Assert.NotNull(reading.Usage);
-        Assert.Equal("claude", reading.Usage!.ProviderId);
+        Assert.Equal("claude:claude-1", reading.Usage!.ProviderId);
         Assert.Equal(23, reading.Usage.SessionUsed);
         Assert.Equal(100, reading.Usage.SessionLimit);
         Assert.Equal(41, reading.Usage.WeekUsed);
@@ -39,12 +39,14 @@ public sealed class ClaudeSubscriptionSourceTests
     [Fact]
     public async Task ReadAsync_does_not_invent_usage_when_subscription_profile_is_not_connected()
     {
-        var source = new ClaudeSubscriptionSource(new FakeClaudeSubscriptionUsageClient(null));
+        var source = new ClaudeSubscriptionSource(
+            new ClaudeAccountProfile("claude-1", "Claude", "/tmp/claude"),
+            new FakeClaudeSubscriptionUsageClient(null));
 
         var reading = await source.ReadAsync(CancellationToken.None);
 
         Assert.Null(reading.Usage);
-        Assert.Equal("Claude subscription is not connected", reading.StatusSummary);
+        Assert.Equal("Claude: Claude subscription is not connected", reading.StatusSummary);
     }
 
     private sealed class FakeClaudeSubscriptionUsageClient(ClaudeOAuthUsageResult? result)

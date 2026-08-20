@@ -59,37 +59,125 @@ public sealed class AppSettings
     public string ZAiDisplayName { get; set; } = "GLM";
 
     /// <summary>
-    /// Dedicated Claude subscription OAuth profile used only by AI Usage Tray.
-    /// Keeping it separate prevents API-billing Claude Code credentials from
-    /// overriding the Claude desktop subscription identity.
+    /// Legacy single Claude profile folder. Superseded by <see cref="Accounts"/>;
+    /// still read so existing settings files keep working.
     /// </summary>
-    public string ClaudeConfigDir { get; set; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-        ".claude-ai-usage-tray");
+    public string? ClaudeConfigDir { get; set; }
 
     /// <summary>
-    /// Two isolated ChatGPT/Codex subscriptions. Each account gets its own CODEX_HOME,
-    /// so Codex owns and refreshes credentials without this app reading tokens.
+    /// Legacy Codex account list. Superseded by <see cref="Accounts"/>;
+    /// still read so existing settings files keep working.
     /// </summary>
-    public List<OpenAiAccountSettings> OpenAiAccounts { get; set; } =
-    [
-        new()
+    public List<OpenAiAccountSettings>? OpenAiAccounts { get; set; }
+
+    /// <summary>
+    /// All monitored accounts (any mix of Claude and Codex, any count). Each
+    /// account points at its own profile folder: CODEX_HOME for Codex accounts,
+    /// CLAUDE_CONFIG_DIR for Claude accounts. Codex owns and refreshes its own
+    /// credentials; this app never reads tokens for Codex accounts.
+    /// </summary>
+    public List<MonitoredAccountSettings>? Accounts { get; set; }
+
+    /// <summary>
+    /// Returns the accounts to monitor, migrating from the legacy
+    /// <see cref="ClaudeConfigDir"/> / <see cref="OpenAiAccounts"/> shape when
+    /// <see cref="Accounts"/> has not been written yet, and falling back to the
+    /// standard <c>~/.claude</c> + <c>~/.codex</c> locations on a fresh install.
+    /// </summary>
+    public IReadOnlyList<MonitoredAccountSettings> GetEffectiveAccounts()
+    {
+        if (Accounts is { Count: > 0 })
         {
-            Id = "openai-1",
-            DisplayName = "OpenAI 1",
-            CodexHome = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".codex-openai-1")
-        },
-        new()
-        {
-            Id = "openai-2",
-            DisplayName = "OpenAI 2",
-            CodexHome = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".codex-openai-2")
+            return Accounts.Where(a => a.IsValid).ToList();
         }
-    ];
+
+        var migrated = new List<MonitoredAccountSettings>();
+
+        if (!string.IsNullOrWhiteSpace(ClaudeConfigDir))
+        {
+            migrated.Add(new MonitoredAccountSettings
+            {
+                Id = "claude-1",
+                Type = MonitoredAccountSettings.ClaudeType,
+                DisplayName = "Claude",
+                ConfigDir = ClaudeConfigDir
+            });
+        }
+
+        if (OpenAiAccounts is { Count: > 0 })
+        {
+            migrated.AddRange(OpenAiAccounts
+                .Where(a => !string.IsNullOrWhiteSpace(a.Id) && !string.IsNullOrWhiteSpace(a.CodexHome))
+                .Select(a => new MonitoredAccountSettings
+                {
+                    Id = a.Id,
+                    Type = MonitoredAccountSettings.CodexType,
+                    DisplayName = string.IsNullOrWhiteSpace(a.DisplayName) ? a.Id : a.DisplayName,
+                    ConfigDir = a.CodexHome
+                }));
+        }
+
+        if (migrated.Count > 0)
+        {
+            return migrated;
+        }
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return
+        [
+            new MonitoredAccountSettings
+            {
+                Id = "claude-1",
+                Type = MonitoredAccountSettings.ClaudeType,
+                DisplayName = "Claude",
+                ConfigDir = Path.Combine(home, ".claude")
+            },
+            new MonitoredAccountSettings
+            {
+                Id = "codex-1",
+                Type = MonitoredAccountSettings.CodexType,
+                DisplayName = "Codex",
+                ConfigDir = Path.Combine(home, ".codex")
+            }
+        ];
+    }
+}
+
+/// <summary>
+/// One monitored account: a provider type plus the local profile folder its
+/// credentials live in.
+/// </summary>
+public sealed class MonitoredAccountSettings
+{
+    public const string ClaudeType = "claude";
+    public const string CodexType = "codex";
+    public const int MaximumDisplayNameLength = 24;
+
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>Either <see cref="ClaudeType"/> or <see cref="CodexType"/>.</summary>
+    public string Type { get; set; } = CodexType;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>CODEX_HOME for Codex accounts, CLAUDE_CONFIG_DIR for Claude accounts.</summary>
+    public string ConfigDir { get; set; } = string.Empty;
+
+    public bool IsClaude => string.Equals(Type, ClaudeType, StringComparison.OrdinalIgnoreCase);
+    public bool IsCodex => string.Equals(Type, CodexType, StringComparison.OrdinalIgnoreCase);
+
+    public bool IsValid =>
+        !string.IsNullOrWhiteSpace(Id) &&
+        (IsClaude || IsCodex) &&
+        !string.IsNullOrWhiteSpace(ConfigDir);
+
+    public static string NormalizeDisplayName(string? value, string fallback)
+    {
+        var normalized = string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+        return normalized.Length <= MaximumDisplayNameLength
+            ? normalized
+            : normalized[..MaximumDisplayNameLength];
+    }
 }
 
 public sealed class OpenAiAccountSettings

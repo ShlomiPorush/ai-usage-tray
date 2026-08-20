@@ -3,9 +3,26 @@ using costats.Core.Pulse;
 
 namespace costats.Infrastructure.Providers;
 
+public sealed record ClaudeAccountProfile(string Id, string DisplayName, string ConfigDir)
+{
+    public string ValidatedId
+    {
+        get
+        {
+            var normalized = Id.Trim().ToLowerInvariant();
+            if (!System.Text.RegularExpressions.Regex.IsMatch(normalized, "^[a-z0-9][a-z0-9-]{0,31}$"))
+            {
+                throw new ArgumentException("Account ID must contain only lowercase letters, numbers, and hyphens.", nameof(Id));
+            }
+
+            return normalized;
+        }
+    }
+}
+
 /// <summary>
-/// Reads account-wide Claude subscription quota through a dedicated OAuth profile.
-/// The profile may be authenticated by Claude Code, but the returned limits belong
+/// Reads account-wide Claude subscription quota through a local OAuth profile
+/// (a CLAUDE_CONFIG_DIR authenticated by Claude Code). The returned limits belong
 /// to the Claude subscription and include usage from the desktop app.
 /// </summary>
 public sealed class ClaudeSubscriptionSource : ISignalSource
@@ -14,12 +31,19 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
     private static readonly TimeSpan WeekDuration = TimeSpan.FromDays(7);
     private readonly IClaudeSubscriptionUsageClient _client;
 
-    public ClaudeSubscriptionSource(IClaudeSubscriptionUsageClient client)
+    public ClaudeSubscriptionSource(ClaudeAccountProfile account, IClaudeSubscriptionUsageClient client)
     {
+        ArgumentNullException.ThrowIfNull(account);
         _client = client ?? throw new ArgumentNullException(nameof(client));
+        if (string.IsNullOrWhiteSpace(account.DisplayName))
+        {
+            throw new ArgumentException("Account display name is required.", nameof(account));
+        }
+
+        Profile = new ProviderProfile($"claude:{account.ValidatedId}", account.DisplayName.Trim(), "#FF7A00");
     }
 
-    public ProviderProfile Profile => ProviderCatalog.Claude;
+    public ProviderProfile Profile { get; }
 
     public async Task<ProviderReading> ReadAsync(CancellationToken cancellationToken)
     {
@@ -30,7 +54,7 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
             return new ProviderReading(
                 null,
                 null,
-                "Claude subscription is not connected",
+                $"{Profile.DisplayName}: Claude subscription is not connected",
                 now,
                 ReadingConfidence.Low,
                 ReadingSource.Api);

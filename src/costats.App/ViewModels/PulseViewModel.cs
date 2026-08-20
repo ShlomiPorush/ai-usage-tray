@@ -102,11 +102,11 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
 
             if (SelectedTabIndex == 1)
             {
-                // For multicc, return the first (worst-case) profile's ID for targeted refresh
+                // For multiple Claude accounts, return the first (worst-case) profile's ID for targeted refresh
                 if (IsMulticcActive && ClaudeProfiles.Count > 0)
                     return ClaudeProfiles[0].ProviderId;
 
-                return "claude";
+                return string.IsNullOrWhiteSpace(Claude.ProviderId) ? "claude" : Claude.ProviderId;
             }
 
             return IsCopilotEnabled ? "copilot" : "codex";
@@ -245,14 +245,18 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                 // Sort claude profiles by session utilization descending (worst-first)
                 claudeProfileList.Sort((a, b) => b.SessionProgress.CompareTo(a.SessionProgress));
 
-                var isMulticc = claudeProfileList.Count > 0;
+                // Single Claude account renders in the normal single-provider view;
+                // the stacked multi panel only appears for two or more accounts.
+                if (claudeProfileList.Count > 0)
+                {
+                    newClaude = claudeProfileList[0]; // worst-case for backward compat
+                }
+                var isMulticc = claudeProfileList.Count > 1;
 
                 // Build summary text
                 var summaryText = string.Empty;
                 if (isMulticc)
                 {
-                    newClaude = claudeProfileList[0]; // worst-case for backward compat
-
                     var total = claudeProfileList.Count;
                     var critical = claudeProfileList.Count(p => p.SessionProgress >= 0.95);
                     var warning = claudeProfileList.Count(p => p.SessionProgress >= 0.80 && p.SessionProgress < 0.95);

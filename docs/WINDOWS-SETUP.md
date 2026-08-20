@@ -1,9 +1,6 @@
 # AI Usage Tray, Windows setup
 
-This custom build shows one system-tray icon for:
-
-- Claude desktop subscription usage through a separate local OAuth profile
-- Two independently authenticated OpenAI accounts
+This build shows one system-tray icon for any number of Claude and OpenAI/Codex accounts. Out of the box it monitors the standard `~/.claude` and `~/.codex` profiles; the steps below show how to add extra isolated accounts. Manage the account list in Settings (right-click the tray icon).
 
 Hovering over the icon shows all available accounts. OpenAI currently exposes a weekly Codex allowance for these accounts, not a five-hour window. The icon colour is based on the lowest remaining percentage across every quota window actually returned by a provider:
 

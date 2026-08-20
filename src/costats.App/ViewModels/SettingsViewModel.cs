@@ -49,13 +49,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         refreshMinutes = settings.RefreshMinutes;
         startAtLogin = GetStartupRegistryValue();
 
-        EnsureOpenAiAccounts();
-        openAiAccount1Name = OpenAiAccountSettings.NormalizeDisplayName(
-            settings.OpenAiAccounts[0].DisplayName,
-            "OpenAI 1");
-        openAiAccount2Name = OpenAiAccountSettings.NormalizeDisplayName(
-            settings.OpenAiAccounts[1].DisplayName,
-            "OpenAI 2");
+        foreach (var account in settings.GetEffectiveAccounts())
+        {
+            AttachAccountRow(new AccountEditorViewModel(account));
+        }
 
         multiccDetected = _multiccDiscovery?.IsDetected ?? false;
         multiccEnabled = settings.MulticcEnabled;
@@ -73,14 +70,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool startAtLogin;
 
-    [ObservableProperty]
-    private string openAiAccount1Name = "OpenAI 1";
+    public System.Collections.ObjectModel.ObservableCollection<AccountEditorViewModel> Accounts { get; } = new();
 
     [ObservableProperty]
-    private string openAiAccount2Name = "OpenAI 2";
-
-    [ObservableProperty]
-    private string openAiNamesRestartMessage = string.Empty;
+    private string accountsRestartMessage = string.Empty;
 
     [ObservableProperty]
     private bool isCheckingForUpdates;
@@ -117,8 +110,6 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool isCopilotTokenBusy;
-
-    public string ClaudeConfigDir => _settings.ClaudeConfigDir;
 
     public bool IsMulticcAllProfiles => MulticcSelectedProfile is null;
 
@@ -166,33 +157,67 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ = SaveSettingsAsync();
     }
 
-    partial void OnOpenAiAccount1NameChanged(string value)
-    {
-        SaveOpenAiAccountName(0, value, "OpenAI 1", name => openAiAccount1Name = name, nameof(OpenAiAccount1Name));
-    }
+    [RelayCommand]
+    private void AddClaudeAccount() => AddAccount(MonitoredAccountSettings.ClaudeType, ".claude");
 
-    partial void OnOpenAiAccount2NameChanged(string value)
-    {
-        SaveOpenAiAccountName(1, value, "OpenAI 2", name => openAiAccount2Name = name, nameof(OpenAiAccount2Name));
-    }
+    [RelayCommand]
+    private void AddCodexAccount() => AddAccount(MonitoredAccountSettings.CodexType, ".codex");
 
-    private void SaveOpenAiAccountName(
-        int index,
-        string value,
-        string fallback,
-        Action<string> updateBackingField,
-        string propertyName)
+    private void AddAccount(string type, string defaultFolder)
     {
-        EnsureOpenAiAccounts();
-        var normalized = OpenAiAccountSettings.NormalizeDisplayName(value, fallback);
-        if (!string.Equals(value, normalized, StringComparison.Ordinal))
+        var id = NextAccountId(type);
+        var isFirstOfType = !Accounts.Any(a => string.Equals(a.Type, type, StringComparison.OrdinalIgnoreCase));
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        AttachAccountRow(new AccountEditorViewModel(new MonitoredAccountSettings
         {
-            updateBackingField(normalized);
-            OnPropertyChanged(propertyName);
+            Id = id,
+            Type = type,
+            DisplayName = MonitoredAccountSettings.NormalizeDisplayName(null, id),
+            // The default profile folder only fits the first account of each type;
+            // additional accounts need their own isolated folder.
+            ConfigDir = isFirstOfType ? Path.Combine(home, defaultFolder) : Path.Combine(home, $"{defaultFolder}-{id}")
+        }));
+        SaveAccounts();
+    }
+
+    private void AttachAccountRow(AccountEditorViewModel row)
+    {
+        row.Saved += (_, _) => SaveAccounts();
+        Accounts.Add(row);
+    }
+
+    private string NextAccountId(string type)
+    {
+        for (var index = 1; ; index++)
+        {
+            var candidate = $"{type}-{index}";
+            if (!Accounts.Any(a => string.Equals(a.Id, candidate, StringComparison.OrdinalIgnoreCase)))
+            {
+                return candidate;
+            }
+        }
+    }
+
+    [RelayCommand]
+    private void RemoveAccount(AccountEditorViewModel? account)
+    {
+        if (account is null)
+        {
+            return;
         }
 
-        _settings.OpenAiAccounts[index].DisplayName = normalized;
-        OpenAiNamesRestartMessage = "Names saved. Restart AI Usage Tray to apply them.";
+        Accounts.Remove(account);
+        SaveAccounts();
+    }
+
+    /// <summary>Persists the current editor rows into settings. Called by row edits too.</summary>
+    public void SaveAccounts()
+    {
+        _settings.Accounts = Accounts
+            .Select(a => a.ToSettings())
+            .Where(a => a.IsValid)
+            .ToList();
+        AccountsRestartMessage = "Accounts saved. Restart AI Usage Tray to apply.";
         _ = SaveSettingsAsync();
     }
 
@@ -361,22 +386,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    private void EnsureOpenAiAccounts()
-    {
-        _settings.OpenAiAccounts ??= [];
-        while (_settings.OpenAiAccounts.Count < 2)
-        {
-            var index = _settings.OpenAiAccounts.Count + 1;
-            _settings.OpenAiAccounts.Add(new OpenAiAccountSettings
-            {
-                Id = $"openai-{index}",
-                DisplayName = $"OpenAI {index}",
-                CodexHome = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    $".codex-openai-{index}")
-            });
-        }
-    }
 
     private async Task SaveSettingsAsync()
     {

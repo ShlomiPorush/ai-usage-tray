@@ -19,32 +19,49 @@ public sealed class OpenAiAccountSettingsTests
     }
 
     [Fact]
-    public void Claude_subscription_profile_uses_an_isolated_config_directory()
+    public void Accounts_round_trip_through_json_without_losing_identity()
     {
-        var settings = new AppSettings();
-
-        Assert.EndsWith(".claude-ai-usage-tray", settings.ClaudeConfigDir, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain(Path.Combine(".claude", ".credentials.json"), settings.ClaudeConfigDir, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void Custom_names_round_trip_without_changing_account_identity_or_home()
-    {
-        var settings = new AppSettings();
-        var firstHome = settings.OpenAiAccounts[0].CodexHome;
-        var secondHome = settings.OpenAiAccounts[1].CodexHome;
-        settings.OpenAiAccounts[0].DisplayName = "PA";
-        settings.OpenAiAccounts[1].DisplayName = "GPT";
+        var settings = new AppSettings
+        {
+            Accounts =
+            [
+                new MonitoredAccountSettings { Id = "claude-1", Type = "claude", DisplayName = "Claude", ConfigDir = "/home/u/.claude" },
+                new MonitoredAccountSettings { Id = "codex-1", Type = "codex", DisplayName = "PA", ConfigDir = "/home/u/.codex" },
+                new MonitoredAccountSettings { Id = "codex-2", Type = "codex", DisplayName = "GPT", ConfigDir = "/home/u/.codex-2" }
+            ]
+        };
 
         var json = JsonSerializer.Serialize(settings);
         var restored = JsonSerializer.Deserialize<AppSettings>(json)!;
+        var accounts = restored.GetEffectiveAccounts();
 
-        Assert.Equal("PA", restored.OpenAiAccounts[0].DisplayName);
-        Assert.Equal("GPT", restored.OpenAiAccounts[1].DisplayName);
-        Assert.Equal("openai-1", restored.OpenAiAccounts[0].Id);
-        Assert.Equal("openai-2", restored.OpenAiAccounts[1].Id);
-        Assert.Equal(firstHome, restored.OpenAiAccounts[0].CodexHome);
-        Assert.Equal(secondHome, restored.OpenAiAccounts[1].CodexHome);
+        Assert.Equal(3, accounts.Count);
+        Assert.Equal("claude-1", accounts[0].Id);
+        Assert.Equal("PA", accounts[1].DisplayName);
+        Assert.Equal("/home/u/.codex-2", accounts[2].ConfigDir);
+    }
+
+    [Fact]
+    public void Legacy_settings_json_still_deserializes()
+    {
+        const string legacyJson = """
+        {
+            "RefreshMinutes": 5,
+            "ClaudeConfigDir": "/home/u/.claude-ai-usage-tray",
+            "OpenAiAccounts": [
+                { "Id": "openai-1", "DisplayName": "PA", "CodexHome": "/home/u/.codex-openai-1" }
+            ]
+        }
+        """;
+
+        var restored = JsonSerializer.Deserialize<AppSettings>(legacyJson)!;
+        var accounts = restored.GetEffectiveAccounts();
+
+        Assert.Equal(2, accounts.Count);
+        Assert.True(accounts[0].IsClaude);
+        Assert.Equal("/home/u/.claude-ai-usage-tray", accounts[0].ConfigDir);
+        Assert.True(accounts[1].IsCodex);
+        Assert.Equal("/home/u/.codex-openai-1", accounts[1].ConfigDir);
     }
 
     [Fact]

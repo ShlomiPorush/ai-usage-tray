@@ -2,8 +2,8 @@
 
 A lightweight Windows tray app that shows, behind **one icon**, the live quota of several AI coding subscriptions:
 
-- **Claude** subscription (5-hour and weekly windows) via an isolated OAuth profile
-- **Two independent OpenAI / ChatGPT Codex accounts**, each with its own `CODEX_HOME`
+- **Any number of Claude subscriptions** (5-hour and weekly windows), each via its own local OAuth profile
+- **Any number of OpenAI / ChatGPT Codex accounts**, each with its own `CODEX_HOME`
 - **Z.AI / GLM** coding plan (optional, API key)
 - **GitHub Copilot** (optional, experimental, personal access token)
 
@@ -33,10 +33,9 @@ iwr -useb https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/scri
 
 Then follow **[docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md)** for the step-by-step account setup:
 
-1. Install the official Codex CLI and sign in to each OpenAI account with its own `CODEX_HOME` (`~/.codex-openai-1`, `~/.codex-openai-2`).
-2. Create the isolated Claude profile (`~/.claude-ai-usage-tray`) and sign in with Claude Code.
+1. Out of the box the app monitors the standard `~/.claude` (Claude Code login) and `~/.codex` (Codex CLI login) profiles — if you use both tools, it shows data immediately.
+2. To monitor more accounts, open Settings → Accounts → "+ Claude account" / "+ Codex account", point each at its own profile folder, and sign in with the official CLI inside that folder (`CLAUDE_CONFIG_DIR=<dir> claude` / `CODEX_HOME=<dir> codex login`). Restart to apply.
 3. Optionally add a Z.AI key (`ZAiCodingApiKey` / `ZAiApiKey`) or a Copilot token in Settings.
-4. Run `AIUsageTray.exe`; right-click the tray icon for Settings (account names, refresh interval, hotkey, start at login).
 
 ## Configuration
 Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from upstream so existing installs keep working).
@@ -46,8 +45,7 @@ Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from up
 | `RefreshMinutes` | `5` | Background polling interval |
 | `Hotkey` | `Ctrl+Alt+U` | Toggle the widget |
 | `StartAtLogin` | `false` | Registers `AiUsageTray` in the Run key |
-| `OpenAiAccounts[]` | `openai-1`, `openai-2` | `Id`, `DisplayName`, `CodexHome` per account |
-| `ClaudeConfigDir` | `~/.claude-ai-usage-tray` | Isolated Claude OAuth profile |
+| `Accounts[]` | one Claude (`~/.claude`) + one Codex (`~/.codex`) | Any mix of accounts: `Id`, `Type` (`claude`/`codex`), `DisplayName`, `ConfigDir`. Editable in Settings (add/remove). Legacy `OpenAiAccounts`/`ClaudeConfigDir` settings are migrated automatically. |
 | `ZAiCodingApiKey` / `ZAiApiKey` | empty | Z.AI coding-plan / pay-as-you-go keys |
 | `ShowClockPanel` | `false` | Always-on-top status text next to the clock |
 | `CopilotEnabled` | `false` | Enable the Copilot provider |
@@ -66,8 +64,8 @@ Compared with `fmdz387/costats` v1.4.6 (the fork point):
 
 | Area | costats (upstream) | AI Usage Tray (this fork) |
 |---|---|---|
-| OpenAI / Codex | One account, reads `~/.codex/auth.json` + OAuth endpoint, log-based estimates | **Two accounts** via `codex app-server`, separate `CODEX_HOME`s, account selector, editable names |
-| Claude | Claude Code usage from local logs; multiple profiles only through the external `multicc` tool | **One Claude subscription** through a dedicated OAuth profile (`ClaudeSubscriptionSource`); multicc kept only for settings compatibility |
+| OpenAI / Codex | One account, reads `~/.codex/auth.json` + OAuth endpoint, log-based estimates | **Any number of accounts** via `codex app-server`, separate `CODEX_HOME`s, account selector, editable in Settings |
+| Claude | Claude Code usage from local logs; multiple profiles only through the external `multicc` tool | **Any number of Claude subscriptions** through per-account OAuth profiles (`ClaudeSubscriptionSource`); stacked panel when more than one |
 | Z.AI / GLM | — | New provider (`ZaiUsageSource`) |
 | Tray icon | Static icon | Dynamic icon: colour by severity + remaining % number; `TrayStatusComposer`; optional clock-side panel |
 | Tests | none | `tests/costats.Core.Tests` (xunit) covering the new sources, parsers and tray composer |

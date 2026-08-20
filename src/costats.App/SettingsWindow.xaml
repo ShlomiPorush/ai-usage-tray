@@ -181,36 +181,55 @@
                 <!-- Divider -->
                 <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,16,0,16" />
 
-                <!-- OpenAI account names -->
-                <TextBlock Text="OPENAI ACCOUNTS" FontSize="10" FontWeight="SemiBold"
+                <!-- Monitored accounts -->
+                <TextBlock Text="ACCOUNTS" FontSize="10" FontWeight="SemiBold"
                            Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,12" />
+                <TextBlock Text="Each account points at the local profile folder its login lives in (CLAUDE_CONFIG_DIR for Claude, CODEX_HOME for Codex). Sign in with the official CLI inside that folder; this app never stores provider passwords."
+                           FontSize="11" Foreground="{StaticResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,0,0,10" />
 
-                <TextBlock Text="Account 1 name" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" />
-                <TextBox Text="{Binding OpenAiAccount1Name, UpdateSourceTrigger=LostFocus}"
-                         MaxLength="24" Style="{StaticResource SettingsTextBox}" Margin="0,6,0,10" />
+                <ItemsControl ItemsSource="{Binding Accounts}" Focusable="False">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{StaticResource DividerBrush}" BorderThickness="1"
+                                    CornerRadius="8" Padding="10" Margin="0,0,0,8" Background="#66FFFFFF">
+                                <StackPanel>
+                                    <DockPanel Margin="0,0,0,6">
+                                        <Border DockPanel.Dock="Left" CornerRadius="4" Padding="6,2" VerticalAlignment="Center"
+                                                Background="#1A6366F1">
+                                            <TextBlock Text="{Binding TypeLabel}" FontSize="10" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource TextSecondaryBrush}" />
+                                        </Border>
+                                        <Button Content="Remove" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                                Padding="8,3" FontSize="10"
+                                                Command="{Binding DataContext.RemoveAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                CommandParameter="{Binding}"
+                                                Style="{StaticResource SettingsButton}" />
+                                        <TextBlock Text="{Binding Id}" FontSize="10" Foreground="{StaticResource TextFaintBrush}"
+                                                   VerticalAlignment="Center" Margin="8,0,0,0" />
+                                    </DockPanel>
 
-                <TextBlock Text="Account 2 name" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" />
-                <TextBox Text="{Binding OpenAiAccount2Name, UpdateSourceTrigger=LostFocus}"
-                         MaxLength="24" Style="{StaticResource SettingsTextBox}" Margin="0,6,0,6" />
+                                    <TextBlock Text="Display name" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" />
+                                    <TextBox Text="{Binding DisplayName, UpdateSourceTrigger=LostFocus}"
+                                             MaxLength="24" Style="{StaticResource SettingsTextBox}" Margin="0,4,0,8" />
 
-                <TextBlock Text="Examples: PA and GPT. Names appear in the account selector and tray tooltip after restart."
-                           FontSize="11" Foreground="{StaticResource TextFaintBrush}" TextWrapping="Wrap" />
-                <TextBlock Text="{Binding OpenAiNamesRestartMessage}" FontSize="11" Foreground="#F97316" Margin="0,8,0,0"
-                           Visibility="{Binding OpenAiNamesRestartMessage, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                                    <TextBlock Text="{Binding ConfigDirLabel}" FontSize="11" Foreground="{StaticResource TextPrimaryBrush}" />
+                                    <TextBox Text="{Binding ConfigDir, UpdateSourceTrigger=LostFocus}"
+                                             Style="{StaticResource SettingsTextBox}" FontFamily="Consolas" FontSize="10" Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
 
-                <!-- Divider -->
-                <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,16,0,16" />
+                <DockPanel Margin="0,4,0,0">
+                    <Button Content="+ Claude account" Command="{Binding AddClaudeAccountCommand}"
+                            Style="{StaticResource SettingsButton}" DockPanel.Dock="Left" />
+                    <Button Content="+ Codex account" Command="{Binding AddCodexAccountCommand}"
+                            Style="{StaticResource SettingsButton}" DockPanel.Dock="Right" HorizontalAlignment="Right" />
+                </DockPanel>
 
-                <!-- Claude subscription Section -->
-                <TextBlock Text="CLAUDE SUBSCRIPTION" FontSize="10" FontWeight="SemiBold"
-                           Foreground="{StaticResource TextMutedBrush}" Margin="0,0,0,12" />
-                <TextBlock Text="AI Usage Tray uses a separate local Claude login to read the account-wide session and weekly limits shown by the Claude desktop app."
-                           FontSize="11" Foreground="{StaticResource TextFaintBrush}" TextWrapping="Wrap" />
-                <TextBlock Text="Profile folder" FontSize="12" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,10,0,4" />
-                <TextBox Text="{Binding ClaudeConfigDir, Mode=OneWay}" IsReadOnly="True"
-                         Style="{StaticResource SettingsTextBox}" FontFamily="Consolas" FontSize="10" />
-                <TextBlock Text="Complete the one-time subscription login described in README, then restart AI Usage Tray. No Claude desktop cookies are read."
-                           FontSize="11" Foreground="{StaticResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,8,0,0" />
+                <TextBlock Text="{Binding AccountsRestartMessage}" FontSize="11" Foreground="#F97316" Margin="0,8,0,0"
+                           Visibility="{Binding AccountsRestartMessage, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
 
                 <!-- Divider -->
                 <Border Height="1" Background="{StaticResource DividerBrush}" Margin="0,16,0,16" />

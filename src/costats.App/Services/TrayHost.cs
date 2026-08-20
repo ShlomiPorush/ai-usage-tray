@@ -210,6 +210,7 @@ namespace costats.App.Services
                 .Where(pair =>
                     pair.Key.Equals("claude", StringComparison.OrdinalIgnoreCase) ||
                     pair.Key.Equals("zai", StringComparison.OrdinalIgnoreCase) ||
+                    pair.Key.StartsWith("claude:", StringComparison.OrdinalIgnoreCase) ||
                     pair.Key.StartsWith("codex:", StringComparison.OrdinalIgnoreCase))
                 .Select(pair =>
                 {
@@ -222,7 +223,6 @@ namespace costats.App.Services
                 })
                 .OrderBy(account => account.Label.StartsWith("Claude", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                 .ThenBy(account => account.Label, StringComparer.OrdinalIgnoreCase)
-                .Take(3)
                 .ToArray();
 
             var status = TrayStatusComposer.Compose(accounts, DateTimeOffset.UtcNow);

@@ -242,32 +242,36 @@ namespace costats.App
                     services.AddSingleton<ISourceSelector, SourceSelector>();
                     services.AddSingleton<CopilotUsageFetcher>();
                     services.AddSingleton<ICodexAppServerClient, CodexAppServerClient>();
-                    foreach (var account in settings.OpenAiAccounts.Take(2))
-                    {
-                        if (string.IsNullOrWhiteSpace(account.Id) ||
-                            string.IsNullOrWhiteSpace(account.DisplayName) ||
-                            string.IsNullOrWhiteSpace(account.CodexHome))
-                        {
-                            continue;
-                        }
 
-                        var profile = new CodexAccountProfile(account.Id, account.DisplayName, account.CodexHome);
-                        services.AddSingleton<ISignalSource>(provider =>
-                            new CodexAppServerSource(
-                                profile,
-                                provider.GetRequiredService<ICodexAppServerClient>()));
+                    // One signal source per configured account, any mix of Claude and Codex.
+                    foreach (var account in settings.GetEffectiveAccounts())
+                    {
+                        var displayName = MonitoredAccountSettings.NormalizeDisplayName(account.DisplayName, account.Id);
+                        if (account.IsCodex)
+                        {
+                            var profile = new CodexAccountProfile(account.Id, displayName, account.ConfigDir);
+                            services.AddSingleton<ISignalSource>(provider =>
+                                new CodexAppServerSource(
+                                    profile,
+                                    provider.GetRequiredService<ICodexAppServerClient>()));
+                        }
+                        else if (account.IsClaude)
+                        {
+                            var profile = new ClaudeAccountProfile(account.Id, displayName, account.ConfigDir);
+                            services.AddSingleton<ISignalSource>(_ =>
+                                new ClaudeSubscriptionSource(
+                                    profile,
+                                    new ClaudeOAuthUsageFetcher(account.ConfigDir)));
+                        }
                     }
+
                     services.AddSingleton<ISignalSource, CopilotPersonalSource>();
-                    services.AddSingleton<IClaudeSubscriptionUsageClient>(
-                        new ClaudeOAuthUsageFetcher(settings.ClaudeConfigDir));
-                    // Keep discovery available for legacy settings compatibility, but this
-                    // private build always monitors the single Claude desktop subscription.
+                    // Keep multicc discovery available for legacy settings compatibility.
                     services.AddSingleton<MulticcConfigReader>();
                     var tempReader = new MulticcConfigReader(
                         Microsoft.Extensions.Logging.Abstractions.NullLogger<MulticcConfigReader>.Instance);
                     services.AddSingleton<IMulticcDiscovery>(
                         new MulticcDiscoveryService(tempReader, settings.MulticcConfigPath));
-                    services.AddSingleton<ISignalSource, ClaudeSubscriptionSource>();
 
                     // Z.AI / GLM coding-plan monitor (Bearer-token auth).
                     services.AddSingleton<IZaiUsageClient>(_ => new ZaiUsageFetcher());
