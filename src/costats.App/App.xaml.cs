@@ -117,6 +117,7 @@ namespace costats.App
                     };
                     var tray = InitializeHost(settingsStore, settings);
                     LogFireAndForget(StartListenerAsync(tray), "SingleInstanceListener");
+                    MaybeCaptureScreenshot(tray);
                 });
 
                 if (_updateCoordinator is not null)
@@ -139,6 +140,47 @@ namespace costats.App
                     MessageBoxImage.Error);
                 Shutdown(1);
             }
+        }
+
+        /// <summary>
+        /// Dev/docs helper: "--screenshot &lt;path&gt;" opens the widget, waits for
+        /// the first refresh, renders it to a PNG and exits.
+        /// </summary>
+        private void MaybeCaptureScreenshot(TrayHost tray)
+        {
+            var args = Environment.GetCommandLineArgs();
+            var index = Array.IndexOf(args, "--screenshot");
+            if (index < 0 || index + 1 >= args.Length)
+            {
+                return;
+            }
+
+            var path = args[index + 1];
+            _ = Dispatcher.InvokeAsync(async () =>
+            {
+                tray.ShowWidget();
+                await Task.Delay(TimeSpan.FromSeconds(15));
+                try
+                {
+                    var window = _host!.Services.GetRequiredService<GlassWidgetWindow>();
+                    var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                        (int)Math.Ceiling(window.ActualWidth * 2),
+                        (int)Math.Ceiling(window.ActualHeight * 2),
+                        192, 192,
+                        System.Windows.Media.PixelFormats.Pbgra32);
+                    bitmap.Render(window);
+                    var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                    encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+                    using var stream = File.Create(path);
+                    encoder.Save(stream);
+                    Log.Information("Screenshot saved to {Path}", path);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Screenshot capture failed");
+                }
+                Shutdown(0);
+            });
         }
 
         private static IConfiguration BuildStartupConfiguration()

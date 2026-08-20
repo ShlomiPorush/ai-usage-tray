@@ -46,7 +46,14 @@ public sealed record AccountUsageStatus(
 public sealed record TrayStatus(
     double? LowestRemainingPercent,
     TraySeverity Severity,
-    string Tooltip);
+    string Tooltip)
+{
+    /// <summary>
+    /// Untruncated tooltip. <see cref="Tooltip"/> is capped at the classic
+    /// shell 127-character limit; custom WPF tray tooltips can show this one.
+    /// </summary>
+    public string FullTooltip { get; init; } = string.Empty;
+}
 
 public static class TrayStatusComposer
 {
@@ -73,13 +80,12 @@ public static class TrayStatusComposer
             _ => TraySeverity.Green
         };
 
-        var tooltip = string.Join('\n', materialized.Select(account => FormatAccount(account, now)));
-        if (tooltip.Length > MaximumTooltipLength)
-        {
-            tooltip = tooltip[..MaximumTooltipLength];
-        }
+        var fullTooltip = string.Join('\n', materialized.Select(account => FormatAccount(account, now)));
+        var tooltip = fullTooltip.Length > MaximumTooltipLength
+            ? fullTooltip[..MaximumTooltipLength]
+            : fullTooltip;
 
-        return new TrayStatus(lowest, severity, tooltip);
+        return new TrayStatus(lowest, severity, tooltip) { FullTooltip = fullTooltip };
     }
 
     private static string FormatAccount(AccountUsageStatus account, DateTimeOffset now)

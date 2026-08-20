@@ -24,17 +24,6 @@
     <Window.Resources>
 
 
-        <!-- ComboBox Style -->
-        <Style x:Key="SettingsComboBox" TargetType="ComboBox">
-            <Setter Property="Background" Value="{DynamicResource InputBgBrush}" />
-            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
-            <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="12,8" />
-            <Setter Property="FontSize" Value="12" />
-            <Setter Property="Cursor" Value="Hand" />
-        </Style>
-
         <Style x:Key="SettingsTextBox" TargetType="TextBox">
             <Setter Property="Background" Value="{DynamicResource InputBgBrush}" />
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
@@ -132,7 +121,7 @@
             <Border Grid.Row="1" Height="1" Background="{DynamicResource DividerBrush}" Margin="0,0,0,16" />
 
             <!-- Settings Content -->
-            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="560">
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="640">
             <StackPanel>
 
                 <!-- System Section -->
@@ -157,7 +146,6 @@
                                VerticalAlignment="Center" />
                     <ComboBox ItemsSource="{Binding ThemeOptions}"
                               SelectedItem="{Binding SelectedTheme}"
-                              Style="{StaticResource SettingsComboBox}"
                               DockPanel.Dock="Right" HorizontalAlignment="Right" Width="140" />
                 </DockPanel>
                 <TextBlock Text="Follow system tracks the Windows app theme; Light and Dark are fixed."
@@ -176,7 +164,6 @@
                                VerticalAlignment="Center" />
                     <ComboBox ItemsSource="{Binding RefreshOptions}"
                               SelectedItem="{Binding SelectedRefreshOption}"
-                              Style="{StaticResource SettingsComboBox}"
                               DockPanel.Dock="Right" HorizontalAlignment="Right" Width="120" />
                 </DockPanel>
                 <TextBlock Text="How often AI Usage Tray polls for usage data in the background."

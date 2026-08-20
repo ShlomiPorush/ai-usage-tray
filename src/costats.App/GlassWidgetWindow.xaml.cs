@@ -68,20 +68,10 @@ namespace costats.App
 
         private void UpdateWindowHeight()
         {
-            // Defer to Loaded priority so the height change renders in the same frame
-            // as panel visibility changes from MultiDataTrigger bindings.
-            // Without this, the window resizes before panels swap, causing a visible flash.
-            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
-            {
-                var vm = DataContext as PulseViewModel;
-                if (vm is null) return;
-
-                var targetHeight = (vm.IsMulticcActive && vm.SelectedTabIndex == 1) ? 720.0 : 580.0;
-                if (Math.Abs(Height - targetHeight) > 1.0)
-                {
-                    Height = targetHeight;
-                }
-            });
+            // The window sizes to its content (all account cards visible); the
+            // work area caps it so it never grows past the screen, at which
+            // point the overview scrolls.
+            MaxHeight = SystemParameters.WorkArea.Height - 24;
         }
 
         private void OnQuitClick(object sender, RoutedEventArgs e)

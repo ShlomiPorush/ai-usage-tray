@@ -5,7 +5,7 @@
         xmlns:views="clr-namespace:costats.App.Views"
         Title="costats"
         Width="360"
-        Height="580"
+        SizeToContent="Height"
         WindowStyle="None"
         ResizeMode="NoResize"
         ShowInTaskbar="False"

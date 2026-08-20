@@ -29,6 +29,7 @@ namespace costats.App.Services
         private readonly IEnumerable<ISignalSource> _staticSources;
         private readonly IAccountSourceRegistry _accountSources;
         private Icon _currentIcon;
+        private System.Windows.Controls.TextBlock _tooltipText = null!;
         private TrayStatus? _lastAppliedStatus;
         private readonly AppSettings _settings;
 
@@ -57,6 +58,25 @@ namespace costats.App.Services
             _taskbarIcon = new TaskbarIcon();
             _taskbarIcon.Icon = _currentIcon;
             _taskbarIcon.ToolTipText = "AI usage is loading";
+            _tooltipText = new System.Windows.Controls.TextBlock
+            {
+                FontSize = 12,
+                LineHeight = 18
+            };
+            _tooltipText.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "TextPrimaryBrush");
+            var tooltipBorder = new System.Windows.Controls.Border
+            {
+                CornerRadius = new CornerRadius(8),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(12, 8, 12, 8),
+                Child = _tooltipText
+            };
+            tooltipBorder.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, "PanelBgBrush");
+            tooltipBorder.SetResourceReference(System.Windows.Controls.Border.BorderBrushProperty, "WindowBorderBrush");
+            _tooltipText.Text = "AI usage is loading";
+            // Custom WPF tooltip: not subject to the shell's 127-character cap,
+            // so every account fits.
+            _taskbarIcon.TrayToolTip = tooltipBorder;
             _taskbarIcon.ContextMenu = BuildContextMenu();
             _taskbarIcon.TrayLeftMouseUp += OnTrayLeftClick;
             _taskbarIcon.ForceCreate(enablesEfficiencyMode: false);
@@ -242,10 +262,13 @@ namespace costats.App.Services
                     ? AccountUsageStatus.FromUsagePulse(label, primaryUsage)
                     : new AccountUsageStatus(label, null, null, null, null);
                 var primaryStatus = TrayStatusComposer.Compose([primaryAccount], DateTimeOffset.UtcNow);
-                var orderedTooltip = TrayStatusComposer.Compose(
+                var ordered = TrayStatusComposer.Compose(
                     accounts.OrderBy(a => a.Label.Equals(label, StringComparison.OrdinalIgnoreCase) ? 0 : 1).ToArray(),
-                    DateTimeOffset.UtcNow).Tooltip;
-                status = new TrayStatus(primaryStatus.LowestRemainingPercent, primaryStatus.Severity, orderedTooltip);
+                    DateTimeOffset.UtcNow);
+                status = new TrayStatus(primaryStatus.LowestRemainingPercent, primaryStatus.Severity, ordered.Tooltip)
+                {
+                    FullTooltip = ordered.FullTooltip
+                };
             }
             var dispatcher = System.Windows.Application.Current?.Dispatcher;
             if (dispatcher is null)
@@ -270,6 +293,9 @@ namespace costats.App.Services
             _taskbarIcon.ToolTipText = string.IsNullOrWhiteSpace(status.Tooltip)
                 ? "No AI usage data available"
                 : status.Tooltip;
+            _tooltipText.Text = string.IsNullOrWhiteSpace(status.FullTooltip)
+                ? "No AI usage data available"
+                : status.FullTooltip;
 
             // Only redraw the icon when the severity or percent actually changed,
             // so the tray isn't constantly invalidated every refresh.

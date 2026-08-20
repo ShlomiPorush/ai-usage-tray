@@ -12,15 +12,20 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 > See [What's different from upstream](#whats-different-from-upstream) and [Credits & license](#credits--license).
 
 <p align="center">
-  <img src="assets/image.png" alt="widget screenshot" width="360" />
+  <img src="assets/dark-mode.png" alt="widget, dark mode" width="330" />
+  <img src="assets/light-mode.png" alt="widget, light mode" width="330" />
 </p>
 
-## What it shows
-- Tray icon coloured by the **lowest remaining percentage** across all accounts (green > 50 %, amber 20–50 %, red < 20 %, grey = no data), with the number drawn on the icon.
-- Hover tooltip with a compact summary of every account; optional always-on-top text panel next to the clock (`ShowClockPanel`, off by default).
-- Click the icon (or press `Ctrl+Alt+U`) for the widget: it opens on an **overview of every account** (session/weekly bars per account); click an account card for its full detail view (reset timers, pace, model-scoped limits, cost estimates).
-- **Model-scoped limits** reported by Claude (e.g. the Fable weekly limit) are parsed from the usage API and shown per account, and feed the tray icon severity.
-- Daily / 30-day token and cost estimates where the provider exposes them.
+## Features
+- Tray icon shows the remaining percentage as a number, coloured green/amber/red; hover for a tooltip listing every account.
+- The widget (click the icon or `Ctrl+Alt+U`) opens on an overview of all accounts, sized to fit them; click a card for details.
+- Model-scoped limits reported by Claude (e.g. the Fable weekly limit) shown per account.
+- Plan chips (Max, Plus, Pro Lite...) for Claude and Codex accounts.
+- Optional primary account (star in Settings): drives the tray icon and is pinned to the top of the overview.
+- Light/dark theme, following the Windows theme by default.
+- Accounts managed in Settings via an add/edit dialog per provider; changes apply without restarting.
+- Optional reset countdowns on the overview cards; daily / 30-day cost estimates where available.
+- Self-update from this repository's releases.
 
 ## Install / set up
 **One-step PowerShell** (downloads the latest [release](https://github.com/ShlomiPorush/ai-usage-tray/releases/latest), installs per-user to `%LOCALAPPDATA%\AIUsageTray\app`, adds a Start Menu shortcut):
@@ -50,6 +55,9 @@ Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from up
 | `ZAiCodingApiKey` / `ZAiApiKey` | empty | Z.AI coding-plan / pay-as-you-go keys |
 | `ShowClockPanel` | `false` | Always-on-top status text next to the clock |
 | `CopilotEnabled` | `false` | Enable the Copilot provider |
+| `Theme` | `system` | `system` / `light` / `dark` |
+| `PrimaryAccountId` | empty | Provider id whose status drives the tray icon |
+| `ShowOverviewResetTimes` | `false` | Reset countdowns on overview cards |
 
 `appsettings.json` (`Costats:Update`) controls the self-updater. It is **disabled** in this fork and points at `ShlomiPorush/ai-usage-tray`; enable it only once this repository publishes releases.
 
