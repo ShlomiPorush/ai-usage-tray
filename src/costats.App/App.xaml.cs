@@ -106,6 +106,15 @@ namespace costats.App
 
                 await Dispatcher.InvokeAsync(() =>
                 {
+                    ThemeService.Apply(settings.Theme);
+                    Microsoft.Win32.SystemEvents.UserPreferenceChanged += (_, args) =>
+                    {
+                        if (args.Category == Microsoft.Win32.UserPreferenceCategory.General &&
+                            string.Equals(settings.Theme, ThemeService.SystemTheme, StringComparison.OrdinalIgnoreCase))
+                        {
+                            Dispatcher.BeginInvoke(() => ThemeService.Apply(settings.Theme));
+                        }
+                    };
                     var tray = InitializeHost(settingsStore, settings);
                     LogFireAndForget(StartListenerAsync(tray), "SingleInstanceListener");
                 });

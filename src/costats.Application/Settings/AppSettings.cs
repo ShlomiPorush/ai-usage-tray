@@ -42,6 +42,19 @@ public sealed class AppSettings
     /// </summary>
     public bool ShowOverviewResetTimes { get; set; } = false;
 
+    /// <summary>
+    /// UI theme: "system" (follow Windows apps theme), "light" or "dark".
+    /// </summary>
+    public string Theme { get; set; } = "system";
+
+    /// <summary>
+    /// Provider id of the primary account (e.g. "claude:claude-1", "codex:codex-2",
+    /// "zai", "copilot"). When set, the tray icon shows this account's status and
+    /// the account is pinned to the top of the widget overview. Null keeps the
+    /// default behaviour: the icon reflects the worst window across all accounts.
+    /// </summary>
+    public string? PrimaryAccountId { get; set; }
+
     /// <summary>True when any Z.AI API key is configured.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool HasZaiKey =>

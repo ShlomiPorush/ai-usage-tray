@@ -108,6 +108,34 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty]
     private bool showOverviewResetTimes;
 
+    public static IReadOnlyList<ThemeOption> ThemeOptions { get; } =
+    [
+        new ThemeOption(Services.ThemeService.SystemTheme, "Follow system"),
+        new ThemeOption(Services.ThemeService.LightTheme, "Light"),
+        new ThemeOption(Services.ThemeService.DarkTheme, "Dark"),
+    ];
+
+    public ThemeOption SelectedTheme
+    {
+        get => ThemeOptions.FirstOrDefault(o =>
+                   string.Equals(o.Value, _settings.Theme, StringComparison.OrdinalIgnoreCase))
+               ?? ThemeOptions[0];
+        set
+        {
+            if (value is null || string.Equals(_settings.Theme, value.Value, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _settings.Theme = value.Value;
+            _ = SaveSettingsAsync();
+            Services.ThemeService.Apply(value.Value);
+            // Refresh so view-model-computed colours (percent text) match the new theme.
+            _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+            OnPropertyChanged();
+        }
+    }
+
     [ObservableProperty]
     private bool hasCopilotToken;
 
@@ -168,22 +196,46 @@ public sealed partial class SettingsViewModel : ObservableObject
         ProviderRows.Clear();
         foreach (var account in (_settings.Accounts ?? []).Where(a => a.IsValid))
         {
+            var kind = account.IsClaude ? MonitoredAccountSettings.ClaudeType : MonitoredAccountSettings.CodexType;
             ProviderRows.Add(new ProviderRowViewModel(
-                account.IsClaude ? MonitoredAccountSettings.ClaudeType : MonitoredAccountSettings.CodexType,
+                kind,
                 account.Id,
                 MonitoredAccountSettings.NormalizeDisplayName(account.DisplayName, account.Id),
-                account.ConfigDir));
+                account.ConfigDir,
+                IsPrimaryProvider($"{kind}:{account.Id}")));
         }
 
         if (_settings.HasZaiKey)
         {
-            ProviderRows.Add(new ProviderRowViewModel("zai", null, _settings.ZAiDisplayName, "API key configured"));
+            ProviderRows.Add(new ProviderRowViewModel("zai", null, _settings.ZAiDisplayName, "API key configured", IsPrimaryProvider("zai")));
         }
 
         if (_settings.CopilotEnabled)
         {
-            ProviderRows.Add(new ProviderRowViewModel("copilot", null, "Copilot", "Token in Windows Credential Manager"));
+            ProviderRows.Add(new ProviderRowViewModel("copilot", null, "Copilot", "Token in Windows Credential Manager", IsPrimaryProvider("copilot")));
         }
+    }
+
+    private bool IsPrimaryProvider(string providerId) =>
+        string.Equals(_settings.PrimaryAccountId, providerId, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Toggles the primary account: the tray icon shows this account's status
+    /// and it is pinned to the top of the widget overview.
+    /// </summary>
+    [RelayCommand]
+    private void SetPrimaryRow(ProviderRowViewModel? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        _settings.PrimaryAccountId = row.IsPrimary ? null : row.ProviderId;
+        _ = SaveSettingsAsync();
+        RebuildProviderRows();
+        AccountsRestartMessage = row.IsPrimary ? "Primary account cleared." : $"{row.Name} set as primary.";
+        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
     }
 
     /// <summary>Persists account changes and applies them live (no restart needed).</summary>
@@ -291,6 +343,10 @@ public sealed partial class SettingsViewModel : ObservableObject
             default:
                 _settings.Accounts?.RemoveAll(a =>
                     string.Equals(a.Id, row.AccountId, StringComparison.OrdinalIgnoreCase));
+                if (row.IsPrimary)
+                {
+                    _settings.PrimaryAccountId = null;
+                }
                 ApplyAccountsChanged("Account removed.");
                 break;
         }
@@ -631,6 +687,11 @@ public sealed partial class SettingsViewModel : ObservableObject
 }
 
 public sealed record RefreshOption(int Minutes, string Label)
+{
+    public override string ToString() => Label;
+}
+
+public sealed record ThemeOption(string Value, string Label)
 {
     public override string ToString() => Label;
 }

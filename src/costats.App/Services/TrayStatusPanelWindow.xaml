@@ -22,8 +22,8 @@
         without hovering the tray icon.
     -->
     <Border CornerRadius="4"
-            Background="#F5F3FA"
-            BorderBrush="#30A0A0C0"
+            Background="{DynamicResource PanelBgBrush}"
+            BorderBrush="{DynamicResource WindowBorderBrush}"
             BorderThickness="1"
             Padding="8,3"
             SnapsToDevicePixels="True">

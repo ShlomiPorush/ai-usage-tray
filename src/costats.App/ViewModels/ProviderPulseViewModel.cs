@@ -20,6 +20,10 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
 
     partial void OnProviderIdChanged(string value) => OnPropertyChanged(nameof(ProviderKind));
 
+    /// <summary>True for the user-selected primary account (pinned to the overview top, drives the tray icon).</summary>
+    [ObservableProperty]
+    private bool isPrimary;
+
     [ObservableProperty]
     private string displayName = string.Empty;
 
@@ -424,6 +428,12 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     /// </summary>
     private static string GetPercentTextColor(double percent)
     {
+        // On dark surfaces the darkened AA variants lose contrast; use the bright bar colours instead.
+        if (costats.App.Services.ThemeManager.IsDark)
+        {
+            return GetUtilizationColor(percent);
+        }
+
         return percent switch
         {
             >= 95 => "#DC2626",  // Red-600 (~6.5:1 on lavender)

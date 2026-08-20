@@ -1,0 +1,36 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Surfaces -->
+    <SolidColorBrush x:Key="WidgetBgBrush" Color="#211F30" />
+    <SolidColorBrush x:Key="PanelBgBrush" Color="#262438" />
+    <SolidColorBrush x:Key="WindowBorderBrush" Color="#50787899" />
+    <SolidColorBrush x:Key="CardBgBrush" Color="#14FFFFFF" />
+    <SolidColorBrush x:Key="CardHoverBgBrush" Color="#24FFFFFF" />
+    <SolidColorBrush x:Key="InputBgBrush" Color="#2E2C42" />
+    <SolidColorBrush x:Key="ButtonBgBrush" Color="#14FFFFFF" />
+    <SolidColorBrush x:Key="ButtonHoverBrush" Color="#22FFFFFF" />
+    <SolidColorBrush x:Key="ButtonPressedBrush" Color="#33FFFFFF" />
+    <SolidColorBrush x:Key="KindBadgeBrush" Color="#2E818CF8" />
+
+    <!-- Text -->
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F1EFFA" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#C7C4DC" />
+    <SolidColorBrush x:Key="TextMutedBrush" Color="#9D9AB4" />
+    <SolidColorBrush x:Key="TextFaintBrush" Color="#807D98" />
+    <SolidColorBrush x:Key="DividerBrush" Color="#3C3A54" />
+    <SolidColorBrush x:Key="TrackBrush" Color="#3C3A54" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#818CF8" />
+
+    <!-- Provider accents (brightened for dark surfaces) -->
+    <SolidColorBrush x:Key="CodexAccent" Color="#34D399" />
+    <SolidColorBrush x:Key="ClaudeAccent" Color="#FB923C" />
+    <SolidColorBrush x:Key="CopilotAccent" Color="#A78BFA" />
+    <SolidColorBrush x:Key="SessionAccent" Color="#FBBF24" />
+    <SolidColorBrush x:Key="WeeklyAccent" Color="#A78BFA" />
+    <SolidColorBrush x:Key="CostTodayAccent" Color="#6EE7B7" />
+    <SolidColorBrush x:Key="CostMonthAccent" Color="#A5B4FC" />
+    <SolidColorBrush x:Key="PlanCodexFgBrush" Color="#6EE7B7" />
+    <SolidColorBrush x:Key="PlanClaudeFgBrush" Color="#FDBA74" />
+    <SolidColorBrush x:Key="PlanCopilotFgBrush" Color="#C4B5FD" />
+</ResourceDictionary>

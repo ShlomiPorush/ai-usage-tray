@@ -230,6 +230,23 @@ namespace costats.App.Services
                 .ToArray();
 
             var status = TrayStatusComposer.Compose(accounts, DateTimeOffset.UtcNow);
+
+            // When a primary account is configured, its status drives the icon
+            // (colour + number); the tooltip still lists every account, primary first.
+            var primaryId = _settings.PrimaryAccountId;
+            if (!string.IsNullOrWhiteSpace(primaryId) &&
+                state.Providers.TryGetValue(primaryId, out var primaryReading))
+            {
+                var label = displayNames.TryGetValue(primaryId, out var primaryName) ? primaryName : primaryId;
+                var primaryAccount = primaryReading.Usage is { } primaryUsage
+                    ? AccountUsageStatus.FromUsagePulse(label, primaryUsage)
+                    : new AccountUsageStatus(label, null, null, null, null);
+                var primaryStatus = TrayStatusComposer.Compose([primaryAccount], DateTimeOffset.UtcNow);
+                var orderedTooltip = TrayStatusComposer.Compose(
+                    accounts.OrderBy(a => a.Label.Equals(label, StringComparison.OrdinalIgnoreCase) ? 0 : 1).ToArray(),
+                    DateTimeOffset.UtcNow).Tooltip;
+                status = new TrayStatus(primaryStatus.LowestRemainingPercent, primaryStatus.Severity, orderedTooltip);
+            }
             var dispatcher = System.Windows.Application.Current?.Dispatcher;
             if (dispatcher is null)
             {

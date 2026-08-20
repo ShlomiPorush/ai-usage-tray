@@ -364,8 +364,16 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                     "zai" => 2,
                     _ => 3
                 };
+                var primaryId = _settings.PrimaryAccountId;
+                foreach (var candidate in newProviders)
+                {
+                    candidate.IsPrimary = !string.IsNullOrWhiteSpace(primaryId) &&
+                        candidate.ProviderId.Equals(primaryId, StringComparison.OrdinalIgnoreCase);
+                }
                 newProviders.Sort((a, b) =>
                 {
+                    // Primary account is pinned to the top of the overview.
+                    if (a.IsPrimary != b.IsPrimary) return a.IsPrimary ? -1 : 1;
                     var rank = KindRank(a).CompareTo(KindRank(b));
                     return rank != 0 ? rank : string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase);
                 });

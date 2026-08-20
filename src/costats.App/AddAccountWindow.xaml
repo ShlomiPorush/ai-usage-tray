@@ -13,29 +13,24 @@
         WindowStartupLocation="CenterOwner">
 
     <Window.Resources>
-        <SolidColorBrush x:Key="TextPrimaryBrush" Color="#1E1B2E" />
-        <SolidColorBrush x:Key="TextMutedBrush" Color="#5C5975" />
-        <SolidColorBrush x:Key="TextFaintBrush" Color="#6E6B86" />
-        <SolidColorBrush x:Key="DividerBrush" Color="#D5D2E4" />
-        <SolidColorBrush x:Key="AccentBrush" Color="#6366F1" />
 
         <Style x:Key="FieldLabel" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
             <Setter Property="Margin" Value="0,10,0,4" />
         </Style>
         <Style x:Key="FieldBox" TargetType="TextBox">
-            <Setter Property="Background" Value="#FFFFFF" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource DividerBrush}" />
+            <Setter Property="Background" Value="{DynamicResource InputBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="10,7" />
             <Setter Property="FontSize" Value="12" />
         </Style>
         <Style x:Key="DialogButton" TargetType="Button">
-            <Setter Property="Background" Value="#0A000000" />
-            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource DividerBrush}" />
+            <Setter Property="Background" Value="{DynamicResource ButtonBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="16,8" />
             <Setter Property="FontSize" Value="12" />
@@ -51,7 +46,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="border" Property="Background" Value="#14000000" />
+                                <Setter TargetName="border" Property="Background" Value="{DynamicResource ButtonHoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="border" Property="Opacity" Value="0.5" />
@@ -63,12 +58,12 @@
         </Style>
     </Window.Resources>
 
-    <Border CornerRadius="14" BorderBrush="#30A0A0C0" BorderThickness="1" Background="#F5F3FA">
+    <Border CornerRadius="14" BorderBrush="{DynamicResource WindowBorderBrush}" BorderThickness="1" Background="{DynamicResource PanelBgBrush}">
         <StackPanel Margin="20">
             <TextBlock x:Name="TitleText" Text="Add account" FontSize="16" FontWeight="SemiBold"
-                       Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,4" />
+                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
             <TextBlock Text="Pick a provider; only the fields that provider needs are shown."
-                       FontSize="11" Foreground="{StaticResource TextFaintBrush}" TextWrapping="Wrap" />
+                       FontSize="11" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" />
 
             <TextBlock Text="Provider" Style="{StaticResource FieldLabel}" />
             <ComboBox x:Name="ProviderBox" SelectionChanged="OnProviderChanged"
@@ -92,7 +87,7 @@
                             Click="OnBrowseClick" Style="{StaticResource DialogButton}" Padding="0,6" />
                     <TextBox x:Name="FolderBox" Style="{StaticResource FieldBox}" FontFamily="Consolas" FontSize="10" />
                 </DockPanel>
-                <TextBlock x:Name="FolderHint" FontSize="11" Foreground="{StaticResource TextFaintBrush}"
+                <TextBlock x:Name="FolderHint" FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
                            TextWrapping="Wrap" Margin="0,6,0,0" />
             </StackPanel>
 
@@ -100,7 +95,7 @@
             <StackPanel x:Name="SecretPanel" Visibility="Collapsed">
                 <TextBlock x:Name="SecretLabel" Text="API key" Style="{StaticResource FieldLabel}" />
                 <PasswordBox x:Name="SecretBox" Padding="10,7" FontSize="12" />
-                <TextBlock x:Name="SecretHint" FontSize="11" Foreground="{StaticResource TextFaintBrush}"
+                <TextBlock x:Name="SecretHint" FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
                            TextWrapping="Wrap" Margin="0,6,0,0" />
             </StackPanel>
 
