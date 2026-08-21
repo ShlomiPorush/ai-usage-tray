@@ -73,7 +73,13 @@ public sealed class CodexAppServerSource : ISignalSource
             null,
             null,
             CreateWindow(snapshot.SessionWindowDuration, snapshot.SessionResetsAt),
-            CreateWindow(snapshot.WeeklyWindowDuration, snapshot.WeeklyResetsAt));
+            CreateWindow(snapshot.WeeklyWindowDuration, snapshot.WeeklyResetsAt))
+        {
+            ScopedQuotas = snapshot.ScopedQuotas,
+            // Only the account-wide entry can block the account; the parser
+            // already ignores per-model entries for this flag.
+            IsBlocked = snapshot.IsBlocked
+        };
 
         return new ProviderReading(
             usage,

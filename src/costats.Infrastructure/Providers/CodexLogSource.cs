@@ -41,21 +41,23 @@ public sealed class CodexLogSource : ISignalSource
                 Source: ReadingSource.LocalLog);
         }
 
-        // Prefer OAuth data for percentages
-        var sessionUsedPercent = oauthResult?.PrimaryUsedPercent;
-        var weeklyUsedPercent = oauthResult?.SecondaryUsedPercent;
+        // Prefer OAuth data for percentages, classified by window duration:
+        // "primary_window" is not always the five-hour one.
+        var (sessionWindowData, weeklyWindowData) = ClassifyWindows(oauthResult);
+        var sessionUsedPercent = sessionWindowData.UsedPercent;
+        var weeklyUsedPercent = weeklyWindowData.UsedPercent;
 
         // Get window durations from API or use defaults
-        var sessionDuration = oauthResult?.PrimaryWindowSeconds is not null
-            ? TimeSpan.FromSeconds(oauthResult.PrimaryWindowSeconds.Value)
+        var sessionDuration = sessionWindowData.WindowSeconds is { } sessionSeconds
+            ? TimeSpan.FromSeconds(sessionSeconds)
             : DefaultSessionDuration;
 
-        var weekDuration = oauthResult?.SecondaryWindowSeconds is not null
-            ? TimeSpan.FromSeconds(oauthResult.SecondaryWindowSeconds.Value)
+        var weekDuration = weeklyWindowData.WindowSeconds is { } weeklySeconds
+            ? TimeSpan.FromSeconds(weeklySeconds)
             : DefaultWeekDuration;
 
-        var sessionResetsAt = oauthResult?.PrimaryResetsAt ?? CalculateSessionReset(logResult.SessionStart, now, sessionDuration);
-        var weeklyResetsAt = oauthResult?.SecondaryResetsAt ?? CalculateWeeklyReset(now);
+        var sessionResetsAt = sessionWindowData.ResetsAt ?? CalculateSessionReset(logResult.SessionStart, now, sessionDuration);
+        var weeklyResetsAt = weeklyWindowData.ResetsAt ?? CalculateWeeklyReset(now);
 
         var sessionWindow = new QuotaWindow(sessionDuration, sessionResetsAt);
         var weekWindow = new QuotaWindow(weekDuration, weeklyResetsAt);
@@ -142,8 +144,8 @@ public sealed class CodexLogSource : ISignalSource
 
     /// <summary>
     /// Turns Codex's per-model limits into scoped rows, one per window. A model
-    /// sitting at 0% is an empty bucket the user has never touched, so it is
-    /// dropped: the row appears the moment the model is actually used.
+    /// sitting at 0% is kept: an untouched quota is a real reading, and hiding
+    /// it would make rows appear and disappear as models are used.
     /// </summary>
     private static IReadOnlyList<ScopedQuota> BuildScopedQuotas(CodexOAuthUsageResult? oauth)
     {
@@ -169,7 +171,7 @@ public sealed class CodexLogSource : ISignalSource
         DateTimeOffset? resetsAt,
         int? windowSeconds)
     {
-        if (usedPercent is null || usedPercent.Value <= 0)
+        if (usedPercent is null)
         {
             return;
         }
@@ -181,6 +183,39 @@ public sealed class CodexLogSource : ISignalSource
             (long)Math.Round(Math.Clamp(usedPercent.Value, 0, 100)),
             resetsAt,
             IsActive: false));
+    }
+
+    /// <summary>One OAuth-reported quota window, before it is known to be the session or the weekly one.</summary>
+    private readonly record struct OAuthWindow(double? UsedPercent, int? WindowSeconds, DateTimeOffset? ResetsAt)
+    {
+        public bool HasData => UsedPercent.HasValue || WindowSeconds.HasValue || ResetsAt.HasValue;
+    }
+
+    /// <summary>
+    /// Codex does not guarantee that "primary_window" is the five-hour one:
+    /// some plans report a seven-day window there. Classify by duration and
+    /// fall back to position only when the duration is missing.
+    /// </summary>
+    private static (OAuthWindow Session, OAuthWindow Weekly) ClassifyWindows(CodexOAuthUsageResult? oauth)
+    {
+        var primary = new OAuthWindow(oauth?.PrimaryUsedPercent, oauth?.PrimaryWindowSeconds, oauth?.PrimaryResetsAt);
+        var secondary = new OAuthWindow(oauth?.SecondaryUsedPercent, oauth?.SecondaryWindowSeconds, oauth?.SecondaryResetsAt);
+        var windows = new[] { primary, secondary }.Where(window => window.HasData).ToArray();
+
+        // Six hours or less is a session window; a day or more is the weekly one.
+        var session = windows.FirstOrDefault(window => window.WindowSeconds is > 0 and <= 21600);
+        var weekly = windows.FirstOrDefault(window => window.WindowSeconds is >= 86400);
+
+        if (!session.HasData && primary.HasData && primary != weekly)
+        {
+            session = primary;
+        }
+        if (!weekly.HasData && secondary.HasData && secondary != session)
+        {
+            weekly = secondary;
+        }
+
+        return (session, weekly);
     }
 
     private static DateTimeOffset? CalculateSessionReset(DateTimeOffset? sessionStart, DateTimeOffset now, TimeSpan sessionDuration)

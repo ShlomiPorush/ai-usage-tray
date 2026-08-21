@@ -277,10 +277,13 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
             return;
         }
 
+        // The window group leads the row (as it does for the account-wide
+        // Session/Weekly rows) and the model name rides along as a chip, so
+        // "Weekly" for one model never reads as "Weekly" for the whole account.
         vm.ScopedLimits = quotas
             .Select(q => new ScopedLimitRow(
                 q.Label,
-                char.ToUpperInvariant(q.Group[0]) + q.Group[1..].Replace('_', ' '),
+                GroupLabelFor(q.Group),
                 $"{q.UsedPercent}%",
                 q.UsedPercent / 100.0,
                 GetPercentTextColor(q.UsedPercent, q.Severity),
@@ -288,6 +291,13 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
             .ToList();
         vm.HasScopedLimits = true;
     }
+
+    /// <summary>
+    /// Same rule as the remote viewer: a scoped window is either the weekly or
+    /// the session bucket, whatever the provider calls its group internally.
+    /// </summary>
+    private static string GroupLabelFor(string group) =>
+        group.Contains("week", StringComparison.OrdinalIgnoreCase) ? "Weekly" : "Session";
 
     private static void PopulateExtraUsage(ProviderPulseViewModel vm, ProviderReading reading)
     {

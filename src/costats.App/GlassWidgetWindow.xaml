@@ -231,9 +231,19 @@
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
                                                 <DockPanel Margin="0,4,0,0">
-                                                    <TextBlock Text="{Binding Label}" FontSize="10.5" Width="48"
+                                                    <TextBlock Text="{Binding GroupLabel}" FontSize="10.5" Width="48"
                                                                Foreground="{DynamicResource TextMutedBrush}" TextTrimming="CharacterEllipsis"
                                                                DockPanel.Dock="Left" VerticalAlignment="Center" />
+                                                    <!-- Model chip: what separates a model's Weekly from the account's Weekly -->
+                                                    <Border DockPanel.Dock="Left" CornerRadius="4" BorderThickness="1" Padding="5,0"
+                                                            Margin="0,0,8,0" MaxWidth="84" VerticalAlignment="Center"
+                                                            Background="{DynamicResource KindBadgeBrush}"
+                                                            BorderBrush="{DynamicResource DividerBrush}"
+                                                            ToolTip="{Binding Label}">
+                                                        <TextBlock Text="{Binding Label}" FontSize="9.5" FontWeight="SemiBold"
+                                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                                   TextTrimming="CharacterEllipsis" />
+                                                    </Border>
                                                     <TextBlock Text="{Binding PercentText}" FontSize="11.5" FontWeight="SemiBold" Width="40"
                                                                DockPanel.Dock="Right" TextAlignment="Right" VerticalAlignment="Center">
                                                         <TextBlock.Foreground>
@@ -449,10 +459,19 @@
                             <DataTemplate>
                                 <StackPanel Margin="0,0,0,10">
                                     <DockPanel Margin="0,0,0,6">
-                                        <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" DockPanel.Dock="Left">
-                                            <Run Text="{Binding Label, Mode=OneWay}" FontWeight="SemiBold" />
-                                            <Run Text="{Binding GroupLabel, Mode=OneWay}" />
-                                        </TextBlock>
+                                        <TextBlock Text="{Binding GroupLabel}" FontSize="12" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   DockPanel.Dock="Left" VerticalAlignment="Center" />
+                                        <!-- Model chip: what separates a model's Weekly from the account's Weekly -->
+                                        <Border DockPanel.Dock="Left" CornerRadius="4" BorderThickness="1" Padding="6,1"
+                                                Margin="8,0,8,0" MaxWidth="160" VerticalAlignment="Center"
+                                                Background="{DynamicResource KindBadgeBrush}"
+                                                BorderBrush="{DynamicResource DividerBrush}"
+                                                ToolTip="{Binding Label}">
+                                            <TextBlock Text="{Binding Label}" FontSize="10.5" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </Border>
                                         <TextBlock Text="{Binding PercentText}" FontSize="12" FontWeight="SemiBold"
                                                    DockPanel.Dock="Right" HorizontalAlignment="Right">
                                             <TextBlock.Foreground>
