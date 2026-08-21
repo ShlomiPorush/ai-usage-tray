@@ -13,7 +13,7 @@ namespace costats.App.Services
     /// <summary>
     /// Optional "remote view": after each refresh, PUTs a small non-sensitive
     /// usage snapshot to the built-in endpoint (or a user override) so it can be
-    /// read from a phone. Entirely opt-in and best effort — a failed upload never affects
+    /// read from a phone. Entirely opt-in and best effort: a failed upload never affects
     /// the tray.
     /// </summary>
     public sealed class RemoteViewUploader : IObserver<PulseState>, IDisposable

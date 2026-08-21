@@ -195,7 +195,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
-                // Timed out — kill the process but don't propagate
+                // Timed out: kill the process but don't propagate
                 try { process.Kill(); } catch { /* best effort */ }
             }
 
@@ -251,7 +251,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         }
         catch
         {
-            // Ignore — CLI not available
+            // Ignore: CLI not available
         }
 
         return null;
@@ -334,7 +334,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         }
         catch
         {
-            // Non-critical — memory cache still works
+            // Non-critical: memory cache still works
         }
     }
 

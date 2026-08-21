@@ -26,7 +26,7 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 - Light/dark theme, following the Windows theme by default.
 - Providers managed in Settings as a table with add/edit dialogs; changes apply without restarting.
 - Optional reset countdowns on the overview cards; daily / 30-day cost estimates where available.
-- Optional remote view: see your usage from a phone via a private link — one checkbox, no setup (self-hosting possible).
+- Optional remote view: see your usage from a phone via a private link: one checkbox, no setup (self-hosting possible).
 - Self-update from this repository's releases.
 
 ## Install / set up
@@ -41,9 +41,9 @@ iwr -useb https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/scri
 
 Then follow **[docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md)** for the step-by-step account setup:
 
-1. Out of the box the app monitors the standard `~/.claude` (Claude Code login) and `~/.codex` (Codex CLI login) profiles — if you use both tools, it shows data immediately.
+1. Out of the box the app monitors the standard `~/.claude` (Claude Code login) and `~/.codex` (Codex CLI login) profiles. If you use both tools, it shows data immediately.
 2. To monitor more accounts, open Settings → Accounts → **+ Add account**, pick the provider and fill in the fields it asks for: a display name and profile folder (with a folder picker) for Claude/Codex, an API key or token for Z.AI/Copilot. Sign in to extra accounts with the official CLI inside their folder (`CLAUDE_CONFIG_DIR=<dir> claude` / `CODEX_HOME=<dir> codex login`).
-3. Changes apply immediately — no restart needed. Each row has **Edit**, **✕** (remove) and a star to mark the primary account.
+3. Changes apply immediately, no restart needed. Each row has **Edit**, **✕** (remove) and a star to mark the primary account.
 
 ## Configuration
 Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from upstream so existing installs keep working).
@@ -65,12 +65,12 @@ Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from up
 `appsettings.json` (`Costats:Update`) controls the self-updater: enabled, checking this repository's releases every 6 hours, verifying the published SHA-256 before staging.
 
 ## Remote view (phone / web)
-Optional and off by default. Enable it in Settings → Remote view and press **Copy link** — that's the whole setup. After each refresh the app uploads a small snapshot — provider, account nickname, plan, usage percentages and reset times; never tokens or folder paths — to the built-in relay (a Cloudflare Worker), keyed by a random 128-bit id that doubles as the only credential. Anyone with the link can view the data. Entries expire server-side after 7 days without updates, so data from uninstalled apps cleans itself up.
+Optional and off by default. Enable it in Settings → Remote view and press **Copy link**: that's the whole setup. After each refresh the app uploads a small snapshot (provider, account nickname, plan, usage percentages and reset times; never tokens or folder paths) to the built-in relay (a Cloudflare Worker), keyed by a random 128-bit id that doubles as the only credential. Anyone with the link can view the data. Entries expire server-side after 7 days without updates, so data from uninstalled apps cleans itself up.
 
 Self-hosting is optional: deploy your own worker ([remote/worker/README.md](remote/worker/README.md), single-file paste in the Cloudflare dashboard, serves both page and API) or host the page separately ([web/README.md](web/README.md)), then override `RemoteViewUploadUrl` / `RemoteViewPageUrl` in `settings.json`.
 
 ## Data sources & privacy
-- **OpenAI / Codex**: the official local `codex app-server` JSON-RPC method `account/rateLimits/read`, one short-lived process per account. The app never reads or copies account tokens — Codex owns authentication and refresh.
+- **OpenAI / Codex**: the official local `codex app-server` JSON-RPC method `account/rateLimits/read`, one short-lived process per account. The app never reads or copies account tokens; Codex owns authentication and refresh.
 - **Claude**: Anthropic's OAuth usage endpoint using the isolated profile's token. This is not a documented public API and may change.
 - **Z.AI**: `api.z.ai` usage endpoints with a Bearer token.
 - **Copilot**: unofficial GitHub endpoint; token stored in Windows Credential Manager.
@@ -83,7 +83,7 @@ Compared with `fmdz387/costats` v1.4.6 (the fork point):
 |---|---|---|
 | OpenAI / Codex | One account, reads `~/.codex/auth.json` + OAuth endpoint, log-based estimates | **Any number of accounts** via `codex app-server`, separate `CODEX_HOME`s, account selector, editable in Settings |
 | Claude | Claude Code usage from local logs; multiple profiles only through the external `multicc` tool | **Any number of Claude subscriptions** through per-account OAuth profiles (`ClaudeSubscriptionSource`), including model-scoped limits |
-| Z.AI / GLM | — | New provider (`ZaiUsageSource`) |
+| Z.AI / GLM | not available | New provider (`ZaiUsageSource`) |
 | UI | Fixed tabs per provider, static tray icon | Overview-first widget, dynamic tray icon (colour + remaining %), hover popup with per-account status dots, light/dark theme, primary account |
 | Tests | none | `tests/costats.Core.Tests` (xunit) covering the new sources, parsers and tray composer |
 | Settings | Fixed sections per provider | Providers table with add/edit dialogs; account changes apply live (`AccountSourceRegistry`) without a restart |
@@ -106,8 +106,8 @@ dotnet test  .\costats.sln -c Release
 
 ## Credits & license
 
-- **Original project**: [costats](https://github.com/fmdz387/costats) by **fmdz** — base architecture, UI, updater, packaging and the insights CLI.
-- **Multi-account foundation (v1.2.0)**: **[Yoav Yechiam](https://github.com/product-alliance)** / [Product Alliance](https://product-alliance.com) — original multi-account OpenAI/Codex and Claude subscription monitor design that this fork extends.
+- **Original project**: [costats](https://github.com/fmdz387/costats) by **fmdz**: base architecture, UI, updater, packaging and the insights CLI.
+- **Multi-account foundation (v1.2.0)**: **[Yoav Yechiam](https://github.com/product-alliance)** / [Product Alliance](https://product-alliance.com): original multi-account OpenAI/Codex and Claude subscription monitor design that this fork extends.
 - **Fork modifications** (multi-account Codex via app-server, Claude subscription source, Z.AI, dynamic tray icon, tests): **Shlomi Porush**.
-- Licensed under the **MIT License** — see [LICENSE](LICENSE), which retains both upstream copyright notices.
+- Licensed under the **MIT License**, see [LICENSE](LICENSE), which retains both upstream copyright notices.
 - macOS/Linux alternative: [CodexBar](https://github.com/steipete/CodexBar).

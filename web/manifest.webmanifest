@@ -1,0 +1,15 @@
+{
+  "name": "AI Usage Tray",
+  "short_name": "AI Usage",
+  "description": "Live AI subscription usage shared from the AI Usage Tray app for Windows.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#211F30",
+  "theme_color": "#211F30",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

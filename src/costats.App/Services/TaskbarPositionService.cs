@@ -6,7 +6,7 @@ namespace costats.App.Services;
 public sealed class TaskbarPositionService
 {
     /// <summary>
-    /// Returns the position for the popup widget — a small offset above the
+    /// Returns the position for the popup widget: a small offset above the
     /// bottom-right corner of the work area.
     /// </summary>
     public Point GetWidgetPosition(double width, double height, double margin)

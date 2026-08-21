@@ -1,6 +1,7 @@
 // AI Usage Tray - remote view.
 // Reads ?id=<32 hex> from the URL, fetches {apiBase}/u/{id} and renders one card
 // per account. Refetches every 60s; relative times re-render every 30s.
+// Without an id it shows a landing page (see start()).
 
 (function () {
   "use strict";
@@ -12,6 +13,12 @@
   var REFRESH_MS = 60000;
   var TICK_MS = 30000;
   var STALE_MS = 30 * 60000;
+
+  var THEME_KEY = "aiUsageTray.theme";
+  var LAST_ID_KEY = "aiUsageTray.lastId";
+
+  var RELEASES_URL = "https://github.com/ShlomiPorush/ai-usage-tray/releases/latest";
+  var REPO_URL = "https://github.com/ShlomiPorush/ai-usage-tray";
 
   var content = document.getElementById("content");
   var updatedEl = document.getElementById("updated");
@@ -50,6 +57,80 @@
 
   function clear(node) {
     while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  // localStorage throws in some privacy modes; treat it as best-effort.
+  function readStored(key) {
+    try {
+      return window.localStorage.getItem(key);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function writeStored(key, value) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch (error) { /* nothing we can do, and nothing depends on it */ }
+  }
+
+  // --- theme -----------------------------------------------------------
+  // Auto (system) -> Light -> Dark -> Auto. Only the two forced modes set
+  // data-theme on <html>; Auto removes it and lets the media query decide.
+
+  var THEME_MODES = ["auto", "light", "dark"];
+  var THEME_LABELS = { auto: "System", light: "Light", dark: "Dark" };
+  var PAGE_COLORS = { light: "#F5F3FA", dark: "#211F30" };
+
+  var themeButton = document.getElementById("theme-toggle");
+  var themeMode = "auto";
+
+  // The two <meta name="theme-color"> tags carry the Auto defaults. For a forced
+  // mode both are pinned to the same colour and their media queries dropped, so
+  // the browser chrome follows the page instead of the system.
+  function syncThemeColor(mode) {
+    var metas = document.querySelectorAll('meta[name="theme-color"][data-scheme]');
+    for (var i = 0; i < metas.length; i++) {
+      var meta = metas[i];
+      var scheme = meta.getAttribute("data-scheme");
+      if (mode === "light" || mode === "dark") {
+        meta.setAttribute("content", PAGE_COLORS[mode]);
+        meta.removeAttribute("media");
+      } else {
+        meta.setAttribute("content", PAGE_COLORS[scheme]);
+        meta.setAttribute("media", "(prefers-color-scheme: " + scheme + ")");
+      }
+    }
+  }
+
+  function applyTheme(mode) {
+    themeMode = THEME_MODES.indexOf(mode) === -1 ? "auto" : mode;
+
+    if (themeMode === "auto") {
+      document.documentElement.removeAttribute("data-theme");
+    } else {
+      document.documentElement.setAttribute("data-theme", themeMode);
+    }
+    syncThemeColor(themeMode);
+
+    if (themeButton) {
+      var label = "Theme: " + THEME_LABELS[themeMode];
+      themeButton.setAttribute("data-mode", themeMode);
+      themeButton.setAttribute("aria-label", label);
+      themeButton.setAttribute("title", label + " (click to change)");
+    }
+  }
+
+  function setupTheme() {
+    applyTheme(readStored(THEME_KEY) || "auto");
+    if (!themeButton) return;
+
+    themeButton.hidden = false;
+    themeButton.addEventListener("click", function () {
+      var next = THEME_MODES[(THEME_MODES.indexOf(themeMode) + 1) % THEME_MODES.length];
+      applyTheme(next);
+      writeStored(THEME_KEY, next);
+    });
   }
 
   // "1d 12h" / "4h 21m" / "12m"
@@ -112,6 +193,33 @@
     content.appendChild(box);
   }
 
+  function link(className, href, text) {
+    var node = el("a", className, text);
+    node.href = href;
+    node.rel = "noopener";
+    return node;
+  }
+
+  // Shown when the link carries no id: explain what the page is and where the
+  // link comes from, nothing more.
+  function renderLanding() {
+    clear(content);
+
+    var box = el("section", "landing");
+    box.appendChild(el("h2", null, "AI Usage Tray"));
+    box.appendChild(el("p", null,
+      "This page shows live AI subscription usage (Claude, Codex, Z.AI and " +
+      "Copilot) shared from the AI Usage Tray app for Windows. To get your own " +
+      "link, install the app, enable Settings → Remote view and press Copy link."));
+
+    var actions = el("div", "landing-actions");
+    actions.appendChild(link("button button-primary", RELEASES_URL, "Download for Windows"));
+    actions.appendChild(link("button button-secondary", REPO_URL, "GitHub"));
+    box.appendChild(actions);
+
+    content.appendChild(box);
+  }
+
   function windowsOf(account) {
     return Array.isArray(account.windows) ? account.windows : [];
   }
@@ -165,7 +273,7 @@
     track.setAttribute("aria-valuemax", "100");
     track.setAttribute("aria-valuenow", String(shown));
     track.setAttribute("aria-valuetext", shown + "% remaining");
-    track.setAttribute("aria-label", accountName + " — " + label);
+    track.setAttribute("aria-label", accountName + ": " + label);
 
     var fill = el("div", "meter-fill");
     fill.style.width = remaining + "%";
@@ -309,7 +417,7 @@
 
         // Network or server hiccup: keep whatever is on screen and say so quietly.
         if (payload) {
-          show(connectionEl, "Couldn't refresh just now — retrying shortly.");
+          show(connectionEl, "Couldn't refresh just now, retrying shortly.");
         } else {
           renderMessage("Can't reach the server", [
             "The usage data couldn't be loaded. This page keeps trying every minute.",
@@ -324,16 +432,36 @@
 
   // --- start -----------------------------------------------------------
 
-  function start() {
+  // Offline shell only; it needs a secure context and is never required.
+  function registerServiceWorker() {
+    if (window.location.protocol !== "https:") return;
+    if (!navigator.serviceWorker) return;
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("sw.js").catch(function () { /* optional */ });
+    });
+  }
+
+  function resolveId() {
     var params = new URLSearchParams(window.location.search);
     var raw = (params.get("id") || "").trim();
+    if (ID_PATTERN.test(raw)) return raw;
 
-    if (!ID_PATTERN.test(raw)) {
-      renderMessage("This page shows a shared view of AI usage", [
-        "It needs a link that carries an id. Open the app and use " +
-        "Settings → Remote view to copy your personal link, then open that link here.",
-        { before: "Links look like ", example: "https://your-site/?id=<32-hex>", after: "." }
-      ]);
+    // An explicit but unusable ?id= means "show me the landing page". Only a
+    // link with no id at all falls back to the last id this device saw. That
+    // is what an installed app opens, because start_url carries no id.
+    if (params.has("id")) return null;
+
+    var stored = (readStored(LAST_ID_KEY) || "").trim();
+    return ID_PATTERN.test(stored) ? stored : null;
+  }
+
+  function start() {
+    setupTheme();
+    registerServiceWorker();
+
+    var resolved = resolveId();
+    if (!resolved) {
+      renderLanding();
       return;
     }
 
@@ -347,7 +475,8 @@
       return;
     }
 
-    id = raw;
+    id = resolved;
+    writeStored(LAST_ID_KEY, id);
     renderMessage("Loading…", ["Fetching the latest usage snapshot."]);
     load();
 

@@ -446,7 +446,7 @@ namespace costats.App.Services
 
             // Always-on top panel next to the clock. Sized first, then positioned
             // so its right edge sits flush against the tray area. Gated by
-            // AppSettings.ShowClockPanel — off by default.
+            // AppSettings.ShowClockPanel, off by default.
             var panelText = status.Tooltip;
             if (string.IsNullOrWhiteSpace(panelText) || !_settings.ShowClockPanel)
             {

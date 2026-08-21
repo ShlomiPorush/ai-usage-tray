@@ -754,8 +754,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             {
                 shortcut.TargetPath = exePath;
                 shortcut.WorkingDirectory = Path.GetDirectoryName(exePath) ?? string.Empty;
-                shortcut.WindowStyle = 7; // WS_MINIMIZE — start minimized to tray
-                shortcut.Description = "AI Usage Tray — monitors Codex, Claude, and MiniMax usage";
+                shortcut.WindowStyle = 7; // WS_MINIMIZE: start minimized to tray
+                shortcut.Description = "AI Usage Tray: monitors Claude, Codex, Z.AI and Copilot usage";
                 shortcut.Save();
             }
             finally

@@ -326,7 +326,7 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                 // ── Apply to observable state (batched, single render frame) ──
 
                 // Set scalar properties before collection changes to prevent layout thrash.
-                // IsMulticcActive controls panel visibility — setting it first ensures the
+                // IsMulticcActive controls panel visibility, so setting it first ensures the
                 // correct panel stays visible while collections are swapped.
                 var selectedCodexId = Codex.ProviderId;
                 var selectedCodex = codexProfileList.FirstOrDefault(profile =>

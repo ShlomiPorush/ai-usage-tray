@@ -1,5 +1,12 @@
 /* AI Usage Tray - remote view.
-   Light and dark are two hand-picked palettes, not an inversion of one another. */
+   Light and dark are two hand-picked palettes, not an inversion of one another.
+
+   Theme resolution:
+     no data-theme         -> follow prefers-color-scheme (the "Auto" mode)
+     data-theme="light"    -> stay light even on a dark system
+     data-theme="dark"     -> dark everywhere
+   The dark tokens live in two blocks with identical bodies: the media query
+   (Auto) and the explicit attribute. Keep them in sync when editing. */
 
 :root {
   color-scheme: light dark;
@@ -12,6 +19,10 @@
   --ink: #1E1B2E;
   --ink-2: #4A4760;
   --ink-3: #6B6880;
+
+  --accent: #4C3FBF;
+  --accent-hover: #3D32A0;
+  --on-accent: #FFFFFF;
 
   /* Status: the fill and the dot. Every track is a lighter step of its own hue. */
   --good: #10B981;
@@ -30,8 +41,9 @@
   --shadow: 0 1px 2px rgba(30, 27, 46, 0.05);
 }
 
+/* Auto: the system decides, unless the user has explicitly forced light. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --page: #211F30;
     --card: #2A2840;
     --border: #3A3752;
@@ -40,6 +52,10 @@
     --ink: #F1EFFA;
     --ink-2: #C9C6DE;
     --ink-3: #A8A5C2;
+
+    --accent: #8B7CF6;
+    --accent-hover: #A497F8;
+    --on-accent: #17142A;
 
     --good: #34D399;
     --good-track: #1F4D40;
@@ -58,6 +74,41 @@
   }
 }
 
+/* Forced dark: same body as the media query above. */
+:root[data-theme="dark"] {
+  --page: #211F30;
+  --card: #2A2840;
+  --border: #3A3752;
+  --chip-bg: #353252;
+
+  --ink: #F1EFFA;
+  --ink-2: #C9C6DE;
+  --ink-3: #A8A5C2;
+
+  --accent: #8B7CF6;
+  --accent-hover: #A497F8;
+  --on-accent: #17142A;
+
+  --good: #34D399;
+  --good-track: #1F4D40;
+  --warn: #FBBF24;
+  --warn-track: #4E3C16;
+  --danger: #F87171;
+  --danger-track: #4E2A2A;
+  --none: #A1A0B8;
+  --none-track: #3A3852;
+
+  --stale-bg: #3A3016;
+  --stale-border: #6B551F;
+  --stale-ink: #FBD98D;
+
+  --shadow: none;
+}
+
+/* Forced modes also pin the UA colours (scrollbars, form controls). */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
 * { box-sizing: border-box; }
 
 body {
@@ -72,12 +123,18 @@ body {
 }
 
 .page {
-  max-width: 720px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 
 .page-header {
   margin: 0 0 16px;
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 h1 {
@@ -92,6 +149,41 @@ h1 {
   color: var(--ink-3);
   font-size: 13px;
 }
+
+:where(a, button):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* Theme toggle ---------------------------------------------------------- */
+
+.theme-toggle {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+
+.theme-icon { display: none; }
+.theme-toggle[data-mode="auto"] .theme-icon-auto,
+.theme-toggle[data-mode="light"] .theme-icon-light,
+.theme-toggle[data-mode="dark"] .theme-icon-dark { display: block; }
 
 /* Notices ------------------------------------------------------------- */
 
@@ -115,13 +207,20 @@ h1 {
 
 /* Cards --------------------------------------------------------------- */
 
+/* One column on phones; as many ~320px columns as fit on wider screens.
+   min(100%, 320px) keeps the track from overflowing very narrow viewports. */
 .cards {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: 12px;
+  align-items: start;
+  justify-items: center;
 }
 
 .card {
+  width: 100%;
+  /* A single card on a wide screen would otherwise stretch across the page. */
+  max-width: 560px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -250,6 +349,7 @@ h1 {
 /* Standalone messages -------------------------------------------------- */
 
 .message {
+  max-width: 640px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -281,6 +381,68 @@ h1 {
   font-size: 12.5px;
   overflow-wrap: anywhere;
 }
+
+/* Landing (no id in the link) ------------------------------------------ */
+
+.landing {
+  max-width: 520px;
+  margin: 4px auto 0;
+  padding: 28px 22px 26px;
+  text-align: center;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.landing h2 {
+  margin: 0 0 10px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.landing p {
+  margin: 0 auto 20px;
+  max-width: 44ch;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.button-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.button-primary:hover { background: var(--accent-hover); }
+
+.button-secondary {
+  background: var(--chip-bg);
+  border-color: var(--border);
+  color: var(--ink);
+}
+
+.button-secondary:hover { border-color: var(--ink-3); }
 
 .sr-only {
   position: absolute;

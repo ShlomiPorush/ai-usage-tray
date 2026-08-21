@@ -181,7 +181,7 @@ jobs:
             echo ""
             echo "1. Download the ZIP for your architecture and verify it against the \`.sha256\` file"
             echo "2. Extract to a folder of your choice"
-            echo "3. Run \`AIUsageTray.exe\` (Windows SmartScreen may warn — the build is not code-signed)"
+            echo "3. Run \`AIUsageTray.exe\` (Windows SmartScreen may warn; the build is not code-signed)"
             echo "4. Follow [docs/WINDOWS-SETUP.md](https://github.com/${REPO}/blob/main/docs/WINDOWS-SETUP.md) to connect your accounts"
             echo "5. (Optional) Enable 'Start at login' in Settings"
           } > CHANGELOG.md

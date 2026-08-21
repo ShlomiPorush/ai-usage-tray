@@ -249,16 +249,19 @@
                                FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
                 </StackPanel>
 
-                <DockPanel Margin="0,0,0,6">
-                    <Button Content="Copy link" Command="{Binding CopyShareLinkCommand}"
-                            Style="{StaticResource SettingsButton}" Padding="10,5" FontSize="11"
-                            DockPanel.Dock="Right" HorizontalAlignment="Right" Margin="8,0,0,0" />
-                    <TextBox Text="{Binding ShareLink, Mode=OneWay}" IsReadOnly="True"
-                             Style="{StaticResource SettingsTextBox}" FontSize="11"
-                             VerticalAlignment="Center" VerticalContentAlignment="Center" />
-                </DockPanel>
-                <TextBlock Text="Anyone with the link can view this data."
-                           FontSize="11" Foreground="#EF4444" Margin="0,0,0,0" TextWrapping="Wrap" />
+                <!-- The link and its warning only make sense while remote view is on. -->
+                <StackPanel Visibility="{Binding RemoteViewEnabled, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <DockPanel Margin="0,0,0,6">
+                        <Button Content="Copy link" Command="{Binding CopyShareLinkCommand}"
+                                Style="{StaticResource SettingsButton}" Padding="10,5" FontSize="11"
+                                DockPanel.Dock="Right" HorizontalAlignment="Right" Margin="8,0,0,0" />
+                        <TextBox Text="{Binding ShareLink, Mode=OneWay}" IsReadOnly="True"
+                                 Style="{StaticResource SettingsTextBox}" FontSize="11"
+                                 VerticalAlignment="Center" VerticalContentAlignment="Center" />
+                    </DockPanel>
+                    <TextBlock Text="Anyone with the link can view this data."
+                               FontSize="11" Foreground="#EF4444" Margin="0,0,0,0" TextWrapping="Wrap" />
+                </StackPanel>
 
                 <!-- Divider -->
                 <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,16,0,16" />

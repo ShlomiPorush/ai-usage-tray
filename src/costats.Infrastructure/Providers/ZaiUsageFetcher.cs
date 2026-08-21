@@ -15,7 +15,7 @@ namespace costats.Infrastructure.Providers;
 /// <para>
 /// Both keys are user-supplied through <c>appsettings.json</c> under
 /// <c>ZAiApiKey</c> and <c>ZAiCodingApiKey</c>. The keys never leave the
-/// local machine — they are used only to make outbound HTTPS calls to
+/// local machine: they are used only to make outbound HTTPS calls to
 /// <c>api.z.ai</c>.
 /// </para>
 /// </summary>
