@@ -17,7 +17,7 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 </p>
 
 ## Features
-- Tray icon shows the remaining percentage as a number, coloured green/amber/red.
+- Tray icon shows the worst window's used percentage as a number, coloured green/amber/red.
 - Hovering the icon opens a popup next to it listing every account, one line each with a status dot.
 - The widget (click the icon or `Ctrl+Alt+U`) opens on an overview of all accounts, sized to fit them; click a card for details.
 - Model-scoped limits reported by Claude (e.g. the Fable weekly limit) shown per account.
@@ -67,6 +67,8 @@ Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from up
 ## Remote view (phone / web)
 Optional and off by default. Enable it in Settings → Remote view and press **Copy link**: that's the whole setup. After each refresh the app uploads a small snapshot (provider, account nickname, plan, usage percentages and reset times; never tokens or folder paths) to the built-in relay (a Cloudflare Worker), keyed by a random 128-bit id that doubles as the only credential. Anyone with the link can view the data. Entries expire server-side after 7 days without updates, so data from uninstalled apps cleans itself up. The built-in relay runs at [ai.yaaps.net](https://ai.yaaps.net), and the page can be installed as an app (PWA) straight from the browser.
 
+Live demo: [https://ai.yaaps.net/?id=demo](https://ai.yaaps.net/?id=demo) (sample data, no account needed).
+
 Self-hosting is optional: deploy your own worker ([remote/worker/README.md](remote/worker/README.md), single-file paste in the Cloudflare dashboard, serves both page and API) or host the page separately ([web/README.md](web/README.md)), then override `RemoteViewUploadUrl` / `RemoteViewPageUrl` in `settings.json`.
 
 ## Data sources & privacy
@@ -84,7 +86,7 @@ Compared with `fmdz387/costats` v1.4.6 (the fork point):
 | OpenAI / Codex | One account, reads `~/.codex/auth.json` + OAuth endpoint, log-based estimates | **Any number of accounts** via `codex app-server`, separate `CODEX_HOME`s, account selector, editable in Settings |
 | Claude | Claude Code usage from local logs; multiple profiles only through the external `multicc` tool | **Any number of Claude subscriptions** through per-account OAuth profiles (`ClaudeSubscriptionSource`), including model-scoped limits |
 | Z.AI / GLM | not available | New provider (`ZaiUsageSource`) |
-| UI | Fixed tabs per provider, static tray icon | Overview-first widget, dynamic tray icon (colour + remaining %), hover popup with per-account status dots, light/dark theme, primary account |
+| UI | Fixed tabs per provider, static tray icon | Overview-first widget, dynamic tray icon (colour + used %), hover popup with per-account status dots, light/dark theme, primary account |
 | Tests | none | `tests/costats.Core.Tests` (xunit) covering the new sources, parsers and tray composer |
 | Settings | Fixed sections per provider | Providers table with add/edit dialogs; account changes apply live (`AccountSourceRegistry`) without a restart |
 | Self-update | from `fmdz387/costats` | from this fork; updater/installer expect `AIUsageTray.exe` and `ai-usage-tray-win-*` assets |

@@ -2,6 +2,7 @@
 // Reads ?id=<32 hex> from the URL, fetches {apiBase}/u/{id} and renders one card
 // per account. Refetches every 60s; relative times re-render every 30s.
 // Without an id it shows a landing page (see start()).
+// ?id=demo is the one exception: a public sample payload built by the worker.
 
 (function () {
   "use strict";
@@ -10,6 +11,8 @@
   var API_BASE = String(CONFIG.apiBase || "").replace(/\/+$/, "");
 
   var ID_PATTERN = /^[0-9a-f]{32}$/;
+  // The one id that is not a 32-hex secret: a public sample served by the worker.
+  var DEMO_ID = "demo";
   var REFRESH_MS = 60000;
   var TICK_MS = 30000;
   var STALE_MS = 30 * 60000;
@@ -21,6 +24,7 @@
   var REPO_URL = "https://github.com/ShlomiPorush/ai-usage-tray";
 
   var content = document.getElementById("content");
+  var demoBadge = document.getElementById("demo-badge");
   var updatedEl = document.getElementById("updated");
   var staleEl = document.getElementById("staleness");
   var connectionEl = document.getElementById("connection");
@@ -160,11 +164,12 @@
     return isNaN(date.getTime()) ? null : date;
   }
 
-  // remaining -> state name. green > 50, amber 20-50, red < 20.
-  function classify(remaining) {
-    if (remaining > 50) return "good";
-    if (remaining >= 20) return "warn";
-    return "danger";
+  // used -> state name. Same thresholds as the Windows tray icon and widget:
+  // red above 80% used, amber from 50%, green below that.
+  function classify(used) {
+    if (used > 80) return "danger";
+    if (used >= 50) return "warn";
+    return "good";
   }
 
   function clampPercent(value) {
@@ -224,12 +229,14 @@
     return Array.isArray(account.windows) ? account.windows : [];
   }
 
-  function worstRemaining(account) {
+  // The account dot follows its worst window, i.e. the highest used percentage.
+  function worstUsed(account) {
     var rows = windowsOf(account);
     if (rows.length === 0) return null;
     return rows.reduce(function (worst, row) {
-      var remaining = 100 - clampPercent(row.usedPercent);
-      return worst === null || remaining < worst ? remaining : worst;
+      if (!row || typeof row !== "object") return worst;
+      var used = clampPercent(row.usedPercent);
+      return worst === null || used > worst ? used : worst;
     }, null);
   }
 
@@ -250,21 +257,18 @@
     return accounts;
   }
 
+  // The number and the fill are both "used", matching the Windows tray and widget.
   function renderMeterRow(accountName, source, now) {
     var used = clampPercent(source.usedPercent);
-    var remaining = 100 - used;
-    var state = classify(remaining);
+    var state = classify(used);
     var label = typeof source.label === "string" && source.label ? source.label : "Usage";
-    var shown = Math.round(remaining);
+    var shown = Math.round(used);
 
     var row = el("div", "meter-row is-" + state);
 
     var top = el("div", "meter-top");
     top.appendChild(el("span", "meter-label", label));
-
-    var value = el("span", "meter-value", shown + "%");
-    value.appendChild(el("span", "meter-value-suffix", " left"));
-    top.appendChild(value);
+    top.appendChild(el("span", "meter-value", shown + "%"));
     row.appendChild(top);
 
     var track = el("div", "meter-track");
@@ -272,11 +276,11 @@
     track.setAttribute("aria-valuemin", "0");
     track.setAttribute("aria-valuemax", "100");
     track.setAttribute("aria-valuenow", String(shown));
-    track.setAttribute("aria-valuetext", shown + "% remaining");
+    track.setAttribute("aria-valuetext", shown + "% used");
     track.setAttribute("aria-label", accountName + ": " + label);
 
     var fill = el("div", "meter-fill");
-    fill.style.width = remaining + "%";
+    fill.style.width = used + "%";
     track.appendChild(fill);
     row.appendChild(track);
 
@@ -298,7 +302,7 @@
     var card = el("article", "card");
 
     var head = el("div", "card-head");
-    var worst = worstRemaining(account);
+    var worst = worstUsed(account);
     var dotState = worst === null ? "none" : classify(worst);
     var dot = el("span", "dot is-" + dotState);
     dot.setAttribute("aria-hidden", "true");
@@ -444,7 +448,7 @@
   function resolveId() {
     var params = new URLSearchParams(window.location.search);
     var raw = (params.get("id") || "").trim();
-    if (ID_PATTERN.test(raw)) return raw;
+    if (raw === DEMO_ID || ID_PATTERN.test(raw)) return raw;
 
     // An explicit but unusable ?id= means "show me the landing page". Only a
     // link with no id at all falls back to the last id this device saw. That
@@ -476,7 +480,13 @@
     }
 
     id = resolved;
-    writeStored(LAST_ID_KEY, id);
+    // The demo is never remembered: an installed app must not be left pointing
+    // at the sample because someone once opened the demo link on this device.
+    if (id === DEMO_ID) {
+      if (demoBadge) demoBadge.hidden = false;
+    } else {
+      writeStored(LAST_ID_KEY, id);
+    }
     renderMessage("Loading…", ["Fetching the latest usage snapshot."]);
     load();
 

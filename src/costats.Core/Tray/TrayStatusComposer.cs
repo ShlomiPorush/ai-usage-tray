@@ -44,7 +44,7 @@ public sealed record AccountUsageStatus(
 }
 
 public sealed record TrayStatus(
-    double? LowestRemainingPercent,
+    double? HighestUsedPercent,
     TraySeverity Severity,
     string Tooltip)
 {
@@ -64,33 +64,24 @@ public static class TrayStatusComposer
         ArgumentNullException.ThrowIfNull(accounts);
 
         var materialized = accounts.ToArray();
-        var remainingValues = materialized
-            .SelectMany(account => new[] { account.SessionRemainingPercent, account.WeeklyRemainingPercent }
-                .Concat((account.ScopedQuotas ?? []).Select(q => (double?)(100 - q.UsedPercent))))
-            .Where(value => value.HasValue)
-            .Select(value => Math.Clamp(value!.Value, 0, 100))
+        var usedValues = materialized
+            .SelectMany(UsedPercents)
             .ToArray();
 
-        var lowest = remainingValues.Length == 0 ? (double?)null : remainingValues.Min();
-        var severity = lowest switch
-        {
-            null => TraySeverity.Unknown,
-            < 20 => TraySeverity.Red,
-            <= 50 => TraySeverity.Amber,
-            _ => TraySeverity.Green
-        };
+        var highest = usedValues.Length == 0 ? (double?)null : usedValues.Max();
+        var severity = Classify(highest);
 
         var fullTooltip = string.Join('\n', materialized.Select(account => FormatAccount(account, now)));
         var tooltip = fullTooltip.Length > MaximumTooltipLength
             ? fullTooltip[..MaximumTooltipLength]
             : fullTooltip;
 
-        return new TrayStatus(lowest, severity, tooltip) { FullTooltip = fullTooltip };
+        return new TrayStatus(highest, severity, tooltip) { FullTooltip = fullTooltip };
     }
 
     /// <summary>
     /// One display row per account for rich (non-shell) tooltips: label, the
-    /// formatted windows text, and the worst remaining percentage for colouring.
+    /// formatted windows text, and the worst (highest) used percentage for colouring.
     /// </summary>
     public static IReadOnlyList<TrayAccountRow> ComposeRows(IEnumerable<AccountUsageStatus> accounts, DateTimeOffset now)
     {
@@ -98,17 +89,35 @@ public static class TrayStatusComposer
         return accounts.Select(account =>
         {
             var windows = BuildWindowTexts(account, now);
-            var remaining = new[] { account.SessionRemainingPercent, account.WeeklyRemainingPercent }
-                .Concat((account.ScopedQuotas ?? []).Select(q => (double?)(100 - q.UsedPercent)))
-                .Where(value => value.HasValue)
-                .Select(value => Math.Clamp(value!.Value, 0, 100))
-                .ToArray();
+            var used = UsedPercents(account).ToArray();
 
             return new TrayAccountRow(
                 account.Label,
                 windows.Count == 0 ? "unavailable" : string.Join("  |  ", windows),
-                remaining.Length == 0 ? null : remaining.Min());
+                used.Length == 0 ? null : used.Max());
         }).ToList();
+    }
+
+    /// <summary>
+    /// Maps the worst used percentage to a severity. This is the exact
+    /// complement of the older remaining-based rule (remaining &lt; 20 =&gt; Red,
+    /// remaining &lt;= 50 =&gt; Amber).
+    /// </summary>
+    private static TraySeverity Classify(double? highestUsedPercent) => highestUsedPercent switch
+    {
+        null => TraySeverity.Unknown,
+        > 80 => TraySeverity.Red,
+        >= 50 => TraySeverity.Amber,
+        _ => TraySeverity.Green
+    };
+
+    /// <summary>Every window's used percentage (0-100) for one account.</summary>
+    private static IEnumerable<double> UsedPercents(AccountUsageStatus account)
+    {
+        return new[] { account.SessionRemainingPercent, account.WeeklyRemainingPercent }
+            .Where(value => value.HasValue)
+            .Select(value => 100 - Math.Clamp(value!.Value, 0, 100))
+            .Concat((account.ScopedQuotas ?? []).Select(q => (double)Math.Clamp(q.UsedPercent, 0, 100)));
     }
 
     private static List<string> BuildWindowTexts(AccountUsageStatus account, DateTimeOffset now)
@@ -116,18 +125,18 @@ public static class TrayStatusComposer
         var windows = new List<string>(3);
         if (account.SessionRemainingPercent.HasValue && account.SessionResetsAt.HasValue)
         {
-            windows.Add(FormatWindow("Session", account.SessionRemainingPercent.Value, account.SessionResetsAt.Value, now, weekly: false));
+            windows.Add(FormatWindow("Session", 100 - account.SessionRemainingPercent.Value, account.SessionResetsAt.Value, now, weekly: false));
         }
         if (account.WeeklyRemainingPercent.HasValue && account.WeeklyResetsAt.HasValue)
         {
-            windows.Add(FormatWindow("Weekly", account.WeeklyRemainingPercent.Value, account.WeeklyResetsAt.Value, now, weekly: true));
+            windows.Add(FormatWindow("Weekly", 100 - account.WeeklyRemainingPercent.Value, account.WeeklyResetsAt.Value, now, weekly: true));
         }
         foreach (var scoped in account.ScopedQuotas ?? [])
         {
-            var remaining = 100 - Math.Clamp(scoped.UsedPercent, 0, 100);
+            var used = Math.Clamp(scoped.UsedPercent, 0, 100);
             windows.Add(scoped.ResetsAt.HasValue
-                ? FormatWindow(scoped.Label, remaining, scoped.ResetsAt.Value, now, weekly: scoped.Group.Contains("week", StringComparison.OrdinalIgnoreCase))
-                : $"{scoped.Label} {remaining}%");
+                ? FormatWindow(scoped.Label, used, scoped.ResetsAt.Value, now, weekly: scoped.Group.Contains("week", StringComparison.OrdinalIgnoreCase))
+                : $"{scoped.Label} {used}%");
         }
 
         return windows;
@@ -141,9 +150,13 @@ public static class TrayStatusComposer
             : $"{account.Label} {string.Join(" | ", windows)}";
     }
 
+    /// <summary>
+    /// Compact window text, e.g. "Session 86% · 1h22m". The percentage is the
+    /// USED share of the quota, matching every other surface in the app.
+    /// </summary>
     private static string FormatWindow(
         string label,
-        double remainingPercent,
+        double usedPercent,
         DateTimeOffset resetsAt,
         DateTimeOffset now,
         bool weekly)
@@ -154,7 +167,7 @@ public static class TrayStatusComposer
             remaining = TimeSpan.Zero;
         }
 
-        var percent = Math.Clamp(remainingPercent, 0, 100)
+        var percent = Math.Clamp(usedPercent, 0, 100)
             .ToString("0", CultureInfo.InvariantCulture);
 
         if (weekly)
@@ -169,4 +182,4 @@ public static class TrayStatusComposer
 }
 
 /// <summary>One account line for rich tray tooltips.</summary>
-public sealed record TrayAccountRow(string Label, string WindowsText, double? WorstRemainingPercent);
+public sealed record TrayAccountRow(string Label, string WindowsText, double? WorstUsedPercent);

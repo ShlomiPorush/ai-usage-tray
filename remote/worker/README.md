@@ -17,11 +17,16 @@ Everything you paste lives in one file: **`worker.bundle.js`**.
 | GET     | `/styles.css`, `/app.js`, `/config.js` | Page assets (cached 5 minutes).                        |
 | PUT     | `/u/{id}`                           | Stores the snapshot the app uploads. `204` on success.    |
 | GET     | `/u/{id}`                           | Returns the stored JSON, or `404 {"error":"not_found"}`.  |
+| GET     | `/u/demo`                           | A built-in sample payload, generated per request.         |
 | OPTIONS | any                                 | CORS preflight.                                           |
 
 `{id}` is a random 128-bit value written as 32 lowercase hex characters (`^[a-f0-9]{32}$`). It is the
 only credential, for reading and writing alike, so treat the full link as a secret. Bodies must be
 `application/json` and at most 16 KB.
+
+`demo` is the one reserved id: `GET /u/demo` always answers with sample accounts whose timestamps are
+computed at request time, so `/?id=demo` is a safe public link. It is never stored, `PUT /u/demo` is
+rejected with `405`, and the page does not remember `demo` as the last id it saw.
 
 Stored entries carry a 7-day TTL. Every upload refreshes it, so a snapshot from an app that was
 stopped or uninstalled disappears on its own and the page then shows "not found".

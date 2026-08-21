@@ -75,6 +75,11 @@ The id is a 32-character lowercase hex string and is the only credential, so tre
 the link as a secret. Without a valid `id` the page shows a landing view with links
 to the app's releases and repository.
 
+`?id=demo` is the one non-hex id the page accepts: the worker answers it with a
+sample payload, and the page marks it with a "Demo data" badge. It is deliberately
+not remembered as the last-seen id, so opening the demo cannot hijack an installed
+app that was set up with a real link.
+
 The page refetches every 60 seconds and shows how long ago the app last reported.
 Snapshots expire after about a week without the app running, and the page then
 shows a "no data" message.

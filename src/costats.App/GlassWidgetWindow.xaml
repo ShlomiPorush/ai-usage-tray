@@ -116,9 +116,24 @@
             <!-- Divider -->
             <Border Grid.Row="1" Height="1" Background="{DynamicResource DividerBrush}" Margin="0,0,0,16" />
 
-            <!-- Overview: one clickable card per account -->
-            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Focusable="False"
-                          Visibility="{Binding IsOverview, Converter={StaticResource BoolToVisibilityConverter}}">
+            <!-- Overview: one clickable card per account.
+                 In detail mode it goes Hidden (not Collapsed) so it keeps
+                 reserving its layout space; that pins the window height across
+                 overview <-> detail switches and stops the widget from
+                 shrinking and drifting away from the taskbar corner. -->
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Focusable="False">
+                <ScrollViewer.Style>
+                    <Style TargetType="ScrollViewer">
+                        <Setter Property="Visibility" Value="Visible" />
+                        <Setter Property="IsHitTestVisible" Value="True" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsOverview}" Value="False">
+                                <Setter Property="Visibility" Value="Hidden" />
+                                <Setter Property="IsHitTestVisible" Value="False" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ScrollViewer.Style>
                 <ItemsControl ItemsSource="{Binding Providers}" Focusable="False">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -496,10 +511,10 @@
 
             </StackPanel>
 
-            <!-- Footer note -->
-            <StackPanel Grid.Row="3" Margin="0,20,0,0">
-                <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,0,0,14" />
-                <DockPanel>
+            <!-- Footer: divider plus the right-aligned Refresh / Settings buttons -->
+            <StackPanel Grid.Row="3" Margin="0,16,0,0">
+                <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,0,0,12" />
+                <DockPanel HorizontalAlignment="Right" LastChildFill="False">
                     <Button Width="28" Height="28" DockPanel.Dock="Right"
                             Background="Transparent" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
                             ToolTip="Settings" Padding="0" Cursor="Hand" VerticalAlignment="Top"
@@ -534,7 +549,7 @@
                         <Path Data="{StaticResource SettingsIconPath}" Fill="{DynamicResource TextSecondaryBrush}"
                               Stretch="Uniform" Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Button>
-                    <!-- Refresh button docked to right first -->
+                    <!-- Refresh button sits to the left of Settings -->
                     <Button Command="{Binding RefreshCommand}" Width="28" Height="28" DockPanel.Dock="Right" Margin="0,0,6,0"
                             Background="Transparent" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
                             ToolTip="Refresh now" Padding="0" Cursor="Hand" VerticalAlignment="Top"
@@ -569,19 +584,6 @@
                         <Path Data="{StaticResource RefreshIconPath}" Fill="{DynamicResource TextSecondaryBrush}"
                               Stretch="Uniform" Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Button>
-                    <!-- Description text fills remaining space -->
-                    <StackPanel Margin="0,0,12,0">
-                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource TextFaintBrush}">
-                            <Run FontWeight="SemiBold" Foreground="{DynamicResource CodexAccent}">Codex</Run><Run> - OpenAI's AI coding assistant</Run>
-                        </TextBlock>
-                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource TextFaintBrush}">
-                            <Run FontWeight="SemiBold" Foreground="{DynamicResource ClaudeAccent}">Claude</Run><Run> - Anthropic's Claude Code CLI</Run>
-                        </TextBlock>
-                        <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
-                                   Visibility="{Binding IsCopilotEnabled, Converter={StaticResource BoolToVisibilityConverter}}">
-                            <Run FontWeight="SemiBold" Foreground="{DynamicResource CopilotAccent}">Copilot</Run><Run> - GitHub's AI coding assistant</Run>
-                        </TextBlock>
-                    </StackPanel>
                 </DockPanel>
             </StackPanel>
             </Grid>

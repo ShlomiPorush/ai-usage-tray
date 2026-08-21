@@ -5,7 +5,7 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-var CACHE = "ai-usage-tray-shell-v1";
+var CACHE = "ai-usage-tray-shell-v2";
 
 var SHELL = [
   "./",

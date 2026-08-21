@@ -150,6 +150,19 @@ h1 {
   font-size: 13px;
 }
 
+/* Sample data, not a real account: quiet enough to ignore, present enough to
+   stop anyone reading the numbers as their own. */
+.demo-badge {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--ink-3);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 :where(a, button):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -304,12 +317,6 @@ h1 {
   font-size: 15px;
   font-weight: 600;
   white-space: nowrap;
-}
-
-.meter-value-suffix {
-  color: var(--ink-3);
-  font-size: 12px;
-  font-weight: 400;
 }
 
 .meter-track {

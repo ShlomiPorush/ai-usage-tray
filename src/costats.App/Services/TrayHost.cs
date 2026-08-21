@@ -161,7 +161,7 @@ namespace costats.App.Services
             public int Y;
         }
 
-        private static Icon CreateIcon(TraySeverity severity, double? lowestRemainingPercent)
+        private static Icon CreateIcon(TraySeverity severity, double? highestUsedPercent)
         {
             using var bitmap = new Bitmap(32, 32);
             using var graphics = Graphics.FromImage(bitmap);
@@ -180,13 +180,13 @@ namespace costats.App.Services
             using var background = new SolidBrush(colour);
             graphics.FillEllipse(background, 2, 2, 28, 28);
 
-            // Always-on numeric overlay so the tray shows the lowest remaining
+            // Always-on numeric overlay so the tray shows the highest used
             // percentage at a glance, like the system clock. White-on-colour
             // text scales to fit small icon sizes. When there is no data, the
             // circle stays blank (no number), matching the old "loading" look.
-            if (lowestRemainingPercent.HasValue)
+            if (highestUsedPercent.HasValue)
             {
-                var percentText = ((long)Math.Round(Math.Clamp(lowestRemainingPercent.Value, 0, 100))).ToString();
+                var percentText = ((long)Math.Round(Math.Clamp(highestUsedPercent.Value, 0, 100))).ToString();
                 using var textBrush = new SolidBrush(Color.White);
                 var cellStyle = new System.Drawing.StringFormat
                 {
@@ -337,7 +337,7 @@ namespace costats.App.Services
                     .OrderBy(a => a.Label.Equals(label, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                     .ToArray();
                 var ordered = TrayStatusComposer.Compose(orderedAccounts, DateTimeOffset.UtcNow);
-                status = new TrayStatus(primaryStatus.LowestRemainingPercent, primaryStatus.Severity, ordered.Tooltip)
+                status = new TrayStatus(primaryStatus.HighestUsedPercent, primaryStatus.Severity, ordered.Tooltip)
                 {
                     FullTooltip = ordered.FullTooltip
                 };
@@ -389,7 +389,7 @@ namespace costats.App.Services
                     VerticalAlignment = VerticalAlignment.Center,
                     Fill = new System.Windows.Media.SolidColorBrush(
                         (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
-                            RemainingColor(row.WorstRemainingPercent)))
+                            UsedColor(row.WorstUsedPercent)))
                 };
                 line.Children.Add(dot);
 
@@ -416,12 +416,12 @@ namespace costats.App.Services
             }
         }
 
-        // Same thresholds as the tray icon severity.
-        private static string RemainingColor(double? remainingPercent) => remainingPercent switch
+        // Same thresholds as the tray icon severity, expressed as used percent.
+        private static string UsedColor(double? usedPercent) => usedPercent switch
         {
             null => "#9CA3AF",
-            < 20 => "#EF4444",
-            <= 50 => "#F59E0B",
+            > 80 => "#EF4444",
+            >= 50 => "#F59E0B",
             _ => "#10B981"
         };
 
@@ -433,10 +433,10 @@ namespace costats.App.Services
             // so the tray isn't constantly invalidated every refresh.
             var severityChanged = _lastAppliedStatus is null
                 || _lastAppliedStatus.Severity != status.Severity
-                || Math.Abs((_lastAppliedStatus.LowestRemainingPercent ?? -1) - (status.LowestRemainingPercent ?? -1)) >= 1;
+                || Math.Abs((_lastAppliedStatus.HighestUsedPercent ?? -1) - (status.HighestUsedPercent ?? -1)) >= 1;
             if (severityChanged)
             {
-                var replacement = CreateIcon(status.Severity, status.LowestRemainingPercent);
+                var replacement = CreateIcon(status.Severity, status.HighestUsedPercent);
                 var previous = _currentIcon;
                 _currentIcon = replacement;
                 _taskbarIcon.Icon = replacement;
@@ -477,10 +477,24 @@ namespace costats.App.Services
 
         private void OnWidgetSizeChanged(object sender, SizeChangedEventArgs e)
         {
-            if (_widgetWindow.IsVisible)
+            if (!_widgetWindow.IsVisible)
             {
-                PositionWidget();
+                return;
             }
+
+            // SizeToContent means the height changes whenever the account count
+            // or the active view changes. Re-anchor after the layout pass has
+            // settled so the bottom edge stays glued to the taskbar corner
+            // instead of drifting down off the screen.
+            _widgetWindow.Dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    if (_widgetWindow.IsVisible)
+                    {
+                        PositionWidget();
+                    }
+                }),
+                System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         private void OnDisplaySettingsChanged(object? sender, EventArgs e)
@@ -496,7 +510,11 @@ namespace costats.App.Services
 
         private void PositionWidget()
         {
-            var position = _taskbarPosition.GetWidgetPosition(_widgetWindow.Width, _widgetWindow.Height, 12);
+            // SizeToContent leaves Height as NaN until the first layout pass,
+            // so fall back to the measured size when it is not set yet.
+            var width = double.IsNaN(_widgetWindow.Width) ? _widgetWindow.ActualWidth : _widgetWindow.Width;
+            var height = double.IsNaN(_widgetWindow.Height) ? _widgetWindow.ActualHeight : _widgetWindow.Height;
+            var position = _taskbarPosition.GetWidgetPosition(width, height, 12);
             _widgetWindow.Left = position.X;
             _widgetWindow.Top = position.Y;
         }

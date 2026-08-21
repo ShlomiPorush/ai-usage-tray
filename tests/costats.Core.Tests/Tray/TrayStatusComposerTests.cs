@@ -8,7 +8,7 @@ public sealed class TrayStatusComposerTests
     private static readonly DateTimeOffset Now = new(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Compose_uses_lowest_remaining_percentage_across_every_window()
+    public void Compose_uses_highest_used_percentage_across_every_window()
     {
         var accounts = new[]
         {
@@ -19,7 +19,7 @@ public sealed class TrayStatusComposerTests
 
         var result = TrayStatusComposer.Compose(accounts, Now);
 
-        Assert.Equal(27, result.LowestRemainingPercent);
+        Assert.Equal(73, result.HighestUsedPercent);
         Assert.Equal(TraySeverity.Amber, result.Severity);
     }
 
@@ -36,9 +36,9 @@ public sealed class TrayStatusComposerTests
         var result = TrayStatusComposer.Compose(accounts, Now);
 
         Assert.Equal(
-            "Claude Session 34% · 2h34m | Weekly 60% · 3.2d\n" +
-            "PA Weekly 45% · 5.1d\n" +
-            "GPT Weekly 73% · 2.6d",
+            "Claude Session 66% · 2h34m | Weekly 40% · 3.2d\n" +
+            "PA Weekly 55% · 5.1d\n" +
+            "GPT Weekly 27% · 2.6d",
             result.Tooltip);
         Assert.True(result.Tooltip.Length <= 127);
     }
@@ -53,7 +53,7 @@ public sealed class TrayStatusComposerTests
 
         var result = TrayStatusComposer.Compose(accounts, Now);
 
-        Assert.Equal("PA Weekly 87% · 6.8d", result.Tooltip);
+        Assert.Equal("PA Weekly 13% · 6.8d", result.Tooltip);
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public sealed class TrayStatusComposerTests
     [InlineData(50, TraySeverity.Amber)]
     [InlineData(20, TraySeverity.Amber)]
     [InlineData(19, TraySeverity.Red)]
-    public void Compose_maps_lowest_remaining_to_expected_colour(double remaining, TraySeverity expected)
+    public void Compose_maps_highest_used_to_expected_colour(double remaining, TraySeverity expected)
     {
         var accounts = new[]
         {
@@ -88,7 +88,7 @@ public sealed class TrayStatusComposerTests
     }
 
     [Fact]
-    public void Scoped_limits_drive_severity_and_lowest_remaining()
+    public void Scoped_limits_drive_severity_and_highest_used()
     {
         var accounts = new[]
         {
@@ -103,7 +103,7 @@ public sealed class TrayStatusComposerTests
 
         var status = TrayStatusComposer.Compose(accounts, DateTimeOffset.UtcNow);
 
-        Assert.Equal(0, status.LowestRemainingPercent);
+        Assert.Equal(100, status.HighestUsedPercent);
         Assert.Equal(TraySeverity.Red, status.Severity);
     }
 }
