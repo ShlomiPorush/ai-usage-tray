@@ -104,6 +104,13 @@ namespace costats.App
                 var settingsStore = new JsonSettingsStore();
                 var settings = await settingsStore.LoadAsync(CancellationToken.None).ConfigureAwait(false);
 
+                // Remote view ships with a working endpoint, so the user only has
+                // to tick the checkbox. These are runtime-only defaults: they are
+                // never written back to settings.json, which lets a later release
+                // change the service.
+                settings.DefaultRemoteViewUploadUrl = ReadConfiguredUrl(startupConfiguration, "Costats:RemoteView:UploadUrl");
+                settings.DefaultRemoteViewPageUrl = ReadConfiguredUrl(startupConfiguration, "Costats:RemoteView:PageUrl");
+
                 await Dispatcher.InvokeAsync(() =>
                 {
                     ThemeService.Apply(settings.Theme);
@@ -181,6 +188,13 @@ namespace costats.App
                 }
                 Shutdown(0);
             });
+        }
+
+        /// <summary>Reads a URL from configuration, treating blank as "not shipped".</summary>
+        private static string? ReadConfiguredUrl(IConfiguration configuration, string key)
+        {
+            var value = configuration[key];
+            return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
 
         private static IConfiguration BuildStartupConfiguration()

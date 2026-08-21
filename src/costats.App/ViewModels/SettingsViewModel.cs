@@ -127,9 +127,22 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// the generated id exist.
     /// </summary>
     public string ShareLink =>
-        string.IsNullOrWhiteSpace(_settings.RemoteViewPageUrl) || string.IsNullOrWhiteSpace(_settings.RemoteViewId)
+        string.IsNullOrWhiteSpace(_settings.EffectiveRemoteViewPageUrl) || string.IsNullOrWhiteSpace(_settings.RemoteViewId)
             ? string.Empty
-            : $"{_settings.RemoteViewPageUrl.TrimEnd('/')}/?id={_settings.RemoteViewId}";
+            : $"{_settings.EffectiveRemoteViewPageUrl.TrimEnd('/')}/?id={_settings.RemoteViewId}";
+
+    /// <summary>
+    /// The endpoint boxes only appear on builds that ship without a remote-view
+    /// service; otherwise remote view is a single checkbox and power users
+    /// override the URLs by hand in settings.json.
+    /// </summary>
+    public bool ShowRemoteViewUrlFields => !_settings.HasRemoteViewDefaults;
+
+    /// <summary>Explains what leaves the machine, worded for the shipped relay or for a self-hosted endpoint.</summary>
+    public string RemoteViewHint =>
+        _settings.HasRemoteViewDefaults
+            ? "After each refresh, uploads a small snapshot to the built-in relay: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The random link id is the only credential, and the snapshot expires server-side after about a week without updates."
+            : "After each refresh, uploads a small snapshot to your endpoint: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The snapshot expires server-side after about a week without updates.";
 
     public static IReadOnlyList<ThemeOption> ThemeOptions { get; } =
     [

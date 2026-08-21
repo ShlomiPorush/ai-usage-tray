@@ -83,6 +83,54 @@ public sealed class AppSettings
     /// </summary>
     public string? RemoteViewPageUrl { get; set; }
 
+    /// <summary>
+    /// Upload endpoint shipped with the app, read at startup from
+    /// <c>appsettings.json</c> (<c>Costats:RemoteView:UploadUrl</c>). Never
+    /// serialized: it is an app default, not user state, so a later release can
+    /// move the service without a stale copy in the user's settings file
+    /// overriding it.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? DefaultRemoteViewUploadUrl { get; set; }
+
+    /// <summary>
+    /// Viewer page shipped with the app, read at startup from
+    /// <c>appsettings.json</c> (<c>Costats:RemoteView:PageUrl</c>). Never
+    /// serialized, for the same reason as
+    /// <see cref="DefaultRemoteViewUploadUrl"/>.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? DefaultRemoteViewPageUrl { get; set; }
+
+    /// <summary>
+    /// Upload endpoint actually used: a hand-edited user value wins, otherwise
+    /// the built-in default, otherwise null (remote view stays inert).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? EffectiveRemoteViewUploadUrl =>
+        !string.IsNullOrWhiteSpace(RemoteViewUploadUrl) ? RemoteViewUploadUrl
+        : !string.IsNullOrWhiteSpace(DefaultRemoteViewUploadUrl) ? DefaultRemoteViewUploadUrl
+        : null;
+
+    /// <summary>
+    /// Viewer page actually used, resolved like
+    /// <see cref="EffectiveRemoteViewUploadUrl"/>.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? EffectiveRemoteViewPageUrl =>
+        !string.IsNullOrWhiteSpace(RemoteViewPageUrl) ? RemoteViewPageUrl
+        : !string.IsNullOrWhiteSpace(DefaultRemoteViewPageUrl) ? DefaultRemoteViewPageUrl
+        : null;
+
+    /// <summary>
+    /// True when the build ships a complete remote-view service, so Settings can
+    /// hide the endpoint boxes and remote view becomes a single checkbox.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasRemoteViewDefaults =>
+        !string.IsNullOrWhiteSpace(DefaultRemoteViewUploadUrl) &&
+        !string.IsNullOrWhiteSpace(DefaultRemoteViewPageUrl);
+
     /// <summary>True when any Z.AI API key is configured.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool HasZaiKey =>

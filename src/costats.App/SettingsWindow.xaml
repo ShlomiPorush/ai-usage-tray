@@ -229,22 +229,25 @@
                 <CheckBox IsChecked="{Binding RemoteViewEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
                     <TextBlock Text="Enable remote view" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
                 </CheckBox>
-                <TextBlock Text="After each refresh, uploads a small snapshot to your endpoint: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The snapshot expires server-side after about a week without updates."
+                <TextBlock Text="{Binding RemoteViewHint}"
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
 
-                <TextBlock Text="Upload endpoint URL" FontSize="12"
-                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
-                <TextBox Text="{Binding RemoteViewUploadUrl, UpdateSourceTrigger=LostFocus}"
-                         Style="{StaticResource SettingsTextBox}" Margin="0,0,0,4" />
-                <TextBlock Text="Base URL of the worker that stores the snapshot, e.g. https://usage-api.example.com"
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                <!-- Endpoint boxes only appear when this build ships no default service. -->
+                <StackPanel Visibility="{Binding ShowRemoteViewUrlFields, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <TextBlock Text="Upload endpoint URL" FontSize="12"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
+                    <TextBox Text="{Binding RemoteViewUploadUrl, UpdateSourceTrigger=LostFocus}"
+                             Style="{StaticResource SettingsTextBox}" Margin="0,0,0,4" />
+                    <TextBlock Text="Base URL of the worker that stores the snapshot, e.g. https://usage-api.example.com"
+                               FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
 
-                <TextBlock Text="Viewer page URL" FontSize="12"
-                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
-                <TextBox Text="{Binding RemoteViewPageUrl, UpdateSourceTrigger=LostFocus}"
-                         Style="{StaticResource SettingsTextBox}" Margin="0,0,0,4" />
-                <TextBlock Text="Base URL of the page you open on your phone, e.g. https://usage.example.com"
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                    <TextBlock Text="Viewer page URL" FontSize="12"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
+                    <TextBox Text="{Binding RemoteViewPageUrl, UpdateSourceTrigger=LostFocus}"
+                             Style="{StaticResource SettingsTextBox}" Margin="0,0,0,4" />
+                    <TextBlock Text="Base URL of the page you open on your phone, e.g. https://usage.example.com"
+                               FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
+                </StackPanel>
 
                 <DockPanel Margin="0,0,0,6">
                     <Button Content="Copy link" Command="{Binding CopyShareLinkCommand}"

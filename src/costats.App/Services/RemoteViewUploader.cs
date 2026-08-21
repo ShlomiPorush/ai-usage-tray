@@ -12,8 +12,8 @@ namespace costats.App.Services
 {
     /// <summary>
     /// Optional "remote view": after each refresh, PUTs a small non-sensitive
-    /// usage snapshot to the user-configured endpoint so it can be read from a
-    /// phone. Entirely opt-in and best effort — a failed upload never affects
+    /// usage snapshot to the built-in endpoint (or a user override) so it can be
+    /// read from a phone. Entirely opt-in and best effort — a failed upload never affects
     /// the tray.
     /// </summary>
     public sealed class RemoteViewUploader : IObserver<PulseState>, IDisposable
@@ -54,9 +54,10 @@ namespace costats.App.Services
                     return;
                 }
 
+                var uploadUrl = _settings.EffectiveRemoteViewUploadUrl;
                 if (!_settings.RemoteViewEnabled ||
                     string.IsNullOrWhiteSpace(_settings.RemoteViewId) ||
-                    string.IsNullOrWhiteSpace(_settings.RemoteViewUploadUrl))
+                    string.IsNullOrWhiteSpace(uploadUrl))
                 {
                     return;
                 }
@@ -68,7 +69,7 @@ namespace costats.App.Services
                 }
 
                 var snapshot = Compose(state, now);
-                var url = $"{_settings.RemoteViewUploadUrl.TrimEnd('/')}/u/{_settings.RemoteViewId}";
+                var url = $"{uploadUrl.TrimEnd('/')}/u/{_settings.RemoteViewId}";
 
                 // One upload at a time; a slow endpoint must not queue refreshes up.
                 if (Interlocked.Exchange(ref _uploadInFlight, 1) == 1)
