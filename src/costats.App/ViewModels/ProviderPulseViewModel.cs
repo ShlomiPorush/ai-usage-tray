@@ -174,8 +174,18 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         var sessionPercent = vm.SessionProgress * 100.0;
         var weekPercent = vm.WeekProgress * 100.0;
         var worstPercent = Math.Max(sessionPercent, weekPercent);
-        vm.OverallStatusColor = GetUtilizationColor(worstPercent);
-        vm.OverallStatusText = GetStatusText(worstPercent);
+        var worstSeverity = WorstSeverity(reading.Usage);
+        vm.OverallStatusColor = GetUtilizationColor(worstPercent, worstSeverity);
+        vm.OverallStatusText = GetStatusText(worstPercent, worstSeverity);
+
+        // Being refused is worse than any percentage, and no window on its own
+        // says it, so it overrides the headline on every surface that shows one.
+        if (reading.Usage?.IsBlocked == true)
+        {
+            vm.OverallStatusColor = "#EF4444";
+            vm.OverallStatusText = "Blocked";
+            vm.StatusSummary = "Limit reached - requests are being refused";
+        }
 
         // Legacy fields
         vm.SessionText = FormatUsageRatio(reading.Usage?.SessionUsed, reading.Usage?.SessionLimit);
@@ -217,9 +227,9 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
             }
         }
 
-        vm.SessionStatusColor = GetUtilizationColor(usedPercent);
+        vm.SessionStatusColor = GetUtilizationColor(usedPercent, usage.SessionSeverity);
         vm.SessionPercentText = $"{(int)Math.Round(usedPercent)}%";
-        vm.SessionPercentColor = GetPercentTextColor(usedPercent);
+        vm.SessionPercentColor = GetPercentTextColor(usedPercent, usage.SessionSeverity);
     }
 
     private static void PopulateWeekMetrics(ProviderPulseViewModel vm, ProviderReading reading)
@@ -254,9 +264,9 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
             }
         }
 
-        vm.WeekStatusColor = GetUtilizationColor(usedPercent);
+        vm.WeekStatusColor = GetUtilizationColor(usedPercent, usage.WeekSeverity);
         vm.WeekPercentText = $"{(int)Math.Round(usedPercent)}%";
-        vm.WeekPercentColor = GetPercentTextColor(usedPercent);
+        vm.WeekPercentColor = GetPercentTextColor(usedPercent, usage.WeekSeverity);
     }
 
     private static void PopulateScopedLimits(ProviderPulseViewModel vm, ProviderReading reading)
@@ -273,7 +283,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
                 char.ToUpperInvariant(q.Group[0]) + q.Group[1..].Replace('_', ' '),
                 $"{q.UsedPercent}%",
                 q.UsedPercent / 100.0,
-                GetPercentTextColor(q.UsedPercent),
+                GetPercentTextColor(q.UsedPercent, q.Severity),
                 q.ResetsAt is { } resets ? $"Resets {UsageFormatter.ResetCountdown(resets)}" : string.Empty))
             .ToList();
         vm.HasScopedLimits = true;
@@ -400,46 +410,110 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         };
     }
 
-    private static string GetUtilizationColor(double percent)
+    /// <summary>
+    /// A provider that rates its own windows (Claude sends limits[].severity)
+    /// decides the colour, so the app agrees with the provider's own UI. The
+    /// percentage thresholds are the fallback for providers that report none.
+    /// </summary>
+    private static string GetUtilizationColor(double percent, QuotaSeverity? severity = null)
     {
-        return percent switch
+        return severity switch
         {
-            >= 95 => "#EF4444",  // Red - at/over limit
-            >= 80 => "#F97316",  // Orange - near limit
-            >= 50 => "#F59E0B",  // Amber - moderate
-            _     => "#10B981",  // Green - healthy
+            QuotaSeverity.Critical => "#EF4444",  // Red - at/over limit
+            QuotaSeverity.Warning  => "#F59E0B",  // Amber - moderate
+            QuotaSeverity.Normal   => "#10B981",  // Green - healthy
+            _ => percent switch
+            {
+                >= 95 => "#EF4444",
+                >= 80 => "#F97316",  // Orange - near limit
+                >= 50 => "#F59E0B",
+                _     => "#10B981",
+            }
         };
     }
 
-    private static string GetStatusText(double percent)
+    private static string GetStatusText(double percent, QuotaSeverity? severity = null)
     {
-        return percent switch
+        return severity switch
         {
-            >= 95 => "At limit",
-            >= 80 => "Near limit",
-            >= 50 => "Moderate",
-            _     => "OK",
+            QuotaSeverity.Critical => "At limit",
+            QuotaSeverity.Warning  => "Near limit",
+            QuotaSeverity.Normal   => "OK",
+            _ => percent switch
+            {
+                >= 95 => "At limit",
+                >= 80 => "Near limit",
+                >= 50 => "Moderate",
+                _     => "OK",
+            }
         };
+    }
+
+    /// <summary>Worst severity across every window of a reading; null when no window carries one.</summary>
+    private static QuotaSeverity? WorstSeverity(UsagePulse? usage)
+    {
+        if (usage is null)
+        {
+            return null;
+        }
+
+        QuotaSeverity? worst = null;
+        foreach (var severity in Severities(usage))
+        {
+            if (worst is null || severity > worst.Value)
+            {
+                worst = severity;
+            }
+        }
+
+        return worst;
+    }
+
+    private static IEnumerable<QuotaSeverity> Severities(UsagePulse usage)
+    {
+        if (usage.SessionSeverity is { } session)
+        {
+            yield return session;
+        }
+
+        if (usage.WeekSeverity is { } week)
+        {
+            yield return week;
+        }
+
+        foreach (var scoped in usage.ScopedQuotas)
+        {
+            if (scoped.Severity is { } severity)
+            {
+                yield return severity;
+            }
+        }
     }
 
     /// <summary>
     /// Returns WCAG AA-compliant text colors for percentage hero numbers on lavender background.
     /// Darker variants of the bar colors ensure 4.5:1+ contrast ratio.
     /// </summary>
-    private static string GetPercentTextColor(double percent)
+    private static string GetPercentTextColor(double percent, QuotaSeverity? severity = null)
     {
         // On dark surfaces the darkened AA variants lose contrast; use the bright bar colours instead.
         if (costats.App.Services.ThemeManager.IsDark)
         {
-            return GetUtilizationColor(percent);
+            return GetUtilizationColor(percent, severity);
         }
 
-        return percent switch
+        return severity switch
         {
-            >= 95 => "#DC2626",  // Red-600 (~6.5:1 on lavender)
-            >= 80 => "#C2410C",  // Orange-700 (~6.0:1)
-            >= 50 => "#B45309",  // Amber-700 (~5.4:1)
-            _     => "#047857",  // Emerald-700 (~4.6:1)
+            QuotaSeverity.Critical => "#DC2626",  // Red-600 (~6.5:1 on lavender)
+            QuotaSeverity.Warning  => "#B45309",  // Amber-700 (~5.4:1)
+            QuotaSeverity.Normal   => "#047857",  // Emerald-700 (~4.6:1)
+            _ => percent switch
+            {
+                >= 95 => "#DC2626",
+                >= 80 => "#C2410C",  // Orange-700 (~6.0:1)
+                >= 50 => "#B45309",
+                _     => "#047857",
+            }
         };
     }
 }

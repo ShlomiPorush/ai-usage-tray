@@ -57,12 +57,16 @@ public sealed class RemoteSnapshotComposerTests
             },
             window =>
             {
-                Assert.Equal("Fable", window.Label);
+                // A scoped window keeps the window label and carries the model
+                // name separately, so the viewer can render "Weekly · Fable".
+                Assert.Equal("Weekly", window.Label);
+                Assert.Equal("Fable", window.Scope);
                 Assert.Equal(88, window.UsedPercent);
                 Assert.Equal(Now.AddDays(4), window.ResetsAt);
             });
 
-        Assert.Equal(1, snapshot.Version);
+        Assert.False(account.Blocked);
+        Assert.Equal(2, snapshot.Version);
         Assert.Equal(Now, snapshot.GeneratedAt);
         Assert.Equal("Claude Work", account.Name);
         Assert.Equal("Max 20x", account.Plan);

@@ -106,7 +106,11 @@ public sealed class CodexLogSource : ISignalSource
             SpendingBucket: spendingBucket,
             Consumption: consumption,
             SessionWindow: sessionWindow,
-            WeekWindow: weekWindow);
+            WeekWindow: weekWindow)
+        {
+            ScopedQuotas = BuildScopedQuotas(oauthResult),
+            IsBlocked = oauthResult?.LimitReached ?? false
+        };
 
         var planText = FormatPlanText(oauthResult?.PlanType);
         var statusSummary = oauthResult is not null
@@ -134,6 +138,49 @@ public sealed class CodexLogSource : ISignalSource
 
         // Convert "pro" to "Pro", "plus" to "Plus", etc.
         return char.ToUpper(planType[0]) + planType[1..].ToLower();
+    }
+
+    /// <summary>
+    /// Turns Codex's per-model limits into scoped rows, one per window. A model
+    /// sitting at 0% is an empty bucket the user has never touched, so it is
+    /// dropped: the row appears the moment the model is actually used.
+    /// </summary>
+    private static IReadOnlyList<ScopedQuota> BuildScopedQuotas(CodexOAuthUsageResult? oauth)
+    {
+        if (oauth?.ScopedLimits is not { Count: > 0 } limits)
+        {
+            return [];
+        }
+
+        var rows = new List<ScopedQuota>();
+        foreach (var limit in limits)
+        {
+            AddScopedRow(rows, limit.Name, limit.PrimaryUsedPercent, limit.PrimaryResetsAt, limit.PrimaryWindowSeconds);
+            AddScopedRow(rows, limit.Name, limit.SecondaryUsedPercent, limit.SecondaryResetsAt, limit.SecondaryWindowSeconds);
+        }
+
+        return rows;
+    }
+
+    private static void AddScopedRow(
+        List<ScopedQuota> rows,
+        string name,
+        double? usedPercent,
+        DateTimeOffset? resetsAt,
+        int? windowSeconds)
+    {
+        if (usedPercent is null || usedPercent.Value <= 0)
+        {
+            return;
+        }
+
+        rows.Add(new ScopedQuota(
+            name,
+            // A day or more is the weekly bucket; anything shorter is the session one.
+            windowSeconds is null or >= 86400 ? "weekly" : "session",
+            (long)Math.Round(Math.Clamp(usedPercent.Value, 0, 100)),
+            resetsAt,
+            IsActive: false));
     }
 
     private static DateTimeOffset? CalculateSessionReset(DateTimeOffset? sessionStart, DateTimeOffset now, TimeSpan sessionDuration)

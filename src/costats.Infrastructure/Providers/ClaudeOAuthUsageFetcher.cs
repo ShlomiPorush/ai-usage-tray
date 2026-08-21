@@ -487,6 +487,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             }
 
             var scopedLimits = ParseScopedLimits(root);
+            var (fiveHourSeverity, sevenDaySeverity) = ParseWindowSeverities(root);
 
             return new ClaudeOAuthUsageResult(
                 fiveHourPercent,
@@ -499,7 +500,9 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                 subscriptionType,
                 rateLimitTier,
                 DateTimeOffset.UtcNow,
-                scopedLimits);
+                scopedLimits,
+                fiveHourSeverity,
+                sevenDaySeverity);
         }
         catch
         {
@@ -562,10 +565,71 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                 group,
                 (long)Math.Round(Math.Clamp(percent.GetDouble(), 0, 100)),
                 resetsAt,
-                isActive));
+                isActive)
+            {
+                Severity = ReadSeverity(entry)
+            });
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// The account-wide windows carry their severity in the "limits" array
+    /// rather than on five_hour / seven_day themselves, keyed by "kind".
+    /// </summary>
+    private static (QuotaSeverity? Session, QuotaSeverity? Weekly) ParseWindowSeverities(JsonElement root)
+    {
+        if (!root.TryGetProperty("limits", out var limits) || limits.ValueKind != JsonValueKind.Array)
+        {
+            return (null, null);
+        }
+
+        QuotaSeverity? session = null;
+        QuotaSeverity? weekly = null;
+
+        foreach (var entry in limits.EnumerateArray())
+        {
+            if (!entry.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String)
+            {
+                continue;
+            }
+
+            var severity = ReadSeverity(entry);
+            if (severity is null)
+            {
+                continue;
+            }
+
+            switch (kind.GetString())
+            {
+                case "session":
+                    session = severity;
+                    break;
+                case "weekly_all":
+                    weekly = severity;
+                    break;
+            }
+        }
+
+        return (session, weekly);
+    }
+
+    /// <summary>Unknown severity strings are treated as "not reported" so a new one can't crash a refresh.</summary>
+    private static QuotaSeverity? ReadSeverity(JsonElement entry)
+    {
+        if (!entry.TryGetProperty("severity", out var severity) || severity.ValueKind != JsonValueKind.String)
+        {
+            return null;
+        }
+
+        return severity.GetString() switch
+        {
+            "normal" => QuotaSeverity.Normal,
+            "warning" => QuotaSeverity.Warning,
+            "critical" => QuotaSeverity.Critical,
+            _ => null
+        };
     }
 
     private static (double used, double limit) NormalizeMonetaryValues(double rawUsed, double rawLimit, string? tier)
@@ -609,4 +673,6 @@ public sealed record ClaudeOAuthUsageResult(
     string? SubscriptionType,
     string? RateLimitTier,
     DateTimeOffset FetchedAt,
-    IReadOnlyList<costats.Core.Pulse.ScopedQuota>? ScopedLimits = null);
+    IReadOnlyList<costats.Core.Pulse.ScopedQuota>? ScopedLimits = null,
+    QuotaSeverity? FiveHourSeverity = null,
+    QuotaSeverity? SevenDaySeverity = null);

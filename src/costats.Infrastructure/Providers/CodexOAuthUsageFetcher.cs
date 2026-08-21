@@ -137,42 +137,16 @@ public sealed class CodexOAuthUsageFetcher : IDisposable
             }
 
             // Parse rate_limit
-            if (root.TryGetProperty("rate_limit", out var rateLimit))
+            var limitReached = false;
+            if (root.TryGetProperty("rate_limit", out var rateLimit) && rateLimit.ValueKind == JsonValueKind.Object)
             {
-                // Primary window (usually 5-hour/session)
-                if (rateLimit.TryGetProperty("primary_window", out var primary))
-                {
-                    if (primary.TryGetProperty("used_percent", out var up) && up.ValueKind == JsonValueKind.Number)
-                    {
-                        primaryUsedPercent = up.GetDouble();
-                    }
-                    if (primary.TryGetProperty("reset_at", out var ra) && ra.ValueKind == JsonValueKind.Number)
-                    {
-                        primaryResetsAt = DateTimeOffset.FromUnixTimeSeconds(ra.GetInt64());
-                    }
-                    if (primary.TryGetProperty("limit_window_seconds", out var lws) && lws.ValueKind == JsonValueKind.Number)
-                    {
-                        primaryWindowSeconds = lws.GetInt32();
-                    }
-                }
-
-                // Secondary window (usually weekly)
-                if (rateLimit.TryGetProperty("secondary_window", out var secondary))
-                {
-                    if (secondary.TryGetProperty("used_percent", out var up) && up.ValueKind == JsonValueKind.Number)
-                    {
-                        secondaryUsedPercent = up.GetDouble();
-                    }
-                    if (secondary.TryGetProperty("reset_at", out var ra) && ra.ValueKind == JsonValueKind.Number)
-                    {
-                        secondaryResetsAt = DateTimeOffset.FromUnixTimeSeconds(ra.GetInt64());
-                    }
-                    if (secondary.TryGetProperty("limit_window_seconds", out var lws) && lws.ValueKind == JsonValueKind.Number)
-                    {
-                        secondaryWindowSeconds = lws.GetInt32();
-                    }
-                }
+                // Primary window (usually 5-hour/session), secondary (usually weekly)
+                (primaryUsedPercent, primaryResetsAt, primaryWindowSeconds) = ParseWindow(rateLimit, "primary_window");
+                (secondaryUsedPercent, secondaryResetsAt, secondaryWindowSeconds) = ParseWindow(rateLimit, "secondary_window");
+                limitReached = IsLimitReached(rateLimit);
             }
+
+            var scopedLimits = ParseAdditionalLimits(root);
 
             // Parse credits
             if (root.TryGetProperty("credits", out var credits))
@@ -204,12 +178,105 @@ public sealed class CodexOAuthUsageFetcher : IDisposable
                 secondaryWindowSeconds,
                 hasCredits,
                 creditBalance,
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow,
+                limitReached,
+                scopedLimits);
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>Reads one <c>{used_percent, reset_at, limit_window_seconds}</c> window.</summary>
+    private static (double? Used, DateTimeOffset? ResetsAt, int? WindowSeconds) ParseWindow(
+        JsonElement parent, string name)
+    {
+        if (!parent.TryGetProperty(name, out var window) || window.ValueKind != JsonValueKind.Object)
+        {
+            return (null, null, null);
+        }
+
+        double? used = null;
+        DateTimeOffset? resetsAt = null;
+        int? windowSeconds = null;
+
+        if (window.TryGetProperty("used_percent", out var up) && up.ValueKind == JsonValueKind.Number)
+        {
+            used = up.GetDouble();
+        }
+        if (window.TryGetProperty("reset_at", out var ra) && ra.ValueKind == JsonValueKind.Number)
+        {
+            resetsAt = DateTimeOffset.FromUnixTimeSeconds(ra.GetInt64());
+        }
+        if (window.TryGetProperty("limit_window_seconds", out var lws) && lws.ValueKind == JsonValueKind.Number)
+        {
+            windowSeconds = lws.GetInt32();
+        }
+
+        return (used, resetsAt, windowSeconds);
+    }
+
+    /// <summary>The same fact from both directions: hit the limit, or not allowed through.</summary>
+    private static bool IsLimitReached(JsonElement rateLimit)
+    {
+        if (rateLimit.TryGetProperty("limit_reached", out var reached) && reached.ValueKind == JsonValueKind.True)
+        {
+            return true;
+        }
+
+        return rateLimit.TryGetProperty("allowed", out var allowed) && allowed.ValueKind == JsonValueKind.False;
+    }
+
+    /// <summary>
+    /// Reads "additional_rate_limits": quotas scoped to a single model or
+    /// feature (e.g. GPT-5.3-Codex-Spark), each carrying its own pair of
+    /// windows. This is the Codex counterpart of Claude's scoped "limits".
+    /// </summary>
+    private static IReadOnlyList<CodexScopedLimit> ParseAdditionalLimits(JsonElement root)
+    {
+        if (!root.TryGetProperty("additional_rate_limits", out var limits) || limits.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        var result = new List<CodexScopedLimit>();
+        foreach (var entry in limits.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var name = entry.TryGetProperty("limit_name", out var ln) && ln.ValueKind == JsonValueKind.String
+                ? ln.GetString()
+                : null;
+
+            if (string.IsNullOrWhiteSpace(name) ||
+                !entry.TryGetProperty("rate_limit", out var rateLimit) ||
+                rateLimit.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var primary = ParseWindow(rateLimit, "primary_window");
+            var secondary = ParseWindow(rateLimit, "secondary_window");
+            if (primary.Used is null && secondary.Used is null)
+            {
+                continue;
+            }
+
+            result.Add(new CodexScopedLimit(
+                name!,
+                primary.Used,
+                primary.ResetsAt,
+                primary.WindowSeconds,
+                secondary.Used,
+                secondary.ResetsAt,
+                secondary.WindowSeconds));
+        }
+
+        return result;
     }
 
     public void Dispose()
@@ -234,4 +301,19 @@ public sealed record CodexOAuthUsageResult(
     int? SecondaryWindowSeconds,
     bool HasCredits,
     double? CreditBalance,
-    DateTimeOffset FetchedAt);
+    DateTimeOffset FetchedAt,
+    bool LimitReached = false,
+    IReadOnlyList<CodexScopedLimit>? ScopedLimits = null);
+
+/// <summary>
+/// One entry of Codex's <c>additional_rate_limits</c>: a quota that applies to
+/// a single model or metered feature rather than to the whole account.
+/// </summary>
+public sealed record CodexScopedLimit(
+    string Name,
+    double? PrimaryUsedPercent,
+    DateTimeOffset? PrimaryResetsAt,
+    int? PrimaryWindowSeconds,
+    double? SecondaryUsedPercent,
+    DateTimeOffset? SecondaryResetsAt,
+    int? SecondaryWindowSeconds);
