@@ -17,7 +17,10 @@ public sealed record AccountUsageStatus(
     DateTimeOffset? SessionResetsAt,
     double? WeeklyRemainingPercent,
     DateTimeOffset? WeeklyResetsAt,
-    IReadOnlyList<ScopedQuota>? ScopedQuotas = null)
+    IReadOnlyList<ScopedQuota>? ScopedQuotas = null,
+    QuotaSeverity? SessionSeverity = null,
+    QuotaSeverity? WeeklySeverity = null,
+    bool IsBlocked = false)
 {
     public static AccountUsageStatus FromUsagePulse(string label, UsagePulse usage)
     {
@@ -28,7 +31,10 @@ public sealed record AccountUsageStatus(
             usage.SessionWindow?.ResetsAt,
             RemainingPercent(usage.WeekUsed, usage.WeekLimit),
             usage.WeekWindow?.ResetsAt,
-            usage.ScopedQuotas);
+            usage.ScopedQuotas,
+            usage.SessionSeverity,
+            usage.WeekSeverity,
+            usage.IsBlocked);
     }
 
     private static double? RemainingPercent(long? used, long? limit)
@@ -69,7 +75,7 @@ public static class TrayStatusComposer
             .ToArray();
 
         var highest = usedValues.Length == 0 ? (double?)null : usedValues.Max();
-        var severity = Classify(highest);
+        var severity = ComposeSeverity(materialized);
 
         var fullTooltip = string.Join('\n', materialized.Select(account => FormatAccount(account, now)));
         var tooltip = fullTooltip.Length > MaximumTooltipLength
@@ -111,6 +117,69 @@ public static class TrayStatusComposer
         _ => TraySeverity.Green
     };
 
+    /// <summary>
+    /// Worst severity across every window of every account. A window uses the
+    /// provider's own severity when it reports one and falls back to our
+    /// percentage thresholds when it doesn't, so a provider that reports
+    /// nothing (Codex, Copilot, Z.AI) still colours exactly as before.
+    /// </summary>
+    private static TraySeverity ComposeSeverity(IReadOnlyList<AccountUsageStatus> accounts)
+    {
+        var worst = TraySeverity.Unknown;
+
+        foreach (var account in accounts)
+        {
+            if (account.IsBlocked)
+            {
+                return TraySeverity.Red;
+            }
+
+            foreach (var severity in WindowSeverities(account))
+            {
+                if (Rank(severity) > Rank(worst))
+                {
+                    worst = severity;
+                }
+            }
+        }
+
+        return worst;
+    }
+
+    private static IEnumerable<TraySeverity> WindowSeverities(AccountUsageStatus account)
+    {
+        if (account.SessionRemainingPercent is { } sessionRemaining)
+        {
+            yield return WindowSeverity(account.SessionSeverity, 100 - Math.Clamp(sessionRemaining, 0, 100));
+        }
+
+        if (account.WeeklyRemainingPercent is { } weeklyRemaining)
+        {
+            yield return WindowSeverity(account.WeeklySeverity, 100 - Math.Clamp(weeklyRemaining, 0, 100));
+        }
+
+        foreach (var scoped in account.ScopedQuotas ?? [])
+        {
+            yield return WindowSeverity(scoped.Severity, Math.Clamp(scoped.UsedPercent, 0, 100));
+        }
+    }
+
+    private static TraySeverity WindowSeverity(QuotaSeverity? reported, double usedPercent) => reported switch
+    {
+        QuotaSeverity.Critical => TraySeverity.Red,
+        QuotaSeverity.Warning => TraySeverity.Amber,
+        QuotaSeverity.Normal => TraySeverity.Green,
+        _ => Classify(usedPercent)
+    };
+
+    private static int Rank(TraySeverity severity) => severity switch
+    {
+        TraySeverity.Red => 3,
+        TraySeverity.Amber => 2,
+        TraySeverity.Green => 1,
+        _ => 0
+    };
+
     /// <summary>Every window's used percentage (0-100) for one account.</summary>
     private static IEnumerable<double> UsedPercents(AccountUsageStatus account)
     {
@@ -123,6 +192,11 @@ public static class TrayStatusComposer
     private static List<string> BuildWindowTexts(AccountUsageStatus account, DateTimeOffset now)
     {
         var windows = new List<string>(3);
+        if (account.IsBlocked)
+        {
+            // Leads the line: "which window" matters less than "you are stopped".
+            windows.Add("blocked");
+        }
         if (account.SessionRemainingPercent.HasValue && account.SessionResetsAt.HasValue)
         {
             windows.Add(FormatWindow("Session", 100 - account.SessionRemainingPercent.Value, account.SessionResetsAt.Value, now, weekly: false));

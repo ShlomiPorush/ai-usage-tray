@@ -106,4 +106,46 @@ public sealed class TrayStatusComposerTests
         Assert.Equal(100, status.HighestUsedPercent);
         Assert.Equal(TraySeverity.Red, status.Severity);
     }
+
+    [Fact]
+    public void Provider_reported_severity_beats_the_percentage_thresholds()
+    {
+        // 89% used would be Red by our own thresholds, but Claude calls its own
+        // weekly window "warning" at that level, so the tray follows Claude.
+        var accounts = new[]
+        {
+            new AccountUsageStatus(
+                "Claude",
+                SessionRemainingPercent: 100,
+                SessionResetsAt: DateTimeOffset.UtcNow.AddHours(2),
+                WeeklyRemainingPercent: 11,
+                WeeklyResetsAt: DateTimeOffset.UtcNow.AddDays(1),
+                WeeklySeverity: costats.Core.Pulse.QuotaSeverity.Warning)
+        };
+
+        var status = TrayStatusComposer.Compose(accounts, DateTimeOffset.UtcNow);
+
+        Assert.Equal(89, status.HighestUsedPercent);
+        Assert.Equal(TraySeverity.Amber, status.Severity);
+    }
+
+    [Fact]
+    public void A_blocked_account_is_red_and_says_so_however_low_its_windows_read()
+    {
+        var accounts = new[]
+        {
+            new AccountUsageStatus(
+                "Codex",
+                SessionRemainingPercent: 99,
+                SessionResetsAt: DateTimeOffset.UtcNow.AddHours(1),
+                WeeklyRemainingPercent: null,
+                WeeklyResetsAt: null,
+                IsBlocked: true)
+        };
+
+        var status = TrayStatusComposer.Compose(accounts, DateTimeOffset.UtcNow);
+
+        Assert.Equal(TraySeverity.Red, status.Severity);
+        Assert.Contains("blocked", status.FullTooltip, StringComparison.Ordinal);
+    }
 }

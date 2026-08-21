@@ -1,3 +1,4 @@
+using costats.Core.Pulse;
 using costats.Infrastructure.Providers;
 using Xunit;
 
@@ -89,6 +90,33 @@ public sealed class ClaudeSubscriptionSourceTests
         Assert.Equal(100, scoped.UsedPercent);
         Assert.Equal(reset, scoped.ResetsAt);
         Assert.True(scoped.IsActive);
+    }
+
+    [Fact]
+    public async Task ReadAsync_carries_the_severity_Claude_reports_for_each_window()
+    {
+        var client = new FakeClaudeSubscriptionUsageClient(new ClaudeOAuthUsageResult(
+            2,
+            DateTimeOffset.Parse("2026-08-21T15:10:00Z"),
+            89,
+            DateTimeOffset.Parse("2026-08-21T12:00:00Z"),
+            false,
+            null,
+            null,
+            "max",
+            "default_claude_max_20x",
+            DateTimeOffset.Parse("2026-08-21T11:00:00Z"),
+            [new ScopedQuota("Fable", "weekly", 100, null, true) { Severity = QuotaSeverity.Critical }],
+            QuotaSeverity.Normal,
+            QuotaSeverity.Warning));
+
+        var source = new ClaudeSubscriptionSource(new ClaudeAccountProfile("claude-1", "Claude", "/tmp/claude"), client);
+        var reading = await source.ReadAsync(CancellationToken.None);
+
+        Assert.Equal(QuotaSeverity.Normal, reading.Usage!.SessionSeverity);
+        Assert.Equal(QuotaSeverity.Warning, reading.Usage.WeekSeverity);
+        Assert.Equal(QuotaSeverity.Critical, Assert.Single(reading.Usage.ScopedQuotas).Severity);
+        Assert.False(reading.Usage.IsBlocked);
     }
 
     private sealed class FakeClaudeSubscriptionUsageClient(ClaudeOAuthUsageResult? result)

@@ -67,7 +67,7 @@ function demoSnapshot() {
   const at = (offset) => new Date(now + offset).toISOString();
 
   return {
-    version: 1,
+    version: 2,
     generatedAt: new Date(now).toISOString(),
     primary: "claude:demo-personal",
     accounts: [
@@ -77,9 +77,10 @@ function demoSnapshot() {
         name: "Claude Personal",
         plan: "Max 20x",
         windows: [
-          { label: "Session", usedPercent: 12, resetsAt: at(2 * HOUR) },
-          { label: "Weekly", usedPercent: 64, resetsAt: at(3 * DAY) },
-          { label: "Fable", usedPercent: 91, resetsAt: at(3 * DAY) },
+          { label: "Session", usedPercent: 12, resetsAt: at(2 * HOUR), severity: "normal" },
+          { label: "Weekly", usedPercent: 64, resetsAt: at(3 * DAY), severity: "warning" },
+          // Scoped to one model: same weekly window, its own budget.
+          { label: "Weekly", usedPercent: 91, resetsAt: at(3 * DAY), scope: "Fable", severity: "critical" },
         ],
       },
       {

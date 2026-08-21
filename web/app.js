@@ -164,13 +164,20 @@
     return isNaN(date.getTime()) ? null : date;
   }
 
-  // used -> state name. Same thresholds as the Windows tray icon and widget:
-  // red above 80% used, amber from 50%, green below that.
-  function classify(used) {
+  // used -> state name. A provider that rates its own windows (Claude sends
+  // severity) wins, so the colour here matches the colour its own UI shows.
+  // Everyone else falls back to the Windows tray thresholds: red above 80%
+  // used, amber from 50%, green below that.
+  function classify(used, severity) {
+    if (severity === "critical") return "danger";
+    if (severity === "warning") return "warn";
+    if (severity === "normal") return "good";
     if (used > 80) return "danger";
     if (used >= 50) return "warn";
     return "good";
   }
+
+  var STATE_RANK = { good: 1, warn: 2, danger: 3 };
 
   function clampPercent(value) {
     var number = typeof value === "number" ? value : Number(value);
@@ -229,15 +236,18 @@
     return Array.isArray(account.windows) ? account.windows : [];
   }
 
-  // The account dot follows its worst window, i.e. the highest used percentage.
-  function worstUsed(account) {
+  // The account dot follows its worst window. Worst by state rather than by
+  // percentage, because a provider-rated window can be critical below the
+  // percentage another window sits at.
+  function worstState(account) {
     var rows = windowsOf(account);
-    if (rows.length === 0) return null;
-    return rows.reduce(function (worst, row) {
-      if (!row || typeof row !== "object") return worst;
-      var used = clampPercent(row.usedPercent);
-      return worst === null || used > worst ? used : worst;
-    }, null);
+    var worst = null;
+    rows.forEach(function (row) {
+      if (!row || typeof row !== "object") return;
+      var state = classify(clampPercent(row.usedPercent), row.severity);
+      if (worst === null || STATE_RANK[state] > STATE_RANK[worst]) worst = state;
+    });
+    return worst;
   }
 
   function orderAccounts(data) {
@@ -260,14 +270,20 @@
   // The number and the fill are both "used", matching the Windows tray and widget.
   function renderMeterRow(accountName, source, now) {
     var used = clampPercent(source.usedPercent);
-    var state = classify(used);
+    var state = classify(used, source.severity);
     var label = typeof source.label === "string" && source.label ? source.label : "Usage";
+    var scope = typeof source.scope === "string" && source.scope ? source.scope : null;
     var shown = Math.round(used);
 
     var row = el("div", "meter-row is-" + state);
 
     var top = el("div", "meter-top");
-    top.appendChild(el("span", "meter-label", label));
+    var labelBox = el("div", "meter-label-row");
+    labelBox.appendChild(el("span", "meter-label", label));
+    // A model-scoped window: the chip is what separates "Weekly" for the whole
+    // account from "Weekly" for one model.
+    if (scope) labelBox.appendChild(el("span", "scope-chip", scope));
+    top.appendChild(labelBox);
     top.appendChild(el("span", "meter-value", shown + "%"));
     row.appendChild(top);
 
@@ -277,7 +293,7 @@
     track.setAttribute("aria-valuemax", "100");
     track.setAttribute("aria-valuenow", String(shown));
     track.setAttribute("aria-valuetext", shown + "% used");
-    track.setAttribute("aria-label", accountName + ": " + label);
+    track.setAttribute("aria-label", accountName + ": " + (scope ? scope + " " + label : label));
 
     var fill = el("div", "meter-fill");
     fill.style.width = used + "%";
@@ -302,8 +318,8 @@
     var card = el("article", "card");
 
     var head = el("div", "card-head");
-    var worst = worstUsed(account);
-    var dotState = worst === null ? "none" : classify(worst);
+    var worst = worstState(account);
+    var dotState = account.blocked ? "danger" : (worst === null ? "none" : worst);
     var dot = el("span", "dot is-" + dotState);
     dot.setAttribute("aria-hidden", "true");
     head.appendChild(dot);
@@ -321,6 +337,12 @@
       head.appendChild(el("span", "chip", account.plan));
     }
     card.appendChild(head);
+
+    // The provider is refusing requests right now. That is a different fact
+    // from any single window reading 100%, so it gets its own line.
+    if (account.blocked) {
+      card.appendChild(el("p", "blocked-banner", "Limit reached - requests are being refused."));
+    }
 
     var rows = windowsOf(account);
     if (rows.length === 0) {
