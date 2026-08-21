@@ -186,7 +186,7 @@ public sealed class RemoteSnapshotComposerTests
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
 
-        Assert.Equal(1, root.GetProperty("version").GetInt32());
+        Assert.Equal(2, root.GetProperty("version").GetInt32());
         Assert.Equal(JsonValueKind.String, root.GetProperty("generatedAt").ValueKind);
         Assert.Equal("claude:claude-1", root.GetProperty("primary").GetString());
 
@@ -196,10 +196,14 @@ public sealed class RemoteSnapshotComposerTests
         Assert.Equal("Claude Work", account.GetProperty("name").GetString());
         Assert.Equal("Max 20x", account.GetProperty("plan").GetString());
 
+        Assert.False(account.GetProperty("blocked").GetBoolean());
+
         var window = account.GetProperty("windows").EnumerateArray().First();
         Assert.Equal("Session", window.GetProperty("label").GetString());
         Assert.Equal(42, window.GetProperty("usedPercent").GetInt64());
         Assert.Equal(JsonValueKind.String, window.GetProperty("resetsAt").ValueKind);
+        Assert.Equal(JsonValueKind.Null, window.GetProperty("scope").ValueKind);
+        Assert.Equal(JsonValueKind.Null, window.GetProperty("severity").ValueKind);
     }
 
     [Fact]
