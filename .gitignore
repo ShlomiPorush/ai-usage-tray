@@ -70,3 +70,6 @@ auth.json
 .env
 .env.*
 !.env.example
+
+# Local scratch: prototypes and throwaway experiments, never committed
+local/
