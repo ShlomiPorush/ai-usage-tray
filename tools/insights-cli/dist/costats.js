@@ -29,9 +29,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/.pnpm/cli-spinners@2.9.2/node_modules/cli-spinners/spinners.json
+// node_modules/cli-spinners/spinners.json
 var require_spinners = __commonJS({
-  "node_modules/.pnpm/cli-spinners@2.9.2/node_modules/cli-spinners/spinners.json"(exports, module) {
+  "node_modules/cli-spinners/spinners.json"(exports, module) {
     module.exports = {
       dots: {
         interval: 80,
@@ -1657,9 +1657,9 @@ var require_spinners = __commonJS({
   }
 });
 
-// node_modules/.pnpm/cli-spinners@2.9.2/node_modules/cli-spinners/index.js
+// node_modules/cli-spinners/index.js
 var require_cli_spinners = __commonJS({
-  "node_modules/.pnpm/cli-spinners@2.9.2/node_modules/cli-spinners/index.js"(exports, module) {
+  "node_modules/cli-spinners/index.js"(exports, module) {
     "use strict";
     var spinners = Object.assign({}, require_spinners());
     var spinnersList = Object.keys(spinners);
@@ -1674,9 +1674,9 @@ var require_cli_spinners = __commonJS({
   }
 });
 
-// node_modules/.pnpm/emoji-regex@10.6.0/node_modules/emoji-regex/index.js
+// node_modules/emoji-regex/index.js
 var require_emoji_regex = __commonJS({
-  "node_modules/.pnpm/emoji-regex@10.6.0/node_modules/emoji-regex/index.js"(exports, module) {
+  "node_modules/emoji-regex/index.js"(exports, module) {
     module.exports = () => {
       return /[#*0-9]\uFE0F?\u20E3|[\xA9\xAE\u203C\u2049\u2122\u2139\u2194-\u2199\u21A9\u21AA\u231A\u231B\u2328\u23CF\u23ED-\u23EF\u23F1\u23F2\u23F8-\u23FA\u24C2\u25AA\u25AB\u25B6\u25C0\u25FB\u25FC\u25FE\u2600-\u2604\u260E\u2611\u2614\u2615\u2618\u2620\u2622\u2623\u2626\u262A\u262E\u262F\u2638-\u263A\u2640\u2642\u2648-\u2653\u265F\u2660\u2663\u2665\u2666\u2668\u267B\u267E\u267F\u2692\u2694-\u2697\u2699\u269B\u269C\u26A0\u26A7\u26AA\u26B0\u26B1\u26BD\u26BE\u26C4\u26C8\u26CF\u26D1\u26E9\u26F0-\u26F5\u26F7\u26F8\u26FA\u2702\u2708\u2709\u270F\u2712\u2714\u2716\u271D\u2721\u2733\u2734\u2744\u2747\u2757\u2763\u27A1\u2934\u2935\u2B05-\u2B07\u2B1B\u2B1C\u2B55\u3030\u303D\u3297\u3299]\uFE0F?|[\u261D\u270C\u270D](?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?|[\u270A\u270B](?:\uD83C[\uDFFB-\uDFFF])?|[\u23E9-\u23EC\u23F0\u23F3\u25FD\u2693\u26A1\u26AB\u26C5\u26CE\u26D4\u26EA\u26FD\u2705\u2728\u274C\u274E\u2753-\u2755\u2795-\u2797\u27B0\u27BF\u2B50]|\u26D3\uFE0F?(?:\u200D\uD83D\uDCA5)?|\u26F9(?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?(?:\u200D[\u2640\u2642]\uFE0F?)?|\u2764\uFE0F?(?:\u200D(?:\uD83D\uDD25|\uD83E\uDE79))?|\uD83C(?:[\uDC04\uDD70\uDD71\uDD7E\uDD7F\uDE02\uDE37\uDF21\uDF24-\uDF2C\uDF36\uDF7D\uDF96\uDF97\uDF99-\uDF9B\uDF9E\uDF9F\uDFCD\uDFCE\uDFD4-\uDFDF\uDFF5\uDFF7]\uFE0F?|[\uDF85\uDFC2\uDFC7](?:\uD83C[\uDFFB-\uDFFF])?|[\uDFC4\uDFCA](?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDFCB\uDFCC](?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?(?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDCCF\uDD8E\uDD91-\uDD9A\uDE01\uDE1A\uDE2F\uDE32-\uDE36\uDE38-\uDE3A\uDE50\uDE51\uDF00-\uDF20\uDF2D-\uDF35\uDF37-\uDF43\uDF45-\uDF4A\uDF4C-\uDF7C\uDF7E-\uDF84\uDF86-\uDF93\uDFA0-\uDFC1\uDFC5\uDFC6\uDFC8\uDFC9\uDFCF-\uDFD3\uDFE0-\uDFF0\uDFF8-\uDFFF]|\uDDE6\uD83C[\uDDE8-\uDDEC\uDDEE\uDDF1\uDDF2\uDDF4\uDDF6-\uDDFA\uDDFC\uDDFD\uDDFF]|\uDDE7\uD83C[\uDDE6\uDDE7\uDDE9-\uDDEF\uDDF1-\uDDF4\uDDF6-\uDDF9\uDDFB\uDDFC\uDDFE\uDDFF]|\uDDE8\uD83C[\uDDE6\uDDE8\uDDE9\uDDEB-\uDDEE\uDDF0-\uDDF7\uDDFA-\uDDFF]|\uDDE9\uD83C[\uDDEA\uDDEC\uDDEF\uDDF0\uDDF2\uDDF4\uDDFF]|\uDDEA\uD83C[\uDDE6\uDDE8\uDDEA\uDDEC\uDDED\uDDF7-\uDDFA]|\uDDEB\uD83C[\uDDEE-\uDDF0\uDDF2\uDDF4\uDDF7]|\uDDEC\uD83C[\uDDE6\uDDE7\uDDE9-\uDDEE\uDDF1-\uDDF3\uDDF5-\uDDFA\uDDFC\uDDFE]|\uDDED\uD83C[\uDDF0\uDDF2\uDDF3\uDDF7\uDDF9\uDDFA]|\uDDEE\uD83C[\uDDE8-\uDDEA\uDDF1-\uDDF4\uDDF6-\uDDF9]|\uDDEF\uD83C[\uDDEA\uDDF2\uDDF4\uDDF5]|\uDDF0\uD83C[\uDDEA\uDDEC-\uDDEE\uDDF2\uDDF3\uDDF5\uDDF7\uDDFC\uDDFE\uDDFF]|\uDDF1\uD83C[\uDDE6-\uDDE8\uDDEE\uDDF0\uDDF7-\uDDFB\uDDFE]|\uDDF2\uD83C[\uDDE6\uDDE8-\uDDED\uDDF0-\uDDFF]|\uDDF3\uD83C[\uDDE6\uDDE8\uDDEA-\uDDEC\uDDEE\uDDF1\uDDF4\uDDF5\uDDF7\uDDFA\uDDFF]|\uDDF4\uD83C\uDDF2|\uDDF5\uD83C[\uDDE6\uDDEA-\uDDED\uDDF0-\uDDF3\uDDF7-\uDDF9\uDDFC\uDDFE]|\uDDF6\uD83C\uDDE6|\uDDF7\uD83C[\uDDEA\uDDF4\uDDF8\uDDFA\uDDFC]|\uDDF8\uD83C[\uDDE6-\uDDEA\uDDEC-\uDDF4\uDDF7-\uDDF9\uDDFB\uDDFD-\uDDFF]|\uDDF9\uD83C[\uDDE6\uDDE8\uDDE9\uDDEB-\uDDED\uDDEF-\uDDF4\uDDF7\uDDF9\uDDFB\uDDFC\uDDFF]|\uDDFA\uD83C[\uDDE6\uDDEC\uDDF2\uDDF3\uDDF8\uDDFE\uDDFF]|\uDDFB\uD83C[\uDDE6\uDDE8\uDDEA\uDDEC\uDDEE\uDDF3\uDDFA]|\uDDFC\uD83C[\uDDEB\uDDF8]|\uDDFD\uD83C\uDDF0|\uDDFE\uD83C[\uDDEA\uDDF9]|\uDDFF\uD83C[\uDDE6\uDDF2\uDDFC]|\uDF44(?:\u200D\uD83D\uDFEB)?|\uDF4B(?:\u200D\uD83D\uDFE9)?|\uDFC3(?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D(?:[\u2640\u2642]\uFE0F?(?:\u200D\u27A1\uFE0F?)?|\u27A1\uFE0F?))?|\uDFF3\uFE0F?(?:\u200D(?:\u26A7\uFE0F?|\uD83C\uDF08))?|\uDFF4(?:\u200D\u2620\uFE0F?|\uDB40\uDC67\uDB40\uDC62\uDB40(?:\uDC65\uDB40\uDC6E\uDB40\uDC67|\uDC73\uDB40\uDC63\uDB40\uDC74|\uDC77\uDB40\uDC6C\uDB40\uDC73)\uDB40\uDC7F)?)|\uD83D(?:[\uDC3F\uDCFD\uDD49\uDD4A\uDD6F\uDD70\uDD73\uDD76-\uDD79\uDD87\uDD8A-\uDD8D\uDDA5\uDDA8\uDDB1\uDDB2\uDDBC\uDDC2-\uDDC4\uDDD1-\uDDD3\uDDDC-\uDDDE\uDDE1\uDDE3\uDDE8\uDDEF\uDDF3\uDDFA\uDECB\uDECD-\uDECF\uDEE0-\uDEE5\uDEE9\uDEF0\uDEF3]\uFE0F?|[\uDC42\uDC43\uDC46-\uDC50\uDC66\uDC67\uDC6B-\uDC6D\uDC72\uDC74-\uDC76\uDC78\uDC7C\uDC83\uDC85\uDC8F\uDC91\uDCAA\uDD7A\uDD95\uDD96\uDE4C\uDE4F\uDEC0\uDECC](?:\uD83C[\uDFFB-\uDFFF])?|[\uDC6E-\uDC71\uDC73\uDC77\uDC81\uDC82\uDC86\uDC87\uDE45-\uDE47\uDE4B\uDE4D\uDE4E\uDEA3\uDEB4\uDEB5](?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDD74\uDD90](?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?|[\uDC00-\uDC07\uDC09-\uDC14\uDC16-\uDC25\uDC27-\uDC3A\uDC3C-\uDC3E\uDC40\uDC44\uDC45\uDC51-\uDC65\uDC6A\uDC79-\uDC7B\uDC7D-\uDC80\uDC84\uDC88-\uDC8E\uDC90\uDC92-\uDCA9\uDCAB-\uDCFC\uDCFF-\uDD3D\uDD4B-\uDD4E\uDD50-\uDD67\uDDA4\uDDFB-\uDE2D\uDE2F-\uDE34\uDE37-\uDE41\uDE43\uDE44\uDE48-\uDE4A\uDE80-\uDEA2\uDEA4-\uDEB3\uDEB7-\uDEBF\uDEC1-\uDEC5\uDED0-\uDED2\uDED5-\uDED8\uDEDC-\uDEDF\uDEEB\uDEEC\uDEF4-\uDEFC\uDFE0-\uDFEB\uDFF0]|\uDC08(?:\u200D\u2B1B)?|\uDC15(?:\u200D\uD83E\uDDBA)?|\uDC26(?:\u200D(?:\u2B1B|\uD83D\uDD25))?|\uDC3B(?:\u200D\u2744\uFE0F?)?|\uDC41\uFE0F?(?:\u200D\uD83D\uDDE8\uFE0F?)?|\uDC68(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDC68\uDC69]\u200D\uD83D(?:\uDC66(?:\u200D\uD83D\uDC66)?|\uDC67(?:\u200D\uD83D[\uDC66\uDC67])?)|[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC66(?:\u200D\uD83D\uDC66)?|\uDC67(?:\u200D\uD83D[\uDC66\uDC67])?)|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]))|\uD83C(?:\uDFFB(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFC-\uDFFF])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFC-\uDFFF]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?|\uDFFC(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFB\uDFFD-\uDFFF])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFB\uDFFD-\uDFFF]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?|\uDFFD(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?|\uDFFE(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFB-\uDFFD\uDFFF])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFB-\uDFFD\uDFFF]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?|\uDFFF(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?\uDC68\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC68\uD83C[\uDFFB-\uDFFE])|\uD83E(?:[\uDD1D\uDEEF]\u200D\uD83D\uDC68\uD83C[\uDFFB-\uDFFE]|[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3])))?))?|\uDC69(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:\uDC8B\u200D\uD83D)?[\uDC68\uDC69]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC66(?:\u200D\uD83D\uDC66)?|\uDC67(?:\u200D\uD83D[\uDC66\uDC67])?|\uDC69\u200D\uD83D(?:\uDC66(?:\u200D\uD83D\uDC66)?|\uDC67(?:\u200D\uD83D[\uDC66\uDC67])?))|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]))|\uD83C(?:\uDFFB(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFC-\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFC-\uDFFF]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFC-\uDFFF])))?|\uDFFC(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFB\uDFFD-\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFB\uDFFD-\uDFFF]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFB\uDFFD-\uDFFF])))?|\uDFFD(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])))?|\uDFFE(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFB-\uDFFD\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFB-\uDFFD\uDFFF]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFB-\uDFFD\uDFFF])))?|\uDFFF(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D\uD83D(?:[\uDC68\uDC69]|\uDC8B\u200D\uD83D[\uDC68\uDC69])\uD83C[\uDFFB-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83D\uDC69\uD83C[\uDFFB-\uDFFE])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3]|\uDD1D\u200D\uD83D[\uDC68\uDC69]\uD83C[\uDFFB-\uDFFE]|\uDEEF\u200D\uD83D\uDC69\uD83C[\uDFFB-\uDFFE])))?))?|\uDD75(?:\uD83C[\uDFFB-\uDFFF]|\uFE0F)?(?:\u200D[\u2640\u2642]\uFE0F?)?|\uDE2E(?:\u200D\uD83D\uDCA8)?|\uDE35(?:\u200D\uD83D\uDCAB)?|\uDE36(?:\u200D\uD83C\uDF2B\uFE0F?)?|\uDE42(?:\u200D[\u2194\u2195]\uFE0F?)?|\uDEB6(?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D(?:[\u2640\u2642]\uFE0F?(?:\u200D\u27A1\uFE0F?)?|\u27A1\uFE0F?))?)|\uD83E(?:[\uDD0C\uDD0F\uDD18-\uDD1F\uDD30-\uDD34\uDD36\uDD77\uDDB5\uDDB6\uDDBB\uDDD2\uDDD3\uDDD5\uDEC3-\uDEC5\uDEF0\uDEF2-\uDEF8](?:\uD83C[\uDFFB-\uDFFF])?|[\uDD26\uDD35\uDD37-\uDD39\uDD3C-\uDD3E\uDDB8\uDDB9\uDDCD\uDDCF\uDDD4\uDDD6-\uDDDD](?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDDDE\uDDDF](?:\u200D[\u2640\u2642]\uFE0F?)?|[\uDD0D\uDD0E\uDD10-\uDD17\uDD20-\uDD25\uDD27-\uDD2F\uDD3A\uDD3F-\uDD45\uDD47-\uDD76\uDD78-\uDDB4\uDDB7\uDDBA\uDDBC-\uDDCC\uDDD0\uDDE0-\uDDFF\uDE70-\uDE7C\uDE80-\uDE8A\uDE8E-\uDEC2\uDEC6\uDEC8\uDECD-\uDEDC\uDEDF-\uDEEA\uDEEF]|\uDDCE(?:\uD83C[\uDFFB-\uDFFF])?(?:\u200D(?:[\u2640\u2642]\uFE0F?(?:\u200D\u27A1\uFE0F?)?|\u27A1\uFE0F?))?|\uDDD1(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1|\uDDD1\u200D\uD83E\uDDD2(?:\u200D\uD83E\uDDD2)?|\uDDD2(?:\u200D\uD83E\uDDD2)?))|\uD83C(?:\uDFFB(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFC-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFC-\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFC-\uDFFF])))?|\uDFFC(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFB\uDFFD-\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFB\uDFFD-\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFB\uDFFD-\uDFFF])))?|\uDFFD(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])))?|\uDFFE(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFB-\uDFFD\uDFFF]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFD\uDFFF])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFD\uDFFF])))?|\uDFFF(?:\u200D(?:[\u2695\u2696\u2708]\uFE0F?|\u2764\uFE0F?\u200D(?:\uD83D\uDC8B\u200D)?\uD83E\uDDD1\uD83C[\uDFFB-\uDFFE]|\uD83C[\uDF3E\uDF73\uDF7C\uDF84\uDF93\uDFA4\uDFA8\uDFEB\uDFED]|\uD83D(?:[\uDCBB\uDCBC\uDD27\uDD2C\uDE80\uDE92]|\uDC30\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFE])|\uD83E(?:[\uDDAF\uDDBC\uDDBD](?:\u200D\u27A1\uFE0F?)?|[\uDDB0-\uDDB3\uDE70]|\uDD1D\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFF]|\uDEEF\u200D\uD83E\uDDD1\uD83C[\uDFFB-\uDFFE])))?))?|\uDEF1(?:\uD83C(?:\uDFFB(?:\u200D\uD83E\uDEF2\uD83C[\uDFFC-\uDFFF])?|\uDFFC(?:\u200D\uD83E\uDEF2\uD83C[\uDFFB\uDFFD-\uDFFF])?|\uDFFD(?:\u200D\uD83E\uDEF2\uD83C[\uDFFB\uDFFC\uDFFE\uDFFF])?|\uDFFE(?:\u200D\uD83E\uDEF2\uD83C[\uDFFB-\uDFFD\uDFFF])?|\uDFFF(?:\u200D\uD83E\uDEF2\uD83C[\uDFFB-\uDFFE])?))?)/g;
     };
@@ -1687,7 +1687,7 @@ var require_emoji_regex = __commonJS({
 import fs8 from "node:fs/promises";
 import path5 from "node:path";
 
-// node_modules/.pnpm/open@10.2.0/node_modules/open/index.js
+// node_modules/open/index.js
 import process7 from "node:process";
 import { Buffer as Buffer2 } from "node:buffer";
 import path from "node:path";
@@ -1696,19 +1696,19 @@ import { promisify as promisify5 } from "node:util";
 import childProcess from "node:child_process";
 import fs5, { constants as fsConstants2 } from "node:fs/promises";
 
-// node_modules/.pnpm/wsl-utils@0.1.0/node_modules/wsl-utils/index.js
+// node_modules/wsl-utils/index.js
 import process3 from "node:process";
 import fs4, { constants as fsConstants } from "node:fs/promises";
 
-// node_modules/.pnpm/is-wsl@3.1.0/node_modules/is-wsl/index.js
+// node_modules/is-wsl/index.js
 import process2 from "node:process";
 import os from "node:os";
 import fs3 from "node:fs";
 
-// node_modules/.pnpm/is-inside-container@1.0.0/node_modules/is-inside-container/index.js
+// node_modules/is-inside-container/index.js
 import fs2 from "node:fs";
 
-// node_modules/.pnpm/is-docker@3.0.0/node_modules/is-docker/index.js
+// node_modules/is-docker/index.js
 import fs from "node:fs";
 var isDockerCached;
 function hasDockerEnv() {
@@ -1733,7 +1733,7 @@ function isDocker() {
   return isDockerCached;
 }
 
-// node_modules/.pnpm/is-inside-container@1.0.0/node_modules/is-inside-container/index.js
+// node_modules/is-inside-container/index.js
 var cachedResult;
 var hasContainerEnv = () => {
   try {
@@ -1750,7 +1750,7 @@ function isInsideContainer() {
   return cachedResult;
 }
 
-// node_modules/.pnpm/is-wsl@3.1.0/node_modules/is-wsl/index.js
+// node_modules/is-wsl/index.js
 var isWsl = () => {
   if (process2.platform !== "linux") {
     return false;
@@ -1769,7 +1769,7 @@ var isWsl = () => {
 };
 var is_wsl_default = process2.env.__IS_WSL_TEST__ ? isWsl : isWsl();
 
-// node_modules/.pnpm/wsl-utils@0.1.0/node_modules/wsl-utils/index.js
+// node_modules/wsl-utils/index.js
 var wslDrivesMountPoint = /* @__PURE__ */ (() => {
   const defaultMountPoint = "/mnt/";
   let mountPoint;
@@ -1808,7 +1808,7 @@ var powerShellPath = async () => {
   return `${process3.env.SYSTEMROOT || process3.env.windir || String.raw`C:\Windows`}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
 };
 
-// node_modules/.pnpm/define-lazy-prop@3.0.0/node_modules/define-lazy-prop/index.js
+// node_modules/define-lazy-prop/index.js
 function defineLazyProperty(object, propertyName, valueGetter) {
   const define = (value) => Object.defineProperty(object, propertyName, { value, enumerable: true, writable: true });
   Object.defineProperty(object, propertyName, {
@@ -1826,12 +1826,12 @@ function defineLazyProperty(object, propertyName, valueGetter) {
   return object;
 }
 
-// node_modules/.pnpm/default-browser@5.5.0/node_modules/default-browser/index.js
+// node_modules/default-browser/index.js
 import { promisify as promisify4 } from "node:util";
 import process6 from "node:process";
 import { execFile as execFile4 } from "node:child_process";
 
-// node_modules/.pnpm/default-browser-id@5.0.1/node_modules/default-browser-id/index.js
+// node_modules/default-browser-id/index.js
 import { promisify } from "node:util";
 import process4 from "node:process";
 import { execFile } from "node:child_process";
@@ -1849,7 +1849,7 @@ async function defaultBrowserId() {
   return browserId;
 }
 
-// node_modules/.pnpm/run-applescript@7.1.0/node_modules/run-applescript/index.js
+// node_modules/run-applescript/index.js
 import process5 from "node:process";
 import { promisify as promisify2 } from "node:util";
 import { execFile as execFile2, execFileSync } from "node:child_process";
@@ -1867,13 +1867,13 @@ async function runAppleScript(script, { humanReadableOutput = true, signal } = {
   return stdout.trim();
 }
 
-// node_modules/.pnpm/bundle-name@4.1.0/node_modules/bundle-name/index.js
+// node_modules/bundle-name/index.js
 async function bundleName(bundleId) {
   return runAppleScript(`tell application "Finder" to set app_path to application file id "${bundleId}" as string
 tell application "System Events" to get value of property list item "CFBundleName" of property list file (app_path & ":Contents:Info.plist")`);
 }
 
-// node_modules/.pnpm/default-browser@5.5.0/node_modules/default-browser/windows.js
+// node_modules/default-browser/windows.js
 import { promisify as promisify3 } from "node:util";
 import { execFile as execFile3 } from "node:child_process";
 var execFileAsync3 = promisify3(execFile3);
@@ -1918,7 +1918,7 @@ async function defaultBrowser(_execFileAsync = execFileAsync3) {
   return windowsBrowserProgIds[id] ?? windowsBrowserProgIds[baseIdByDot] ?? windowsBrowserProgIds[baseIdByHyphen] ?? { name: id, id };
 }
 
-// node_modules/.pnpm/default-browser@5.5.0/node_modules/default-browser/index.js
+// node_modules/default-browser/index.js
 var execFileAsync4 = promisify4(execFile4);
 var titleize = (string) => string.toLowerCase().replaceAll(/(?:^|\s|-)\S/g, (x) => x.toUpperCase());
 async function defaultBrowser2() {
@@ -1939,7 +1939,7 @@ async function defaultBrowser2() {
   throw new Error("Only macOS, Linux, and Windows are supported");
 }
 
-// node_modules/.pnpm/open@10.2.0/node_modules/open/index.js
+// node_modules/open/index.js
 var execFile5 = promisify5(childProcess.execFile);
 var __dirname = path.dirname(fileURLToPath(import.meta.url));
 var localXdgOpenPath = path.join(__dirname, "xdg-open");
@@ -2196,10 +2196,10 @@ defineLazyProperty(apps, "browser", () => "browser");
 defineLazyProperty(apps, "browserPrivate", () => "browserPrivate");
 var open_default = open;
 
-// node_modules/.pnpm/ora@8.2.0/node_modules/ora/index.js
+// node_modules/ora/index.js
 import process15 from "node:process";
 
-// node_modules/.pnpm/chalk@5.6.2/node_modules/chalk/source/vendor/ansi-styles/index.js
+// node_modules/chalk/source/vendor/ansi-styles/index.js
 var ANSI_BACKGROUND_OFFSET = 10;
 var wrapAnsi16 = (offset = 0) => (code) => `\x1B[${code + offset}m`;
 var wrapAnsi256 = (offset = 0) => (code) => `\x1B[${38 + offset};5;${code}m`;
@@ -2385,7 +2385,7 @@ function assembleStyles() {
 var ansiStyles = assembleStyles();
 var ansi_styles_default = ansiStyles;
 
-// node_modules/.pnpm/chalk@5.6.2/node_modules/chalk/source/vendor/supports-color/index.js
+// node_modules/chalk/source/vendor/supports-color/index.js
 import process8 from "node:process";
 import os2 from "node:os";
 import tty from "node:tty";
@@ -2517,7 +2517,7 @@ var supportsColor = {
 };
 var supports_color_default = supportsColor;
 
-// node_modules/.pnpm/chalk@5.6.2/node_modules/chalk/source/utilities.js
+// node_modules/chalk/source/utilities.js
 function stringReplaceAll(string, substring, replacer) {
   let index = string.indexOf(substring);
   if (index === -1) {
@@ -2547,7 +2547,7 @@ function stringEncaseCRLFWithFirstIndex(string, prefix, postfix, index) {
   return returnValue;
 }
 
-// node_modules/.pnpm/chalk@5.6.2/node_modules/chalk/source/index.js
+// node_modules/chalk/source/index.js
 var { stdout: stdoutColor, stderr: stderrColor } = supports_color_default;
 var GENERATOR = Symbol("GENERATOR");
 var STYLER = Symbol("STYLER");
@@ -2694,13 +2694,13 @@ var chalk = createChalk();
 var chalkStderr = createChalk({ level: stderrColor ? stderrColor.level : 0 });
 var source_default = chalk;
 
-// node_modules/.pnpm/cli-cursor@5.0.0/node_modules/cli-cursor/index.js
+// node_modules/cli-cursor/index.js
 import process11 from "node:process";
 
-// node_modules/.pnpm/restore-cursor@5.1.0/node_modules/restore-cursor/index.js
+// node_modules/restore-cursor/index.js
 import process10 from "node:process";
 
-// node_modules/.pnpm/mimic-function@5.0.1/node_modules/mimic-function/index.js
+// node_modules/mimic-function/index.js
 var copyProperty = (to, from, property, ignoreNonConfigurable) => {
   if (property === "length" || property === "prototype") {
     return;
@@ -2746,7 +2746,7 @@ function mimicFunction(to, from, { ignoreNonConfigurable = false } = {}) {
   return to;
 }
 
-// node_modules/.pnpm/onetime@7.0.0/node_modules/onetime/index.js
+// node_modules/onetime/index.js
 var calledFunctions = /* @__PURE__ */ new WeakMap();
 var onetime = (function_, options = {}) => {
   if (typeof function_ !== "function") {
@@ -2777,7 +2777,7 @@ onetime.callCount = (function_) => {
 };
 var onetime_default = onetime;
 
-// node_modules/.pnpm/signal-exit@4.1.0/node_modules/signal-exit/dist/mjs/signals.js
+// node_modules/signal-exit/dist/mjs/signals.js
 var signals = [];
 signals.push("SIGHUP", "SIGINT", "SIGTERM");
 if (process.platform !== "win32") {
@@ -2801,7 +2801,7 @@ if (process.platform === "linux") {
   signals.push("SIGIO", "SIGPOLL", "SIGPWR", "SIGSTKFLT");
 }
 
-// node_modules/.pnpm/signal-exit@4.1.0/node_modules/signal-exit/dist/mjs/index.js
+// node_modules/signal-exit/dist/mjs/index.js
 var processOk = (process16) => !!process16 && typeof process16 === "object" && typeof process16.removeListener === "function" && typeof process16.emit === "function" && typeof process16.reallyExit === "function" && typeof process16.listeners === "function" && typeof process16.kill === "function" && typeof process16.pid === "number" && typeof process16.on === "function";
 var kExitEmitter = Symbol.for("signal-exit emitter");
 var global = globalThis;
@@ -3028,7 +3028,7 @@ var {
   unload
 } = signalExitWrap(processOk(process9) ? new SignalExit(process9) : new SignalExitFallback());
 
-// node_modules/.pnpm/restore-cursor@5.1.0/node_modules/restore-cursor/index.js
+// node_modules/restore-cursor/index.js
 var terminal = process10.stderr.isTTY ? process10.stderr : process10.stdout.isTTY ? process10.stdout : void 0;
 var restoreCursor = terminal ? onetime_default(() => {
   onExit(() => {
@@ -3038,7 +3038,7 @@ var restoreCursor = terminal ? onetime_default(() => {
 };
 var restore_cursor_default = restoreCursor;
 
-// node_modules/.pnpm/cli-cursor@5.0.0/node_modules/cli-cursor/index.js
+// node_modules/cli-cursor/index.js
 var isHidden = false;
 var cliCursor = {};
 cliCursor.show = (writableStream = process11.stderr) => {
@@ -3068,10 +3068,10 @@ cliCursor.toggle = (force, writableStream) => {
 };
 var cli_cursor_default = cliCursor;
 
-// node_modules/.pnpm/ora@8.2.0/node_modules/ora/index.js
+// node_modules/ora/index.js
 var import_cli_spinners = __toESM(require_cli_spinners(), 1);
 
-// node_modules/.pnpm/is-unicode-supported@1.3.0/node_modules/is-unicode-supported/index.js
+// node_modules/log-symbols/node_modules/is-unicode-supported/index.js
 import process12 from "node:process";
 function isUnicodeSupported() {
   if (process12.platform !== "win32") {
@@ -3080,7 +3080,7 @@ function isUnicodeSupported() {
   return Boolean(process12.env.CI) || Boolean(process12.env.WT_SESSION) || Boolean(process12.env.TERMINUS_SUBLIME) || process12.env.ConEmuTask === "{cmd::Cmder}" || process12.env.TERM_PROGRAM === "Terminus-Sublime" || process12.env.TERM_PROGRAM === "vscode" || process12.env.TERM === "xterm-256color" || process12.env.TERM === "alacritty" || process12.env.TERMINAL_EMULATOR === "JetBrains-JediTerm";
 }
 
-// node_modules/.pnpm/log-symbols@6.0.0/node_modules/log-symbols/index.js
+// node_modules/log-symbols/index.js
 var main = {
   info: source_default.blue("\u2139"),
   success: source_default.green("\u2714"),
@@ -3096,7 +3096,7 @@ var fallback = {
 var logSymbols = isUnicodeSupported() ? main : fallback;
 var log_symbols_default = logSymbols;
 
-// node_modules/.pnpm/ansi-regex@6.2.2/node_modules/ansi-regex/index.js
+// node_modules/ansi-regex/index.js
 function ansiRegex({ onlyFirst = false } = {}) {
   const ST = "(?:\\u0007|\\u001B\\u005C|\\u009C)";
   const osc = `(?:\\u001B\\][\\s\\S]*?${ST})`;
@@ -3105,7 +3105,7 @@ function ansiRegex({ onlyFirst = false } = {}) {
   return new RegExp(pattern, onlyFirst ? void 0 : "g");
 }
 
-// node_modules/.pnpm/strip-ansi@7.1.2/node_modules/strip-ansi/index.js
+// node_modules/strip-ansi/index.js
 var regex = ansiRegex();
 function stripAnsi(string) {
   if (typeof string !== "string") {
@@ -3114,7 +3114,7 @@ function stripAnsi(string) {
   return string.replace(regex, "");
 }
 
-// node_modules/.pnpm/get-east-asian-width@1.4.0/node_modules/get-east-asian-width/lookup.js
+// node_modules/get-east-asian-width/lookup.js
 function isAmbiguous(x) {
   return x === 161 || x === 164 || x === 167 || x === 168 || x === 170 || x === 173 || x === 174 || x >= 176 && x <= 180 || x >= 182 && x <= 186 || x >= 188 && x <= 191 || x === 198 || x === 208 || x === 215 || x === 216 || x >= 222 && x <= 225 || x === 230 || x >= 232 && x <= 234 || x === 236 || x === 237 || x === 240 || x === 242 || x === 243 || x >= 247 && x <= 250 || x === 252 || x === 254 || x === 257 || x === 273 || x === 275 || x === 283 || x === 294 || x === 295 || x === 299 || x >= 305 && x <= 307 || x === 312 || x >= 319 && x <= 322 || x === 324 || x >= 328 && x <= 331 || x === 333 || x === 338 || x === 339 || x === 358 || x === 359 || x === 363 || x === 462 || x === 464 || x === 466 || x === 468 || x === 470 || x === 472 || x === 474 || x === 476 || x === 593 || x === 609 || x === 708 || x === 711 || x >= 713 && x <= 715 || x === 717 || x === 720 || x >= 728 && x <= 731 || x === 733 || x === 735 || x >= 768 && x <= 879 || x >= 913 && x <= 929 || x >= 931 && x <= 937 || x >= 945 && x <= 961 || x >= 963 && x <= 969 || x === 1025 || x >= 1040 && x <= 1103 || x === 1105 || x === 8208 || x >= 8211 && x <= 8214 || x === 8216 || x === 8217 || x === 8220 || x === 8221 || x >= 8224 && x <= 8226 || x >= 8228 && x <= 8231 || x === 8240 || x === 8242 || x === 8243 || x === 8245 || x === 8251 || x === 8254 || x === 8308 || x === 8319 || x >= 8321 && x <= 8324 || x === 8364 || x === 8451 || x === 8453 || x === 8457 || x === 8467 || x === 8470 || x === 8481 || x === 8482 || x === 8486 || x === 8491 || x === 8531 || x === 8532 || x >= 8539 && x <= 8542 || x >= 8544 && x <= 8555 || x >= 8560 && x <= 8569 || x === 8585 || x >= 8592 && x <= 8601 || x === 8632 || x === 8633 || x === 8658 || x === 8660 || x === 8679 || x === 8704 || x === 8706 || x === 8707 || x === 8711 || x === 8712 || x === 8715 || x === 8719 || x === 8721 || x === 8725 || x === 8730 || x >= 8733 && x <= 8736 || x === 8739 || x === 8741 || x >= 8743 && x <= 8748 || x === 8750 || x >= 8756 && x <= 8759 || x === 8764 || x === 8765 || x === 8776 || x === 8780 || x === 8786 || x === 8800 || x === 8801 || x >= 8804 && x <= 8807 || x === 8810 || x === 8811 || x === 8814 || x === 8815 || x === 8834 || x === 8835 || x === 8838 || x === 8839 || x === 8853 || x === 8857 || x === 8869 || x === 8895 || x === 8978 || x >= 9312 && x <= 9449 || x >= 9451 && x <= 9547 || x >= 9552 && x <= 9587 || x >= 9600 && x <= 9615 || x >= 9618 && x <= 9621 || x === 9632 || x === 9633 || x >= 9635 && x <= 9641 || x === 9650 || x === 9651 || x === 9654 || x === 9655 || x === 9660 || x === 9661 || x === 9664 || x === 9665 || x >= 9670 && x <= 9672 || x === 9675 || x >= 9678 && x <= 9681 || x >= 9698 && x <= 9701 || x === 9711 || x === 9733 || x === 9734 || x === 9737 || x === 9742 || x === 9743 || x === 9756 || x === 9758 || x === 9792 || x === 9794 || x === 9824 || x === 9825 || x >= 9827 && x <= 9829 || x >= 9831 && x <= 9834 || x === 9836 || x === 9837 || x === 9839 || x === 9886 || x === 9887 || x === 9919 || x >= 9926 && x <= 9933 || x >= 9935 && x <= 9939 || x >= 9941 && x <= 9953 || x === 9955 || x === 9960 || x === 9961 || x >= 9963 && x <= 9969 || x === 9972 || x >= 9974 && x <= 9977 || x === 9979 || x === 9980 || x === 9982 || x === 9983 || x === 10045 || x >= 10102 && x <= 10111 || x >= 11094 && x <= 11097 || x >= 12872 && x <= 12879 || x >= 57344 && x <= 63743 || x >= 65024 && x <= 65039 || x === 65533 || x >= 127232 && x <= 127242 || x >= 127248 && x <= 127277 || x >= 127280 && x <= 127337 || x >= 127344 && x <= 127373 || x === 127375 || x === 127376 || x >= 127387 && x <= 127404 || x >= 917760 && x <= 917999 || x >= 983040 && x <= 1048573 || x >= 1048576 && x <= 1114109;
 }
@@ -3125,7 +3125,7 @@ function isWide(x) {
   return x >= 4352 && x <= 4447 || x === 8986 || x === 8987 || x === 9001 || x === 9002 || x >= 9193 && x <= 9196 || x === 9200 || x === 9203 || x === 9725 || x === 9726 || x === 9748 || x === 9749 || x >= 9776 && x <= 9783 || x >= 9800 && x <= 9811 || x === 9855 || x >= 9866 && x <= 9871 || x === 9875 || x === 9889 || x === 9898 || x === 9899 || x === 9917 || x === 9918 || x === 9924 || x === 9925 || x === 9934 || x === 9940 || x === 9962 || x === 9970 || x === 9971 || x === 9973 || x === 9978 || x === 9981 || x === 9989 || x === 9994 || x === 9995 || x === 10024 || x === 10060 || x === 10062 || x >= 10067 && x <= 10069 || x === 10071 || x >= 10133 && x <= 10135 || x === 10160 || x === 10175 || x === 11035 || x === 11036 || x === 11088 || x === 11093 || x >= 11904 && x <= 11929 || x >= 11931 && x <= 12019 || x >= 12032 && x <= 12245 || x >= 12272 && x <= 12287 || x >= 12289 && x <= 12350 || x >= 12353 && x <= 12438 || x >= 12441 && x <= 12543 || x >= 12549 && x <= 12591 || x >= 12593 && x <= 12686 || x >= 12688 && x <= 12773 || x >= 12783 && x <= 12830 || x >= 12832 && x <= 12871 || x >= 12880 && x <= 42124 || x >= 42128 && x <= 42182 || x >= 43360 && x <= 43388 || x >= 44032 && x <= 55203 || x >= 63744 && x <= 64255 || x >= 65040 && x <= 65049 || x >= 65072 && x <= 65106 || x >= 65108 && x <= 65126 || x >= 65128 && x <= 65131 || x >= 94176 && x <= 94180 || x >= 94192 && x <= 94198 || x >= 94208 && x <= 101589 || x >= 101631 && x <= 101662 || x >= 101760 && x <= 101874 || x >= 110576 && x <= 110579 || x >= 110581 && x <= 110587 || x === 110589 || x === 110590 || x >= 110592 && x <= 110882 || x === 110898 || x >= 110928 && x <= 110930 || x === 110933 || x >= 110948 && x <= 110951 || x >= 110960 && x <= 111355 || x >= 119552 && x <= 119638 || x >= 119648 && x <= 119670 || x === 126980 || x === 127183 || x === 127374 || x >= 127377 && x <= 127386 || x >= 127488 && x <= 127490 || x >= 127504 && x <= 127547 || x >= 127552 && x <= 127560 || x === 127568 || x === 127569 || x >= 127584 && x <= 127589 || x >= 127744 && x <= 127776 || x >= 127789 && x <= 127797 || x >= 127799 && x <= 127868 || x >= 127870 && x <= 127891 || x >= 127904 && x <= 127946 || x >= 127951 && x <= 127955 || x >= 127968 && x <= 127984 || x === 127988 || x >= 127992 && x <= 128062 || x === 128064 || x >= 128066 && x <= 128252 || x >= 128255 && x <= 128317 || x >= 128331 && x <= 128334 || x >= 128336 && x <= 128359 || x === 128378 || x === 128405 || x === 128406 || x === 128420 || x >= 128507 && x <= 128591 || x >= 128640 && x <= 128709 || x === 128716 || x >= 128720 && x <= 128722 || x >= 128725 && x <= 128728 || x >= 128732 && x <= 128735 || x === 128747 || x === 128748 || x >= 128756 && x <= 128764 || x >= 128992 && x <= 129003 || x === 129008 || x >= 129292 && x <= 129338 || x >= 129340 && x <= 129349 || x >= 129351 && x <= 129535 || x >= 129648 && x <= 129660 || x >= 129664 && x <= 129674 || x >= 129678 && x <= 129734 || x === 129736 || x >= 129741 && x <= 129756 || x >= 129759 && x <= 129770 || x >= 129775 && x <= 129784 || x >= 131072 && x <= 196605 || x >= 196608 && x <= 262141;
 }
 
-// node_modules/.pnpm/get-east-asian-width@1.4.0/node_modules/get-east-asian-width/index.js
+// node_modules/get-east-asian-width/index.js
 function validate(codePoint) {
   if (!Number.isSafeInteger(codePoint)) {
     throw new TypeError(`Expected a code point, got \`${typeof codePoint}\`.`);
@@ -3139,7 +3139,7 @@ function eastAsianWidth(codePoint, { ambiguousAsWide = false } = {}) {
   return 1;
 }
 
-// node_modules/.pnpm/string-width@7.2.0/node_modules/string-width/index.js
+// node_modules/string-width/index.js
 var import_emoji_regex = __toESM(require_emoji_regex(), 1);
 var segmenter = new Intl.Segmenter();
 var defaultIgnorableCodePointRegex = new RegExp("^\\p{Default_Ignorable_Code_Point}$", "u");
@@ -3188,14 +3188,14 @@ function stringWidth(string, options = {}) {
   return width;
 }
 
-// node_modules/.pnpm/is-interactive@2.0.0/node_modules/is-interactive/index.js
+// node_modules/is-interactive/index.js
 function isInteractive({ stream = process.stdout } = {}) {
   return Boolean(
     stream && stream.isTTY && process.env.TERM !== "dumb" && !("CI" in process.env)
   );
 }
 
-// node_modules/.pnpm/is-unicode-supported@2.1.0/node_modules/is-unicode-supported/index.js
+// node_modules/is-unicode-supported/index.js
 import process13 from "node:process";
 function isUnicodeSupported2() {
   const { env: env2 } = process13;
@@ -3206,7 +3206,7 @@ function isUnicodeSupported2() {
   return Boolean(env2.WT_SESSION) || Boolean(env2.TERMINUS_SUBLIME) || env2.ConEmuTask === "{cmd::Cmder}" || TERM_PROGRAM === "Terminus-Sublime" || TERM_PROGRAM === "vscode" || TERM === "xterm-256color" || TERM === "alacritty" || TERM === "rxvt-unicode" || TERM === "rxvt-unicode-256color" || env2.TERMINAL_EMULATOR === "JetBrains-JediTerm";
 }
 
-// node_modules/.pnpm/stdin-discarder@0.2.2/node_modules/stdin-discarder/index.js
+// node_modules/stdin-discarder/index.js
 import process14 from "node:process";
 var ASCII_ETX_CODE = 3;
 var StdinDiscarder = class {
@@ -3251,7 +3251,7 @@ var StdinDiscarder = class {
 var stdinDiscarder = new StdinDiscarder();
 var stdin_discarder_default = stdinDiscarder;
 
-// node_modules/.pnpm/ora@8.2.0/node_modules/ora/index.js
+// node_modules/ora/index.js
 var import_cli_spinners2 = __toESM(require_cli_spinners(), 1);
 var Ora = class {
   #linesToClear = 0;
@@ -3548,7 +3548,7 @@ import fs6 from "node:fs/promises";
 import os3 from "node:os";
 import path2 from "node:path";
 
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/external.js
+// node_modules/zod/v3/external.js
 var external_exports = {};
 __export(external_exports, {
   BRAND: () => BRAND,
@@ -3660,7 +3660,7 @@ __export(external_exports, {
   void: () => voidType
 });
 
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/util.js
+// node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
   util2.assertEqual = (_) => {
@@ -3794,7 +3794,7 @@ var getParsedType = (data) => {
   }
 };
 
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/ZodError.js
+// node_modules/zod/v3/ZodError.js
 var ZodIssueCode = util.arrayToEnum([
   "invalid_type",
   "invalid_literal",
@@ -3912,7 +3912,7 @@ ZodError.create = (issues) => {
   return error;
 };
 
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/locales/en.js
+// node_modules/zod/v3/locales/en.js
 var errorMap = (issue, _ctx) => {
   let message;
   switch (issue.code) {
@@ -4015,7 +4015,7 @@ var errorMap = (issue, _ctx) => {
 };
 var en_default = errorMap;
 
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/errors.js
+// node_modules/zod/v3/errors.js
 var overrideErrorMap = en_default;
 function setErrorMap(map) {
   overrideErrorMap = map;
@@ -4024,7 +4024,7 @@ function getErrorMap() {
   return overrideErrorMap;
 }
 
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/parseUtil.js
+// node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
   const { data, path: path6, errorMaps, issueData } = params;
   const fullPath = [...path6, ...issueData.path || []];
@@ -4134,14 +4134,14 @@ var isDirty = (x) => x.status === "dirty";
 var isValid = (x) => x.status === "valid";
 var isAsync = (x) => typeof Promise !== "undefined" && x instanceof Promise;
 
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/helpers/errorUtil.js
+// node_modules/zod/v3/helpers/errorUtil.js
 var errorUtil;
 (function(errorUtil2) {
   errorUtil2.errToObj = (message) => typeof message === "string" ? { message } : message || {};
   errorUtil2.toString = (message) => typeof message === "string" ? message : message?.message;
 })(errorUtil || (errorUtil = {}));
 
-// node_modules/.pnpm/zod@3.25.76/node_modules/zod/v3/types.js
+// node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
   constructor(parent, value, path6, key) {
     this._cachedPath = [];
@@ -7578,14 +7578,14 @@ var ostring = () => stringType().optional();
 var onumber = () => numberType().optional();
 var oboolean = () => booleanType().optional();
 var coerce = {
-  string: (arg) => ZodString.create({ ...arg, coerce: true }),
-  number: (arg) => ZodNumber.create({ ...arg, coerce: true }),
-  boolean: (arg) => ZodBoolean.create({
+  string: ((arg) => ZodString.create({ ...arg, coerce: true })),
+  number: ((arg) => ZodNumber.create({ ...arg, coerce: true })),
+  boolean: ((arg) => ZodBoolean.create({
     ...arg,
     coerce: true
-  }),
-  bigint: (arg) => ZodBigInt.create({ ...arg, coerce: true }),
-  date: (arg) => ZodDate.create({ ...arg, coerce: true })
+  })),
+  bigint: ((arg) => ZodBigInt.create({ ...arg, coerce: true })),
+  date: ((arg) => ZodDate.create({ ...arg, coerce: true }))
 };
 var NEVER = INVALID;
 
@@ -8049,44 +8049,32 @@ function getFunnyTitle(data) {
   const peakPeriod = data.peakPeriod || "";
   if (linesRemoved > 0 && linesAdded > 0) {
     const ratio = linesRemoved / linesAdded;
-    if (ratio >= 2)
-      return TITLES.destroyer[0];
-    if (ratio > 1)
-      return TITLES.destroyer[1];
+    if (ratio >= 2) return TITLES.destroyer[0];
+    if (ratio > 1) return TITLES.destroyer[1];
   }
-  if (achievement > 0 && achievement < 0.3)
-    return TITLES.achievement[0];
-  if (achievement >= 0.3 && achievement < 0.5)
-    return TITLES.achievement[1];
-  if (achievement >= 0.5 && achievement < 0.7)
-    return TITLES.achievement[2];
+  if (achievement > 0 && achievement < 0.3) return TITLES.achievement[0];
+  if (achievement >= 0.3 && achievement < 0.5) return TITLES.achievement[1];
+  if (achievement >= 0.5 && achievement < 0.7) return TITLES.achievement[2];
   if (peakPeriod.toLowerCase().includes("night") || peakPeriod.toLowerCase().includes("evening")) {
-    if (hours >= 100)
-      return TITLES.nightOwl[0];
+    if (hours >= 100) return TITLES.nightOwl[0];
   }
   if (peakPeriod.toLowerCase().includes("morning")) {
-    if (hours >= 100)
-      return TITLES.earlyBird[0];
+    if (hours >= 100) return TITLES.earlyBird[0];
   }
   for (const t of TITLES.msgsPerDay) {
-    if (msgsPerDay >= t.min)
-      return t;
+    if (msgsPerDay >= t.min) return t;
   }
   for (const t of TITLES.sessions) {
-    if (sessions >= t.min)
-      return t;
+    if (sessions >= t.min) return t;
   }
   for (const t of TITLES.hours) {
-    if (hours >= t.min)
-      return t;
+    if (hours >= t.min) return t;
   }
   return TITLES.hours[TITLES.hours.length - 1];
 }
 function safeNumber(value, fallback2 = 0) {
-  if (value === null || value === void 0)
-    return fallback2;
-  if (typeof value === "number" && Number.isFinite(value))
-    return value;
+  if (value === null || value === void 0) return fallback2;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
     const parsed = parseFloat(value.replace(/[^0-9.-]/g, ""));
     return Number.isFinite(parsed) ? parsed : fallback2;
@@ -8096,10 +8084,8 @@ function safeNumber(value, fallback2 = 0) {
 function formatNumber(value, options = {}) {
   const num = safeNumber(value);
   const { prefix = "", allowNegative = false, fallback: fallback2 = "-" } = options;
-  if (num === 0 && !options.showZero)
-    return fallback2;
-  if (num < 0 && !allowNegative)
-    return fallback2;
+  if (num === 0 && !options.showZero) return fallback2;
+  if (num < 0 && !allowNegative) return fallback2;
   const absNum = Math.abs(num);
   let formatted;
   if (absNum >= 1e9) {
@@ -8117,41 +8103,31 @@ function formatNumber(value, options = {}) {
 }
 function getHeroSizeClass(value) {
   const len = value.length;
-  if (len <= 4)
-    return "size-lg";
-  if (len <= 6)
-    return "size-md";
-  if (len <= 8)
-    return "size-sm";
+  if (len <= 4) return "size-lg";
+  if (len <= 6) return "size-md";
+  if (len <= 8) return "size-sm";
   return "size-xs";
 }
 function getPeakTimeText(data) {
   const peak = data.peakPeriod;
-  if (!peak)
-    return "";
+  if (!peak) return "";
   const lower = peak.toLowerCase();
-  if (lower.includes("night"))
-    return "Night owl mode";
-  if (lower.includes("evening"))
-    return "Evening coder";
-  if (lower.includes("morning"))
-    return "Early bird";
-  if (lower.includes("afternoon"))
-    return "Afternoon grinder";
+  if (lower.includes("night")) return "Night owl mode";
+  if (lower.includes("evening")) return "Evening coder";
+  if (lower.includes("morning")) return "Early bird";
+  if (lower.includes("afternoon")) return "Afternoon grinder";
   return "";
 }
 function getTopLanguage(data) {
   const langs = data.languages;
-  if (!langs || !Array.isArray(langs) || langs.length === 0)
-    return "-";
+  if (!langs || !Array.isArray(langs) || langs.length === 0) return "-";
   const sorted = [...langs].sort((a, b) => {
     const aVal = safeNumber(a.percentage) || safeNumber(a.lines);
     const bVal = safeNumber(b.percentage) || safeNumber(b.lines);
     return bVal - aVal;
   });
   const top = sorted[0];
-  if (!top || !top.name)
-    return "-";
+  if (!top || !top.name) return "-";
   const nameMap = {
     typescript: "TS",
     javascript: "JS",
@@ -8382,8 +8358,7 @@ function runNpm(args, options) {
   return spawnSync(npmCmd, args, options);
 }
 function isEnvDisabled(value) {
-  if (!value)
-    return false;
+  if (!value) return false;
   const normalized = String(value).trim().toLowerCase();
   return normalized === "1" || normalized === "true" || normalized === "yes";
 }
