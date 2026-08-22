@@ -42,7 +42,7 @@
     "playwright": "^1.49.0"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.1",
     "open": "^10.1.0",
     "ora": "^8.1.0",
     "zod": "^3.23.8"
