@@ -19,6 +19,55 @@ namespace costats.App
             MouseLeftButtonDown += OnMouseLeftButtonDown;
         }
 
+        /// <summary>
+        /// Raised when the user dismisses the window, just before it is hidden,
+        /// so the caller can restore whatever the settings window replaced.
+        /// </summary>
+        public event EventHandler? Dismissing;
+
+        /// <summary>
+        /// Set by whoever opens the window: true when the glass widget was on
+        /// screen and should come back once settings is dismissed.
+        /// </summary>
+        public bool ReturnToWidgetOnDismiss { get; private set; }
+
+        /// <summary>
+        /// Centres the window on the work area and brings it to the front.
+        /// </summary>
+        public void ShowCentered(bool returnToWidgetOnDismiss)
+        {
+            ReturnToWidgetOnDismiss = returnToWidgetOnDismiss;
+
+            var workArea = SystemParameters.WorkArea;
+            Left = (workArea.Width - Width) / 2 + workArea.Left;
+            Top = (workArea.Height - Height) / 2 + workArea.Top;
+
+            if (!IsVisible)
+            {
+                Show();
+            }
+
+            Activate();
+        }
+
+        /// <summary>
+        /// Hides the window, first handing activation back to the widget when it
+        /// was the caller. The order matters: the widget is shown and activated
+        /// while this window is still up, so focus moves straight to the widget.
+        /// Hiding first would let Windows activate some other application, and
+        /// the widget's own deactivation handler would hide it again instantly.
+        /// </summary>
+        public void Dismiss()
+        {
+            if (ReturnToWidgetOnDismiss)
+            {
+                ReturnToWidgetOnDismiss = false;
+                Dismissing?.Invoke(this, EventArgs.Empty);
+            }
+
+            Hide();
+        }
+
         private void OnSourceInitialized(object? sender, EventArgs e)
         {
             var hwnd = new WindowInteropHelper(this).Handle;
@@ -35,7 +84,7 @@ namespace costats.App
 
         private void OnCloseClick(object sender, RoutedEventArgs e)
         {
-            Hide();
+            Dismiss();
         }
 
         private void OnAddAccountClick(object sender, RoutedEventArgs e)

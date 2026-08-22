@@ -76,6 +76,43 @@ public sealed class CodexAppServerSourceTests
         Assert.Empty(reading.Usage.ScopedQuotas);
     }
 
+    [Fact]
+    public async Task ReadAsync_forwards_reset_credits_to_the_pulse()
+    {
+        var expiresAt = new DateTimeOffset(2026, 9, 20, 8, 21, 24, TimeSpan.Zero);
+        var snapshot = new CodexAppServerRateLimitSnapshot(
+            null, null, null,
+            95, TimeSpan.FromDays(7), expiresAt.AddDays(-10),
+            "prolite")
+        {
+            ResetCreditsAvailable = 1,
+            ResetCreditExpiresAt = expiresAt
+        };
+        var source = new CodexAppServerSource(
+            new CodexAccountProfile("openai-1", "OpenAI 1", "C:/profiles/openai-1"),
+            new StubClient(snapshot));
+
+        var reading = await source.ReadAsync(CancellationToken.None);
+
+        Assert.Equal(1, reading.Usage!.ResetCreditsAvailable);
+        Assert.Equal(expiresAt, reading.Usage.ResetCreditExpiresAt);
+    }
+
+    [Fact]
+    public async Task ReadAsync_reports_no_reset_credits_when_the_provider_sent_none()
+    {
+        var source = new CodexAppServerSource(
+            new CodexAccountProfile("openai-1", "OpenAI 1", "C:/profiles/openai-1"),
+            new StubClient(new CodexAppServerRateLimitSnapshot(
+                34, TimeSpan.FromHours(5), DateTimeOffset.UtcNow,
+                60, TimeSpan.FromDays(7), DateTimeOffset.UtcNow.AddDays(3))));
+
+        var reading = await source.ReadAsync(CancellationToken.None);
+
+        Assert.Equal(0, reading.Usage!.ResetCreditsAvailable);
+        Assert.Null(reading.Usage.ResetCreditExpiresAt);
+    }
+
     private sealed class StubClient(CodexAppServerRateLimitSnapshot snapshot) : ICodexAppServerClient
     {
         public string? LastCodexHome { get; private set; }

@@ -4,29 +4,40 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using costats.Application.Pulse;
 using costats.Application.Settings;
+using costats.Core.Analytics;
 using costats.Core.Pulse;
+using costats.Infrastructure.Analytics;
+using Serilog;
 
 namespace costats.App.ViewModels;
 
 public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseState>, IDisposable
 {
+    /// <summary>Days the detail view's "Last 30 days" row covers, today included.</summary>
+    private const int CostWindowDays = 30;
+
     private readonly IPulseOrchestrator _orchestrator;
     private readonly AppSettings _settings;
     private readonly IDisposable _subscription;
     private readonly IEnumerable<ISignalSource> _staticSources;
     private readonly IAccountSourceRegistry _accountSources;
+    private readonly IUsageAnalyticsService _analytics;
+    private CancellationTokenSource? _costLoad;
 
     public PulseViewModel(
         IPulseOrchestrator orchestrator,
         AppSettings settings,
         IEnumerable<ISignalSource> sources,
-        IAccountSourceRegistry accountSources)
+        IAccountSourceRegistry accountSources,
+        IUsageAnalyticsService analytics)
     {
         _orchestrator = orchestrator;
         _settings = settings;
         isCopilotEnabled = settings.CopilotEnabled;
+        remoteViewLink = settings.RemoteViewShareLink;
         _staticSources = sources;
         _accountSources = accountSources;
+        _analytics = analytics ?? throw new ArgumentNullException(nameof(analytics));
 
         Providers = new ObservableCollection<ProviderPulseViewModel>();
         _subscription = orchestrator.PulseStream.Subscribe(this);
@@ -67,6 +78,53 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     [ObservableProperty]
     private bool showResetTimes;
 
+    /// <summary>
+    /// The remote view link, or null while remote view is off or unconfigured.
+    /// Mirrors AppSettings so the overview button follows the Settings toggle.
+    /// </summary>
+    [ObservableProperty]
+    private string? remoteViewLink;
+
+    /// <summary>True when the overview can offer a one-click remote view button.</summary>
+    public bool CanOpenRemoteView => !string.IsNullOrEmpty(RemoteViewLink);
+
+    partial void OnRemoteViewLinkChanged(string? value) => OnPropertyChanged(nameof(CanOpenRemoteView));
+
+    /// <summary>
+    /// Copies the settings the widget reads directly into observable state. Runs
+    /// on every pulse and whenever the widget is reopened, which is how Settings
+    /// changes reach the widget without a restart.
+    /// </summary>
+    private void ApplySettings()
+    {
+        IsCopilotEnabled = _settings.CopilotEnabled;
+        ShowResetTimes = _settings.ShowOverviewResetTimes;
+        RemoteViewLink = _settings.RemoteViewShareLink;
+    }
+
+    [RelayCommand]
+    private void OpenRemoteView()
+    {
+        var link = RemoteViewLink;
+        if (string.IsNullOrEmpty(link))
+        {
+            return;
+        }
+
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(link)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            // No browser, or the shell refused the URL; nothing to recover.
+            System.Diagnostics.Debug.WriteLine($"Opening the remote view failed: {ex.Message}");
+        }
+    }
+
     [ObservableProperty]
     private ProviderPulseViewModel selectedAccount = new();
 
@@ -80,13 +138,91 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
 
         SelectedAccount = account;
         IsOverview = false;
+        BeginCostLoad(account);
     }
 
     [RelayCommand]
-    private void BackToOverview() => IsOverview = true;
+    private void BackToOverview()
+    {
+        // Nothing is watching the answer once the overview is back.
+        _costLoad?.Cancel();
+        IsOverview = true;
+    }
+
+    /// <summary>
+    /// Starts (or restarts) the detail view's Cost section load for one account.
+    /// The scan runs on the thread pool and its result is cached for a couple of
+    /// minutes, so reopening a card costs almost nothing.
+    /// </summary>
+    private void BeginCostLoad(ProviderPulseViewModel account)
+    {
+        _costLoad?.Cancel();
+        var cts = new CancellationTokenSource();
+        _costLoad = cts;
+        _ = LoadCostAsync(account, cts);
+    }
+
+    private async Task LoadCostAsync(ProviderPulseViewModel account, CancellationTokenSource cts)
+    {
+        var token = cts.Token;
+        try
+        {
+            var known = await Task.Run(() => _analytics.GetAccountsAsync(token), token).ConfigureAwait(true);
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            // Z.AI and Copilot have no local token log, and a Codex account only
+            // resolves once its shared sessions folder has been scanned.
+            var binding = UsageAccountMap.Resolve(account.ProviderId, known);
+            if (binding is null)
+            {
+                return;
+            }
+
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            var range = UsageDateRange.LastDays(CostWindowDays, today);
+            string[] filter = [binding.AccountId];
+
+            // One report answers both rows: the 30-day totals are the window and
+            // today is its last daily bucket, so the engine aggregates once.
+            var report = await Task.Run(() => _analytics.GetReportAsync(range, filter, token), token).ConfigureAwait(true);
+            if (token.IsCancellationRequested || report.IsEmpty)
+            {
+                return;
+            }
+
+            var todayTotals = report.Daily.FirstOrDefault(day => day.Day == today)?.Totals ?? UsageTotals.Empty;
+            account.ApplyUsageCost(binding, todayTotals, report.Totals);
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer detail view replaced this one; its load is the live one.
+        }
+        catch (Exception exception)
+        {
+            // The Cost section simply stays hidden; the rest of the detail view
+            // is unaffected.
+            Log.Warning(exception, "Account cost load failed for {ProviderId}", account.ProviderId);
+        }
+        finally
+        {
+            if (ReferenceEquals(_costLoad, cts))
+            {
+                _costLoad = null;
+            }
+
+            cts.Dispose();
+        }
+    }
 
     /// <summary>Called when the widget is (re)opened so it always starts at the overview.</summary>
-    public void ResetToOverview() => IsOverview = true;
+    public void ResetToOverview()
+    {
+        ApplySettings();
+        IsOverview = true;
+    }
 
     [ObservableProperty]
     private bool isRefreshing = true; // Start true to show spinner on initial load
@@ -213,8 +349,7 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
         // This allows window deactivation to work even during data updates
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            IsCopilotEnabled = _settings.CopilotEnabled;
-            ShowResetTimes = _settings.ShowOverviewResetTimes;
+            ApplySettings();
             if (!IsCopilotEnabled && SelectedTabIndex > 1)
             {
                 SelectedTabIndex = 0;
@@ -388,7 +523,12 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                         p.ProviderId.Equals(SelectedAccount.ProviderId, StringComparison.OrdinalIgnoreCase));
                     if (refreshedSelection is not null)
                     {
+                        // The refreshed instance starts with an empty Cost
+                        // section; carry the loaded one over so it does not
+                        // blink out, then reload it behind the scenes.
+                        refreshedSelection.CopyUsageCostFrom(SelectedAccount);
                         SelectedAccount = refreshedSelection;
+                        BeginCostLoad(refreshedSelection);
                     }
                     else
                     {
@@ -418,6 +558,7 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
 
     public void Dispose()
     {
+        _costLoad?.Cancel();
         _subscription.Dispose();
     }
 }

@@ -123,6 +123,19 @@ public sealed class AppSettings
         : null;
 
     /// <summary>
+    /// The link to open the remote view in a browser, or null while remote view
+    /// is off or not fully configured. Built in one place so Settings and the
+    /// widget can never disagree about the URL.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? RemoteViewShareLink =>
+        RemoteViewEnabled &&
+        !string.IsNullOrWhiteSpace(EffectiveRemoteViewPageUrl) &&
+        !string.IsNullOrWhiteSpace(RemoteViewId)
+            ? $"{EffectiveRemoteViewPageUrl.TrimEnd('/')}/?id={RemoteViewId}"
+            : null;
+
+    /// <summary>
     /// True when the build ships a complete remote-view service, so Settings can
     /// hide the endpoint boxes and remote view becomes a single checkbox.
     /// </summary>

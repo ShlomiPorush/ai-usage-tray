@@ -84,7 +84,7 @@
 
   var THEME_MODES = ["auto", "light", "dark"];
   var THEME_LABELS = { auto: "System", light: "Light", dark: "Dark" };
-  var PAGE_COLORS = { light: "#F5F3FA", dark: "#211F30" };
+  var PAGE_COLORS = { light: "#EDE8E0", dark: "#1A2233" };
 
   var themeButton = document.getElementById("theme-toggle");
   var themeMode = "auto";
@@ -164,20 +164,21 @@
     return isNaN(date.getTime()) ? null : date;
   }
 
-  // used -> state name. A provider that rates its own windows (Claude sends
-  // severity) wins, so the colour here matches the colour its own UI shows.
-  // Everyone else falls back to the Windows tray thresholds: red above 80%
-  // used, amber from 50%, green below that.
-  function classify(used, severity) {
-    if (severity === "critical") return "danger";
-    if (severity === "warning") return "warn";
-    if (severity === "normal") return "good";
-    if (used > 80) return "danger";
-    if (used >= 50) return "warn";
-    return "good";
+  // used -> band. The number alone decides: green 0-49, yellow 50-74,
+  // orange 75-89, red 90-100. The same rule runs on every surface of the
+  // product, so one percentage can never wear two colours.
+  //
+  // Provider-reported severity is still carried in the payload (the schema is
+  // untouched) but deliberately has no say here: a provider that called 71%
+  // "normal" used to paint it green while the widget painted it yellow.
+  function classify(used) {
+    if (used >= 90) return "red";
+    if (used >= 75) return "orange";
+    if (used >= 50) return "yellow";
+    return "green";
   }
 
-  var STATE_RANK = { good: 1, warn: 2, danger: 3 };
+  var STATE_RANK = { green: 1, yellow: 2, orange: 3, red: 4 };
 
   function clampPercent(value) {
     var number = typeof value === "number" ? value : Number(value);
@@ -236,15 +237,13 @@
     return Array.isArray(account.windows) ? account.windows : [];
   }
 
-  // The account dot follows its worst window. Worst by state rather than by
-  // percentage, because a provider-rated window can be critical below the
-  // percentage another window sits at.
+  // The account dot follows its worst window, by band.
   function worstState(account) {
     var rows = windowsOf(account);
     var worst = null;
     rows.forEach(function (row) {
       if (!row || typeof row !== "object") return;
-      var state = classify(clampPercent(row.usedPercent), row.severity);
+      var state = classify(clampPercent(row.usedPercent));
       if (worst === null || STATE_RANK[state] > STATE_RANK[worst]) worst = state;
     });
     return worst;
@@ -270,7 +269,7 @@
   // The number and the fill are both "used", matching the Windows tray and widget.
   function renderMeterRow(accountName, source, now) {
     var used = clampPercent(source.usedPercent);
-    var state = classify(used, source.severity);
+    var state = classify(used);
     var label = typeof source.label === "string" && source.label ? source.label : "Usage";
     var scope = typeof source.scope === "string" && source.scope ? source.scope : null;
     var shown = Math.round(used);
@@ -319,7 +318,7 @@
 
     var head = el("div", "card-head");
     var worst = worstState(account);
-    var dotState = account.blocked ? "danger" : (worst === null ? "none" : worst);
+    var dotState = account.blocked ? "red" : (worst === null ? "none" : worst);
     var dot = el("span", "dot is-" + dotState);
     dot.setAttribute("aria-hidden", "true");
     head.appendChild(dot);

@@ -1,4 +1,5 @@
 using System.Globalization;
+using costats.Core.Analytics;
 
 namespace costats.Core.Pulse;
 
@@ -128,6 +129,38 @@ public static class UsageFormatter
     {
         return $"{(int)Math.Round(usedPercent)}% used";
     }
+
+    /// <summary>
+    /// The reset-credit detail line: "1 usage limit reset available", plus
+    /// ", expires Sep 20" when the provider gave an expiry date. Empty when
+    /// there is nothing to redeem.
+    /// </summary>
+    public static string ResetCreditsLine(long available, DateOnly? expiresOn)
+    {
+        if (available <= 0)
+        {
+            return string.Empty;
+        }
+
+        var line = available == 1
+            ? "1 usage limit reset available"
+            : $"{available} usage limit resets available";
+
+        return expiresOn is { } day
+            ? $"{line}, expires {UsageNumberFormat.DayLabel(day)}"
+            : line;
+    }
+
+    /// <summary>
+    /// The overview chip for the same fact: "reset" for one, "2 resets" for
+    /// more. Empty when there is nothing to redeem.
+    /// </summary>
+    public static string ResetCreditsChip(long available) => available switch
+    {
+        <= 0 => string.Empty,
+        1 => "reset",
+        _ => $"{available} resets"
+    };
 
     /// <summary>
     /// Format a relative time like "Updated just now" or "Updated 5m ago".

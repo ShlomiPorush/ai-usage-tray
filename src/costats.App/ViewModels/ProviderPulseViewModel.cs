@@ -1,4 +1,7 @@
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
+using costats.App.Services;
+using costats.Core.Analytics;
 using costats.Core.Pulse;
 
 namespace costats.App.ViewModels;
@@ -75,6 +78,19 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     [ObservableProperty]
     private bool hasScopedLimits;
 
+    // Redeemable "usage limit reset" credits. Display only; the redeem action
+    // lives in the Codex CLI.
+    [ObservableProperty]
+    private bool hasResetCredits;
+
+    /// <summary>Detail line, e.g. "1 usage limit reset available, expires Sep 20".</summary>
+    [ObservableProperty]
+    private string resetCreditsText = string.Empty;
+
+    /// <summary>Overview chip for the same fact: "reset" or "2 resets".</summary>
+    [ObservableProperty]
+    private string resetCreditsChipText = string.Empty;
+
     [ObservableProperty]
     private string weekPaceText = string.Empty;
 
@@ -94,7 +110,8 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     [ObservableProperty]
     private bool hasExtraUsage;
 
-    // Cost tracking
+    // Cost tracking, filled in asynchronously from the local usage analytics
+    // engine when the account's detail view is opened.
     [ObservableProperty]
     private string todayCostText = "--";
 
@@ -104,7 +121,21 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     [ObservableProperty]
     private bool hasCostData;
 
-    // Utilization status for traffic-light indicators (multicc stacked view)
+    /// <summary>
+    /// The analytics bucket this account's cost was read from, or empty while
+    /// nothing has been loaded. Drives the "More" link's account filter.
+    /// </summary>
+    [ObservableProperty]
+    private string usageAccountId = string.Empty;
+
+    /// <summary>
+    /// Whose numbers the cost rows really are, when they are not only this
+    /// account's ("all Codex accounts"). Empty for an exact per-account match.
+    /// </summary>
+    [ObservableProperty]
+    private string costScopeNote = string.Empty;
+
+    // Vivid band colour for the bar fills and the card dot. Identical in both themes.
     [ObservableProperty]
     private string sessionStatusColor = "#10B981"; // Green default
 
@@ -117,18 +148,36 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     [ObservableProperty]
     private string overallStatusColor = "#10B981";
 
-    // Readable percentage text for multi-panel hero numbers (WCAG AA contrast on lavender)
     [ObservableProperty]
     private string sessionPercentText = "0%";
 
     [ObservableProperty]
     private string weekPercentText = "0%";
 
+    // Hue-matched ink for the percent number: deep in light, light in dark.
     [ObservableProperty]
-    private string sessionPercentColor = "#047857";
+    private string sessionPercentColor = "#065F46";
 
     [ObservableProperty]
-    private string weekPercentColor = "#047857";
+    private string weekPercentColor = "#065F46";
+
+    // The soft 18 percent band tint behind the percent number. No ring.
+    [ObservableProperty]
+    private string sessionPercentPillColor = "#2E10B981";
+
+    [ObservableProperty]
+    private string weekPercentPillColor = "#2E10B981";
+
+    // Light theme only: a deeper hue hairline on the bar fill, so vivid yellow
+    // still reads against the beige track. Transparent + zero-width in dark.
+    [ObservableProperty]
+    private string sessionBarHairlineColor = "#047857";
+
+    [ObservableProperty]
+    private string weekBarHairlineColor = "#047857";
+
+    [ObservableProperty]
+    private Thickness barHairlineThickness = BandPalette.HairlineThickness(ThemeManager.IsDark);
 
     // Compact cost line for multicc stacked cards (e.g. "$4.20 today · $82.50 / 30d")
     [ObservableProperty]
@@ -167,16 +216,15 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         PopulateSessionMetrics(vm, reading);
         PopulateWeekMetrics(vm, reading);
         PopulateScopedLimits(vm, reading);
+        PopulateResetCredits(vm, reading);
         PopulateExtraUsage(vm, reading);
-        PopulateCostData(vm, reading);
 
         // Set overall status based on the higher of session or week utilization
         var sessionPercent = vm.SessionProgress * 100.0;
         var weekPercent = vm.WeekProgress * 100.0;
         var worstPercent = Math.Max(sessionPercent, weekPercent);
-        var worstSeverity = WorstSeverity(reading.Usage);
-        vm.OverallStatusColor = GetUtilizationColor(worstPercent, worstSeverity);
-        vm.OverallStatusText = GetStatusText(worstPercent, worstSeverity);
+        vm.OverallStatusColor = GetUtilizationColor(worstPercent);
+        vm.OverallStatusText = GetStatusText(worstPercent);
 
         // Being refused is worse than any percentage, and no window on its own
         // says it, so it overrides the headline on every surface that shows one.
@@ -227,9 +275,12 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
             }
         }
 
-        vm.SessionStatusColor = GetUtilizationColor(usedPercent, usage.SessionSeverity);
+        var band = UsageBands.Of(usedPercent);
+        vm.SessionStatusColor = BandPalette.Vivid(band);
         vm.SessionPercentText = $"{(int)Math.Round(usedPercent)}%";
-        vm.SessionPercentColor = GetPercentTextColor(usedPercent, usage.SessionSeverity);
+        vm.SessionPercentColor = BandPalette.Ink(band, ThemeManager.IsDark);
+        vm.SessionPercentPillColor = BandPalette.Pill(band);
+        vm.SessionBarHairlineColor = BandPalette.Hairline(band, ThemeManager.IsDark);
     }
 
     private static void PopulateWeekMetrics(ProviderPulseViewModel vm, ProviderReading reading)
@@ -264,9 +315,12 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
             }
         }
 
-        vm.WeekStatusColor = GetUtilizationColor(usedPercent, usage.WeekSeverity);
+        var band = UsageBands.Of(usedPercent);
+        vm.WeekStatusColor = BandPalette.Vivid(band);
         vm.WeekPercentText = $"{(int)Math.Round(usedPercent)}%";
-        vm.WeekPercentColor = GetPercentTextColor(usedPercent, usage.WeekSeverity);
+        vm.WeekPercentColor = BandPalette.Ink(band, ThemeManager.IsDark);
+        vm.WeekPercentPillColor = BandPalette.Pill(band);
+        vm.WeekBarHairlineColor = BandPalette.Hairline(band, ThemeManager.IsDark);
     }
 
     private static void PopulateScopedLimits(ProviderPulseViewModel vm, ProviderReading reading)
@@ -280,16 +334,48 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         // The window group leads the row (as it does for the account-wide
         // Session/Weekly rows) and the model name rides along as a chip, so
         // "Weekly" for one model never reads as "Weekly" for the whole account.
+        var isDark = ThemeManager.IsDark;
         vm.ScopedLimits = quotas
-            .Select(q => new ScopedLimitRow(
-                q.Label,
-                GroupLabelFor(q.Group),
-                $"{q.UsedPercent}%",
-                q.UsedPercent / 100.0,
-                GetPercentTextColor(q.UsedPercent, q.Severity),
-                q.ResetsAt is { } resets ? $"Resets {UsageFormatter.ResetCountdown(resets)}" : string.Empty))
+            .Select(q =>
+            {
+                var band = UsageBands.Of(q.UsedPercent);
+                return new ScopedLimitRow(
+                    q.Label,
+                    GroupLabelFor(q.Group),
+                    $"{q.UsedPercent}%",
+                    q.UsedPercent / 100.0,
+                    BandPalette.Ink(band, isDark),
+                    BandPalette.Pill(band),
+                    BandPalette.Vivid(band),
+                    BandPalette.Hairline(band, isDark),
+                    BandPalette.HairlineThickness(isDark),
+                    q.ResetsAt is { } resets ? $"Resets {UsageFormatter.ResetCountdown(resets)}" : string.Empty);
+            })
             .ToList();
         vm.HasScopedLimits = true;
+    }
+
+    /// <summary>
+    /// Fills the reset-credit line and chip. The provider's count is taken as
+    /// given; an expiry is only mentioned when the provider sent one.
+    /// </summary>
+    private static void PopulateResetCredits(ProviderPulseViewModel vm, ProviderReading reading)
+    {
+        var available = reading.Usage?.ResetCreditsAvailable ?? 0;
+        if (available <= 0)
+        {
+            return;
+        }
+
+        // The expiry is a calendar date to the reader, so it is read in the
+        // machine's own time zone, like every other reset time in the widget.
+        var expiresOn = reading.Usage?.ResetCreditExpiresAt is { } expiresAt
+            ? DateOnly.FromDateTime(expiresAt.ToLocalTime().DateTime)
+            : (DateOnly?)null;
+
+        vm.HasResetCredits = true;
+        vm.ResetCreditsChipText = UsageFormatter.ResetCreditsChip(available);
+        vm.ResetCreditsText = UsageFormatter.ResetCreditsLine(available, expiresOn);
     }
 
     /// <summary>
@@ -327,34 +413,50 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         }
     }
 
-    private static void PopulateCostData(ProviderPulseViewModel vm, ProviderReading reading)
+    /// <summary>
+    /// Fills the detail view's Cost section from an analytics report. Tokens
+    /// with no known price are never dressed up as free: such a bucket says
+    /// "unpriced" where the dollar figure would be.
+    /// </summary>
+    /// <param name="binding">The analytics bucket the totals came from.</param>
+    /// <param name="today">This local day's totals.</param>
+    /// <param name="month">The last 30 local days' totals.</param>
+    public void ApplyUsageCost(UsageAccountBinding binding, UsageTotals today, UsageTotals month)
     {
-        var consumption = reading.Usage?.Consumption;
-        if (consumption is null || (consumption.TodayTokens.TotalConsumed == 0 && consumption.RollingWindowTokens.TotalConsumed == 0))
+        ArgumentNullException.ThrowIfNull(binding);
+        ArgumentNullException.ThrowIfNull(today);
+        ArgumentNullException.ThrowIfNull(month);
+
+        UsageAccountId = binding.AccountId;
+        CostScopeNote = binding.IsMerged ? UsageAccountMap.MergedScopeNote : string.Empty;
+
+        TodayCostText = UsageNumberFormat.CostOrUnpriced(today.CostUsd, today.UnpricedTokens);
+        TodayTokensText = UsageNumberFormat.Tokens(today.Tokens.ProcessedTokens);
+        MonthCostText = UsageNumberFormat.CostOrUnpriced(month.CostUsd, month.UnpricedTokens);
+        MonthTokensText = UsageNumberFormat.Tokens(month.Tokens.ProcessedTokens);
+
+        HasCostData = true;
+    }
+
+    /// <summary>
+    /// Carries an already-loaded Cost section onto the instance that replaced
+    /// this one on a refresh, so the section does not blink out while the next
+    /// report is on its way.
+    /// </summary>
+    public void CopyUsageCostFrom(ProviderPulseViewModel? other)
+    {
+        if (other is null || !other.HasCostData)
         {
-            vm.HasCostData = false;
             return;
         }
 
-        vm.HasCostData = true;
-
-        // Today's consumption
-        var todayTokens = consumption.TodayTokens.TotalConsumed;
-        var todayCost = consumption.TodayCostUsd;
-        vm.TodayCostText = UsageFormatter.FormatCurrency(todayCost);
-        vm.TodayTokensText = UsageFormatter.FormatTokenCount(todayTokens);
-
-        // Rolling window consumption
-        var windowTokens = consumption.RollingWindowTokens.TotalConsumed;
-        var windowCost = consumption.RollingWindowCostUsd;
-        vm.MonthCostText = UsageFormatter.FormatCurrency(windowCost);
-        vm.MonthTokensText = UsageFormatter.FormatTokenCount(windowTokens);
-
-        // Compact single-line cost for stacked multicc cards
-        var todayFormatted = UsageFormatter.FormatCurrency(todayCost);
-        var monthFormatted = UsageFormatter.FormatCurrency(windowCost);
-        vm.CompactCostText = $"{todayFormatted} today  ·  {monthFormatted} / 30d";
-        vm.HasCompactCost = true;
+        UsageAccountId = other.UsageAccountId;
+        CostScopeNote = other.CostScopeNote;
+        TodayCostText = other.TodayCostText;
+        TodayTokensText = other.TodayTokensText;
+        MonthCostText = other.MonthCostText;
+        MonthTokensText = other.MonthTokensText;
+        HasCostData = true;
     }
 
     private static double CalculateUsedPercent(long? used, long? limit)
@@ -421,111 +523,71 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     }
 
     /// <summary>
-    /// A provider that rates its own windows (Claude sends limits[].severity)
-    /// decides the colour, so the app agrees with the provider's own UI. The
-    /// percentage thresholds are the fallback for providers that report none.
+    /// The vivid band colour for a used percentage. The number alone decides;
+    /// a provider's own severity rating never moves it.
     /// </summary>
-    private static string GetUtilizationColor(double percent, QuotaSeverity? severity = null)
+    private static string GetUtilizationColor(double percent) => BandPalette.Vivid(UsageBands.Of(percent));
+
+    private static string GetStatusText(double percent) => UsageBands.StatusText(percent);
+}
+
+/// <summary>
+/// The locked percent palette. Bands come from <see cref="UsageBands"/>; the
+/// vivid colours are identical in both themes and the ink is hue matched to
+/// the band, deep in the light theme and light in the dark theme.
+/// </summary>
+public static class BandPalette
+{
+    /// <summary>Bar fills, card dots, tray icon, hover-popup dots.</summary>
+    public static string Vivid(UsageBand band) => band switch
     {
-        return severity switch
+        UsageBand.Red => "#EF4444",
+        UsageBand.Orange => "#F97316",
+        UsageBand.Yellow => "#EAB308",
+        _ => "#10B981"
+    };
+
+    /// <summary>The percent number itself, on top of its tinted pill.</summary>
+    public static string Ink(UsageBand band, bool isDark) => isDark
+        ? band switch
         {
-            QuotaSeverity.Critical => "#EF4444",  // Red - at/over limit
-            QuotaSeverity.Warning  => "#F59E0B",  // Amber - moderate
-            QuotaSeverity.Normal   => "#10B981",  // Green - healthy
-            _ => percent switch
-            {
-                >= 95 => "#EF4444",
-                >= 80 => "#F97316",  // Orange - near limit
-                >= 50 => "#F59E0B",
-                _     => "#10B981",
-            }
+            UsageBand.Red => "#FCA5A5",
+            UsageBand.Orange => "#FDBA74",
+            UsageBand.Yellow => "#FDE047",
+            _ => "#6EE7B7"
+        }
+        : band switch
+        {
+            UsageBand.Red => "#991B1B",
+            UsageBand.Orange => "#9A3412",
+            UsageBand.Yellow => "#854D0E",
+            _ => "#065F46"
         };
-    }
-
-    private static string GetStatusText(double percent, QuotaSeverity? severity = null)
-    {
-        return severity switch
-        {
-            QuotaSeverity.Critical => "At limit",
-            QuotaSeverity.Warning  => "Near limit",
-            QuotaSeverity.Normal   => "OK",
-            _ => percent switch
-            {
-                >= 95 => "At limit",
-                >= 80 => "Near limit",
-                >= 50 => "Moderate",
-                _     => "OK",
-            }
-        };
-    }
-
-    /// <summary>Worst severity across every window of a reading; null when no window carries one.</summary>
-    private static QuotaSeverity? WorstSeverity(UsagePulse? usage)
-    {
-        if (usage is null)
-        {
-            return null;
-        }
-
-        QuotaSeverity? worst = null;
-        foreach (var severity in Severities(usage))
-        {
-            if (worst is null || severity > worst.Value)
-            {
-                worst = severity;
-            }
-        }
-
-        return worst;
-    }
-
-    private static IEnumerable<QuotaSeverity> Severities(UsagePulse usage)
-    {
-        if (usage.SessionSeverity is { } session)
-        {
-            yield return session;
-        }
-
-        if (usage.WeekSeverity is { } week)
-        {
-            yield return week;
-        }
-
-        foreach (var scoped in usage.ScopedQuotas)
-        {
-            if (scoped.Severity is { } severity)
-            {
-                yield return severity;
-            }
-        }
-    }
 
     /// <summary>
-    /// Returns WCAG AA-compliant text colors for percentage hero numbers on lavender background.
-    /// Darker variants of the bar colors ensure 4.5:1+ contrast ratio.
+    /// The pill behind the number: the band colour at 18 percent (0x2E of 255),
+    /// no ring. Same value in both themes; it composites over whichever card
+    /// brush the active theme supplies.
     /// </summary>
-    private static string GetPercentTextColor(double percent, QuotaSeverity? severity = null)
-    {
-        // On dark surfaces the darkened AA variants lose contrast; use the bright bar colours instead.
-        if (costats.App.Services.ThemeManager.IsDark)
-        {
-            return GetUtilizationColor(percent, severity);
-        }
+    public static string Pill(UsageBand band) => string.Concat("#2E", Vivid(band).AsSpan(1));
 
-        return severity switch
+    /// <summary>
+    /// Light theme only: a 1px deeper hue hairline on the bar fill, because
+    /// vivid yellow on the beige track is only 1.33:1 on its own. Fully
+    /// transparent in the dark theme, where the fill needs no help.
+    /// </summary>
+    public static string Hairline(UsageBand band, bool isDark) => isDark
+        ? "#00000000"
+        : band switch
         {
-            QuotaSeverity.Critical => "#DC2626",  // Red-600 (~6.5:1 on lavender)
-            QuotaSeverity.Warning  => "#B45309",  // Amber-700 (~5.4:1)
-            QuotaSeverity.Normal   => "#047857",  // Emerald-700 (~4.6:1)
-            _ => percent switch
-            {
-                >= 95 => "#DC2626",
-                >= 80 => "#C2410C",  // Orange-700 (~6.0:1)
-                >= 50 => "#B45309",
-                _     => "#047857",
-            }
+            UsageBand.Red => "#B91C1C",
+            UsageBand.Orange => "#C2410C",
+            UsageBand.Yellow => "#A16207",
+            _ => "#047857"
         };
-    }
+
+    /// <summary>Zero in the dark theme so the fill keeps its full 6px height.</summary>
+    public static Thickness HairlineThickness(bool isDark) => new(isDark ? 0 : 1);
 }
 
 /// <summary>One display row for a model-scoped quota window.</summary>
@@ -535,4 +597,8 @@ public sealed record ScopedLimitRow(
     string PercentText,
     double Progress,
     string PercentColor,
+    string PillColor,
+    string BarColor,
+    string HairlineColor,
+    Thickness HairlineThickness,
     string ResetText);

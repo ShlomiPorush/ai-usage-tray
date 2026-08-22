@@ -14,13 +14,19 @@ namespace costats.App
     {
         private readonly IGlassBackdropService _backdropService;
         private readonly SettingsWindow _settingsWindow;
+        private readonly UsageWindow _usageWindow;
 
-        public GlassWidgetWindow(PulseViewModel viewModel, SettingsWindow settingsWindow, IGlassBackdropService backdropService)
+        public GlassWidgetWindow(
+            PulseViewModel viewModel,
+            SettingsWindow settingsWindow,
+            UsageWindow usageWindow,
+            IGlassBackdropService backdropService)
         {
             InitializeComponent();
             DataContext = viewModel;
             _backdropService = backdropService;
             _settingsWindow = settingsWindow;
+            _usageWindow = usageWindow;
             SourceInitialized += OnSourceInitialized;
             MouseLeftButtonDown += OnMouseLeftButtonDown;
             Deactivated += OnDeactivated;
@@ -81,16 +87,27 @@ namespace costats.App
 
         private void OnSettingsClick(object sender, RoutedEventArgs e)
         {
-            var workArea = SystemParameters.WorkArea;
-            _settingsWindow.Left = (workArea.Width - _settingsWindow.Width) / 2 + workArea.Left;
-            _settingsWindow.Top = (workArea.Height - _settingsWindow.Height) / 2 + workArea.Top;
+            // The widget hides itself as soon as settings takes focus, so ask
+            // settings to bring it back when the user dismisses it.
+            _settingsWindow.ShowCentered(returnToWidgetOnDismiss: true);
+        }
 
-            if (!_settingsWindow.IsVisible)
+        private void OnUsageStatsClick(object sender, RoutedEventArgs e)
+        {
+            // The widget hides itself the moment the dashboard takes focus,
+            // which is what we want: the dashboard is a full window.
+            _usageWindow.ShowUsage();
+        }
+
+        private void OnAccountUsageClick(object sender, RoutedEventArgs e)
+        {
+            // The Cost section only exists once an analytics bucket was
+            // resolved, so the id is set by the time this button is clickable.
+            if (sender is FrameworkElement { DataContext: ProviderPulseViewModel account } &&
+                !string.IsNullOrWhiteSpace(account.UsageAccountId))
             {
-                _settingsWindow.Show();
+                _usageWindow.ShowUsageForAccount(account.UsageAccountId);
             }
-
-            _settingsWindow.Activate();
         }
 
         private void OnUsageLinkNavigate(object sender, RequestNavigateEventArgs e)

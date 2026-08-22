@@ -98,7 +98,9 @@ function demoSnapshot() {
         provider: "codex",
         name: "Codex",
         plan: "Plus",
-        windows: [{ label: "Weekly", usedPercent: 45, resetsAt: at(2 * DAY) }],
+        // 82% is the sample's orange window: the four bands (green, yellow,
+        // orange, red) are all visible at once on the demo page.
+        windows: [{ label: "Weekly", usedPercent: 82, resetsAt: at(2 * DAY) }],
       },
       {
         id: "zai",

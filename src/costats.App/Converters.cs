@@ -133,6 +133,34 @@ public sealed class HexToBrushConverter : IValueConverter
 }
 
 /// <summary>
+/// Picks the caption button glyph for the current window state: an outline
+/// square to maximize, two stacked squares to restore.
+/// </summary>
+public sealed class WindowStateGlyphConverter : IValueConverter
+{
+    public static WindowStateGlyphConverter Instance { get; } = new();
+
+    private static readonly Geometry MaximizeGlyph = Parse("M0.5,0.5 H9.5 V9.5 H0.5 Z");
+
+    private static readonly Geometry RestoreGlyph = Parse("M2.5,0.5 H9.5 V7.5 M0.5,2.5 H7.5 V9.5 H0.5 Z");
+
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
+        value is WindowState.Maximized ? RestoreGlyph : MaximizeGlyph;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        throw new NotSupportedException();
+    }
+
+    private static Geometry Parse(string path)
+    {
+        var geometry = Geometry.Parse(path);
+        geometry.Freeze();
+        return geometry;
+    }
+}
+
+/// <summary>
 /// Converts an integer index to boolean for RadioButton binding.
 /// Returns true if the value equals the ConverterParameter.
 /// </summary>

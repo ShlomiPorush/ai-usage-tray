@@ -20,7 +20,7 @@ public sealed class TrayStatusComposerTests
         var result = TrayStatusComposer.Compose(accounts, Now);
 
         Assert.Equal(73, result.HighestUsedPercent);
-        Assert.Equal(TraySeverity.Amber, result.Severity);
+        Assert.Equal(TraySeverity.Yellow, result.Severity);
     }
 
     [Fact]
@@ -72,19 +72,44 @@ public sealed class TrayStatusComposerTests
         Assert.Equal(Now.AddDays(3), status.WeeklyResetsAt);
     }
 
+    /// <summary>
+    /// Every band edge, expressed as the used percentage the tray colours by:
+    /// green 0-49, yellow 50-74, orange 75-89, red 90-100.
+    /// </summary>
     [Theory]
-    [InlineData(51, TraySeverity.Green)]
-    [InlineData(50, TraySeverity.Amber)]
-    [InlineData(20, TraySeverity.Amber)]
-    [InlineData(19, TraySeverity.Red)]
-    public void Compose_maps_highest_used_to_expected_colour(double remaining, TraySeverity expected)
+    [InlineData(0, TraySeverity.Green)]
+    [InlineData(49, TraySeverity.Green)]
+    [InlineData(50, TraySeverity.Yellow)]
+    [InlineData(74, TraySeverity.Yellow)]
+    [InlineData(75, TraySeverity.Orange)]
+    [InlineData(89, TraySeverity.Orange)]
+    [InlineData(90, TraySeverity.Red)]
+    [InlineData(100, TraySeverity.Red)]
+    public void Compose_maps_highest_used_to_its_band(double used, TraySeverity expected)
     {
         var accounts = new[]
         {
-            new AccountUsageStatus("Claude", remaining, Now.AddHours(1), null, null)
+            new AccountUsageStatus("Claude", 100 - used, Now.AddHours(1), null, null)
         };
 
-        Assert.Equal(expected, TrayStatusComposer.Compose(accounts, Now).Severity);
+        var status = TrayStatusComposer.Compose(accounts, Now);
+
+        Assert.Equal(used, status.HighestUsedPercent);
+        Assert.Equal(expected, status.Severity);
+    }
+
+    [Fact]
+    public void An_account_with_no_window_data_stays_unknown()
+    {
+        var accounts = new[]
+        {
+            new AccountUsageStatus("Codex", null, null, null, null)
+        };
+
+        var status = TrayStatusComposer.Compose(accounts, Now);
+
+        Assert.Null(status.HighestUsedPercent);
+        Assert.Equal(TraySeverity.Unknown, status.Severity);
     }
 
     [Fact]
@@ -107,11 +132,14 @@ public sealed class TrayStatusComposerTests
         Assert.Equal(TraySeverity.Red, status.Severity);
     }
 
+    /// <summary>
+    /// The provider's own rating is still carried on the record for the remote
+    /// payload, but it no longer moves the band: 89% is orange whatever Claude
+    /// calls it.
+    /// </summary>
     [Fact]
-    public void Provider_reported_severity_beats_the_percentage_thresholds()
+    public void Provider_reported_severity_no_longer_overrides_the_band()
     {
-        // 89% used would be Red by our own thresholds, but Claude calls its own
-        // weekly window "warning" at that level, so the tray follows Claude.
         var accounts = new[]
         {
             new AccountUsageStatus(
@@ -126,7 +154,60 @@ public sealed class TrayStatusComposerTests
         var status = TrayStatusComposer.Compose(accounts, DateTimeOffset.UtcNow);
 
         Assert.Equal(89, status.HighestUsedPercent);
-        Assert.Equal(TraySeverity.Amber, status.Severity);
+        Assert.Equal(TraySeverity.Orange, status.Severity);
+    }
+
+    /// <summary>
+    /// The other direction: a provider calling a window healthy cannot pull a
+    /// yellow number back to green.
+    /// </summary>
+    [Fact]
+    public void A_normal_rating_at_71_percent_is_still_yellow()
+    {
+        var accounts = new[]
+        {
+            new AccountUsageStatus(
+                "Claude",
+                SessionRemainingPercent: 29,
+                SessionResetsAt: DateTimeOffset.UtcNow.AddHours(2),
+                WeeklyRemainingPercent: null,
+                WeeklyResetsAt: null,
+                SessionSeverity: costats.Core.Pulse.QuotaSeverity.Normal)
+        };
+
+        var status = TrayStatusComposer.Compose(accounts, DateTimeOffset.UtcNow);
+
+        Assert.Equal(71, status.HighestUsedPercent);
+        Assert.Equal(TraySeverity.Yellow, status.Severity);
+    }
+
+    /// <summary>
+    /// A critical rating on a low window cannot push the tray to red either.
+    /// </summary>
+    [Fact]
+    public void A_critical_rating_on_a_scoped_window_at_12_percent_is_still_green()
+    {
+        var accounts = new[]
+        {
+            new AccountUsageStatus(
+                "Claude",
+                SessionRemainingPercent: null,
+                SessionResetsAt: null,
+                WeeklyRemainingPercent: null,
+                WeeklyResetsAt: null,
+                ScopedQuotas:
+                [
+                    new costats.Core.Pulse.ScopedQuota("Fable", "weekly", 12, null, true)
+                    {
+                        Severity = costats.Core.Pulse.QuotaSeverity.Critical
+                    }
+                ])
+        };
+
+        var status = TrayStatusComposer.Compose(accounts, DateTimeOffset.UtcNow);
+
+        Assert.Equal(12, status.HighestUsedPercent);
+        Assert.Equal(TraySeverity.Green, status.Severity);
     }
 
     [Fact]

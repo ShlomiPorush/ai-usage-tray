@@ -3,10 +3,14 @@ using costats.Core.Pulse;
 
 namespace costats.Core.Tray;
 
+/// <summary>
+/// The four used-percent bands (see <see cref="UsageBands"/>) plus "no data".
+/// </summary>
 public enum TraySeverity
 {
     Green,
-    Amber,
+    Yellow,
+    Orange,
     Red,
     Unknown
 }
@@ -18,6 +22,8 @@ public sealed record AccountUsageStatus(
     double? WeeklyRemainingPercent,
     DateTimeOffset? WeeklyResetsAt,
     IReadOnlyList<ScopedQuota>? ScopedQuotas = null,
+    // Carried so the remote payload can still report what the provider said.
+    // Colours and status wording come from the used number alone.
     QuotaSeverity? SessionSeverity = null,
     QuotaSeverity? WeeklySeverity = null,
     bool IsBlocked = false)
@@ -105,23 +111,24 @@ public static class TrayStatusComposer
     }
 
     /// <summary>
-    /// Maps the worst used percentage to a severity. This is the exact
-    /// complement of the older remaining-based rule (remaining &lt; 20 =&gt; Red,
-    /// remaining &lt;= 50 =&gt; Amber).
+    /// Maps a used percentage to its band: green 0-49, yellow 50-74,
+    /// orange 75-89, red 90-100.
     /// </summary>
     private static TraySeverity Classify(double? highestUsedPercent) => highestUsedPercent switch
     {
         null => TraySeverity.Unknown,
-        > 80 => TraySeverity.Red,
-        >= 50 => TraySeverity.Amber,
-        _ => TraySeverity.Green
+        { } used => UsageBands.Of(used) switch
+        {
+            UsageBand.Red => TraySeverity.Red,
+            UsageBand.Orange => TraySeverity.Orange,
+            UsageBand.Yellow => TraySeverity.Yellow,
+            _ => TraySeverity.Green
+        }
     };
 
     /// <summary>
-    /// Worst severity across every window of every account. A window uses the
-    /// provider's own severity when it reports one and falls back to our
-    /// percentage thresholds when it doesn't, so a provider that reports
-    /// nothing (Codex, Copilot, Z.AI) still colours exactly as before.
+    /// Worst band across every window of every account. The used number alone
+    /// decides; a provider's own severity rating never overrides it.
     /// </summary>
     private static TraySeverity ComposeSeverity(IReadOnlyList<AccountUsageStatus> accounts)
     {
@@ -150,32 +157,25 @@ public static class TrayStatusComposer
     {
         if (account.SessionRemainingPercent is { } sessionRemaining)
         {
-            yield return WindowSeverity(account.SessionSeverity, 100 - Math.Clamp(sessionRemaining, 0, 100));
+            yield return Classify(100 - Math.Clamp(sessionRemaining, 0, 100));
         }
 
         if (account.WeeklyRemainingPercent is { } weeklyRemaining)
         {
-            yield return WindowSeverity(account.WeeklySeverity, 100 - Math.Clamp(weeklyRemaining, 0, 100));
+            yield return Classify(100 - Math.Clamp(weeklyRemaining, 0, 100));
         }
 
         foreach (var scoped in account.ScopedQuotas ?? [])
         {
-            yield return WindowSeverity(scoped.Severity, Math.Clamp(scoped.UsedPercent, 0, 100));
+            yield return Classify(Math.Clamp(scoped.UsedPercent, 0, 100));
         }
     }
 
-    private static TraySeverity WindowSeverity(QuotaSeverity? reported, double usedPercent) => reported switch
-    {
-        QuotaSeverity.Critical => TraySeverity.Red,
-        QuotaSeverity.Warning => TraySeverity.Amber,
-        QuotaSeverity.Normal => TraySeverity.Green,
-        _ => Classify(usedPercent)
-    };
-
     private static int Rank(TraySeverity severity) => severity switch
     {
-        TraySeverity.Red => 3,
-        TraySeverity.Amber => 2,
+        TraySeverity.Red => 4,
+        TraySeverity.Orange => 3,
+        TraySeverity.Yellow => 2,
         TraySeverity.Green => 1,
         _ => 0
     };

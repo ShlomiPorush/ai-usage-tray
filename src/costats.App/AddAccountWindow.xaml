@@ -106,7 +106,7 @@
                 <Button Content="Cancel" Click="OnCancelClick" Style="{StaticResource DialogButton}" DockPanel.Dock="Left" />
                 <Button x:Name="ConfirmButton" Content="Add" Click="OnAddClick" Style="{StaticResource DialogButton}"
                         DockPanel.Dock="Right" HorizontalAlignment="Right" FontWeight="SemiBold"
-                        Background="#206366F1" />
+                        Background="{DynamicResource KindBadgeBrush}" />
             </DockPanel>
         </StackPanel>
     </Border>

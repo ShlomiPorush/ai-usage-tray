@@ -21,6 +21,7 @@ namespace costats.App.Services
         private readonly TaskbarIcon _taskbarIcon;
         private readonly GlassWidgetWindow _widgetWindow;
         private readonly SettingsWindow _settingsWindow;
+        private readonly UsageWindow _usageWindow;
         private readonly TrayStatusPanelWindow _trayPanel;
         private readonly IPulseOrchestrator _pulseOrchestrator;
         private readonly PulseViewModel _viewModel;
@@ -39,6 +40,7 @@ namespace costats.App.Services
             PulseViewModel viewModel,
             GlassWidgetWindow widgetWindow,
             SettingsWindow settingsWindow,
+            UsageWindow usageWindow,
             TrayStatusPanelWindow trayPanel,
             IPulseOrchestrator pulseOrchestrator,
             TaskbarPositionService taskbarPosition,
@@ -49,6 +51,7 @@ namespace costats.App.Services
             _viewModel = viewModel;
             _widgetWindow = widgetWindow;
             _settingsWindow = settingsWindow;
+            _usageWindow = usageWindow;
             _trayPanel = trayPanel;
             _pulseOrchestrator = pulseOrchestrator;
             _taskbarPosition = taskbarPosition;
@@ -111,6 +114,7 @@ namespace costats.App.Services
 
             SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
             _widgetWindow.SizeChanged += OnWidgetSizeChanged;
+            _settingsWindow.Dismissing += OnSettingsDismissing;
         }
 
         private void OnTrayLeftClick(object? sender, EventArgs e)
@@ -169,11 +173,13 @@ namespace costats.App.Services
             graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
             graphics.Clear(Color.Transparent);
 
+            // The four locked vivid band colours, identical in both themes.
             var colour = severity switch
             {
-                TraySeverity.Green => Color.FromArgb(16, 185, 129),
-                TraySeverity.Amber => Color.FromArgb(245, 158, 11),
-                TraySeverity.Red => Color.FromArgb(239, 68, 68),
+                TraySeverity.Green => Color.FromArgb(16, 185, 129),   // #10B981
+                TraySeverity.Yellow => Color.FromArgb(234, 179, 8),   // #EAB308
+                TraySeverity.Orange => Color.FromArgb(249, 115, 22),  // #F97316
+                TraySeverity.Red => Color.FromArgb(239, 68, 68),      // #EF4444
                 _ => Color.FromArgb(107, 114, 128)
             };
 
@@ -187,7 +193,9 @@ namespace costats.App.Services
             if (highestUsedPercent.HasValue)
             {
                 var percentText = ((long)Math.Round(Math.Clamp(highestUsedPercent.Value, 0, 100))).ToString();
-                using var textBrush = new SolidBrush(Color.White);
+                // Near-black ink clears 4.5:1 on all four vivid bands; white
+                // does not, and yellow is now one of them.
+                using var textBrush = new SolidBrush(Color.FromArgb(17, 24, 39)); // #111827
                 var cellStyle = new System.Drawing.StringFormat
                 {
                     Alignment = StringAlignment.Center,
@@ -217,6 +225,9 @@ namespace costats.App.Services
             var refreshItem = new MenuItem { Header = "Refresh Now" };
             refreshItem.Click += async (_, _) => await _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Manual, CancellationToken.None);
 
+            var usageItem = new MenuItem { Header = "Usage stats" };
+            usageItem.Click += (_, _) => ShowUsage();
+
             var settingsItem = new MenuItem { Header = "Settings..." };
             settingsItem.Click += (_, _) => ShowSettings();
 
@@ -226,25 +237,33 @@ namespace costats.App.Services
             menu.Items.Add(showItem);
             menu.Items.Add(refreshItem);
             menu.Items.Add(new Separator());
+            menu.Items.Add(usageItem);
             menu.Items.Add(settingsItem);
             menu.Items.Add(new Separator());
             menu.Items.Add(exitItem);
             return menu;
         }
 
+        /// <summary>
+        /// Opens the usage dashboard, or focuses it when it is already open.
+        /// </summary>
+        public void ShowUsage()
+        {
+            _usageWindow.ShowUsage();
+        }
+
         public void ShowSettings()
         {
-            // Center on screen
-            var workArea = SystemParameters.WorkArea;
-            _settingsWindow.Left = (workArea.Width - _settingsWindow.Width) / 2 + workArea.Left;
-            _settingsWindow.Top = (workArea.Height - _settingsWindow.Height) / 2 + workArea.Top;
+            // Settings returns the user to wherever they came from: the widget
+            // only comes back if it was on screen when settings was opened.
+            _settingsWindow.ShowCentered(returnToWidgetOnDismiss: _widgetWindow.IsVisible);
+        }
 
-            if (!_settingsWindow.IsVisible)
-            {
-                _settingsWindow.Show();
-            }
-
-            _settingsWindow.Activate();
+        private void OnSettingsDismissing(object? sender, EventArgs e)
+        {
+            // Same path as a tray icon click, so position, theme and the silent
+            // refresh all behave exactly as they normally do.
+            ShowWidget();
         }
 
         public void ShowWidget()
@@ -416,14 +435,10 @@ namespace costats.App.Services
             }
         }
 
-        // Same thresholds as the tray icon severity, expressed as used percent.
-        private static string UsedColor(double? usedPercent) => usedPercent switch
-        {
-            null => "#9CA3AF",
-            > 80 => "#EF4444",
-            >= 50 => "#F59E0B",
-            _ => "#10B981"
-        };
+        // Same bands as the tray icon, in the same four vivid colours.
+        private static string UsedColor(double? usedPercent) => usedPercent is { } used
+            ? BandPalette.Vivid(UsageBands.Of(used))
+            : "#9CA3AF";
 
         private void ApplyTrayStatus(TrayStatus status, IReadOnlyList<TrayAccountRow> rows)
         {
@@ -467,11 +482,13 @@ namespace costats.App.Services
             _hoverTooltipWindow?.Close();
             _pulseSubscription.Dispose();
             _widgetWindow.SizeChanged -= OnWidgetSizeChanged;
+            _settingsWindow.Dismissing -= OnSettingsDismissing;
             SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
             _taskbarIcon.Dispose();
             _currentIcon.Dispose();
             _widgetWindow.Close();
             _settingsWindow.Close();
+            _usageWindow.ForceClose();
             _trayPanel.Close();
         }
 

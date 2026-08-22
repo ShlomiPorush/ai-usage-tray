@@ -28,4 +28,17 @@ public sealed record UsagePulse(
     /// account-wide limit: a spent per-model quota blocks that model, not the account.
     /// </summary>
     public bool IsBlocked { get; init; }
+
+    /// <summary>
+    /// Redeemable "usage limit reset" credits the provider says are available
+    /// right now (Codex <c>rateLimitResetCredits.availableCount</c>). Zero when
+    /// the provider reports none. Display only: redeeming stays in the Codex CLI.
+    /// </summary>
+    public long ResetCreditsAvailable { get; init; }
+
+    /// <summary>
+    /// When the next redeemable reset credit expires; null when the provider
+    /// does not say.
+    /// </summary>
+    public DateTimeOffset? ResetCreditExpiresAt { get; init; }
 }

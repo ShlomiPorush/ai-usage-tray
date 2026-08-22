@@ -30,7 +30,7 @@
         <TextBlock x:Name="StatusText"
                    FontFamily="Segoe UI"
                    FontSize="11"
-                   Foreground="#1E1B2E"
+                   Foreground="{DynamicResource TextPrimaryBrush}"
                    VerticalAlignment="Center"
                    TextAlignment="Left"
                    TextTrimming="CharacterEllipsis"

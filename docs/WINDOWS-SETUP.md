@@ -1,19 +1,20 @@
 # AI Usage Tray, Windows setup
 
-This guide covers app version 1.7.3.
+This guide covers app version 2.0.0.
 
 AI Usage Tray shows one system-tray icon for any number of accounts: Claude subscriptions, OpenAI/ChatGPT Codex accounts, and optionally Z.AI / GLM and GitHub Copilot. Each Claude or Codex account points at its own local profile folder, so several accounts of the same provider can be monitored side by side.
 
 On a fresh install the app monitors the standard `~/.claude` (Claude Code login) and `~/.codex` (Codex CLI login) profiles. If you already use both tools, it shows data with no setup at all. Everything else is done in Settings (right-click the tray icon and choose **Settings...**).
 
-Hovering the tray icon shows a popup anchored to the icon that lists every account, one line each, with a coloured dot and the quota windows the provider returned. The icon itself shows the remaining percentage as a number. Both use the same colour scale, based on the lowest remaining percentage across the quota windows involved:
+Hovering the tray icon shows a popup anchored to the icon that lists every account, one line each, with a coloured dot and the quota windows the provider returned. The icon itself shows the used percentage as a number. Every surface in the app, and the web view, uses the same four levels, based on the highest used percentage across the quota windows involved:
 
-- Green: more than 50% remaining
-- Amber: 20% to 50% remaining
-- Red: less than 20% remaining
+- Green: below 50% used
+- Yellow: 50% to 74% used
+- Orange: 75% to 89% used
+- Red: 90% used and above
 - Grey: no quota data available
 
-Left-click the icon (or press `Ctrl+Alt+U`) to open the widget; right-click for **Refresh Now**, **Settings...** and **Exit**.
+Left-click the icon (or press `Ctrl+Alt+U`) to open the widget; right-click for **Refresh Now**, **Usage stats**, **Settings...** and **Exit**.
 
 ## 1. Install and run the app
 
@@ -118,9 +119,23 @@ Click the tray icon or press `Ctrl+Alt+U`. The widget opens on an overview of al
 - Quota windows as reported by each provider: 5-hour and weekly for Claude and Codex.
 - Model-scoped limits reported by Claude, for example the Fable weekly limit, listed per account.
 - Plan chips: Claude plans including the Max multiplier (`Max 5x`, `Max 20x`), and Codex plans (`Plus`, `Pro Lite`, ...).
+- Redeemable Codex usage-limit reset credits, when Codex reports any, with the time they expire. Redeem them in the Codex CLI with `/usage`.
 - Daily and 30-day cost estimates where the provider supplies them.
 
-## 7. Other settings
+The buttons in the widget header open the usage dashboard, the remote view link (when remote view is enabled), Settings and a manual refresh.
+
+## 7. Usage stats
+
+Right-click the tray icon and choose **Usage stats**, or press the chart button in the widget, to open the usage window. It reports how many tokens you used and what they would have cost at the published OpenAI and Anthropic API list prices, which is the honest way to compare a subscription with pay-as-you-go.
+
+The numbers come from the Claude Code and Codex session logs already on the machine (`projects` under each Claude profile, `sessions` and `archived_sessions` under each Codex profile). Nothing is uploaded and no provider API is called. Results are cached incrementally, so the first open of a large history takes a moment and later opens are quick.
+
+- Range: last 7, 30 or 90 days.
+- Account filter: all accounts, or one account.
+- A per-provider split, a chart of the range, and a breakdown table you can switch between **Model** and **Day**.
+- Models the built-in price table does not cover are still counted in tokens and listed as unpriced. To price them yourself, create `%LOCALAPPDATA%\costats\pricing.json` with a flat map of model id to USD per million tokens, for example `{ "some-new-model": { "input": 0.2, "output": 1.2 } }`.
+
+## 8. Other settings
 
 - **Start at login**: registers the app in the `Run` key and writes a Startup-folder shortcut.
 - **Show reset times in overview**: adds each window's reset countdown to the overview cards. Off by default to keep the overview compact.

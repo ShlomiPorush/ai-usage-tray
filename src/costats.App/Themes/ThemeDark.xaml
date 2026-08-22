@@ -1,36 +1,38 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
+    <!-- Palette: "Blue steel" dark -->
+
     <!-- Surfaces -->
-    <SolidColorBrush x:Key="WidgetBgBrush" Color="#211F30" />
-    <SolidColorBrush x:Key="PanelBgBrush" Color="#262438" />
-    <SolidColorBrush x:Key="WindowBorderBrush" Color="#50787899" />
+    <SolidColorBrush x:Key="WidgetBgBrush" Color="#1A2233" />
+    <SolidColorBrush x:Key="PanelBgBrush" Color="#1F2839" />
+    <SolidColorBrush x:Key="WindowBorderBrush" Color="#50708099" />
     <SolidColorBrush x:Key="CardBgBrush" Color="#14FFFFFF" />
     <SolidColorBrush x:Key="CardHoverBgBrush" Color="#24FFFFFF" />
-    <SolidColorBrush x:Key="InputBgBrush" Color="#2E2C42" />
+    <SolidColorBrush x:Key="InputBgBrush" Color="#273246" />
     <SolidColorBrush x:Key="ButtonBgBrush" Color="#14FFFFFF" />
     <SolidColorBrush x:Key="ButtonHoverBrush" Color="#22FFFFFF" />
     <SolidColorBrush x:Key="ButtonPressedBrush" Color="#33FFFFFF" />
-    <SolidColorBrush x:Key="KindBadgeBrush" Color="#2E818CF8" />
+    <SolidColorBrush x:Key="KindBadgeBrush" Color="#2E38BDF8" />
 
     <!-- Text -->
-    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F1EFFA" />
-    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#C7C4DC" />
-    <SolidColorBrush x:Key="TextMutedBrush" Color="#9D9AB4" />
-    <SolidColorBrush x:Key="TextFaintBrush" Color="#807D98" />
-    <SolidColorBrush x:Key="DividerBrush" Color="#3C3A54" />
-    <SolidColorBrush x:Key="TrackBrush" Color="#3C3A54" />
-    <SolidColorBrush x:Key="AccentBrush" Color="#818CF8" />
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#EFF4FB" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#C4CFE0" />
+    <SolidColorBrush x:Key="TextMutedBrush" Color="#9EABC0" />
+    <SolidColorBrush x:Key="TextFaintBrush" Color="#8996AC" />
+    <SolidColorBrush x:Key="DividerBrush" Color="#33405A" />
+    <SolidColorBrush x:Key="TrackBrush" Color="#33405A" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#38BDF8" />
 
     <!-- Provider accents (brightened for dark surfaces) -->
     <SolidColorBrush x:Key="CodexAccent" Color="#34D399" />
     <SolidColorBrush x:Key="ClaudeAccent" Color="#FB923C" />
-    <SolidColorBrush x:Key="CopilotAccent" Color="#A78BFA" />
+    <SolidColorBrush x:Key="CopilotAccent" Color="#94A3B8" />
     <SolidColorBrush x:Key="SessionAccent" Color="#FBBF24" />
-    <SolidColorBrush x:Key="WeeklyAccent" Color="#A78BFA" />
+    <SolidColorBrush x:Key="WeeklyAccent" Color="#60A5FA" />
     <SolidColorBrush x:Key="CostTodayAccent" Color="#6EE7B7" />
-    <SolidColorBrush x:Key="CostMonthAccent" Color="#A5B4FC" />
+    <SolidColorBrush x:Key="CostMonthAccent" Color="#93C5FD" />
     <SolidColorBrush x:Key="PlanCodexFgBrush" Color="#6EE7B7" />
     <SolidColorBrush x:Key="PlanClaudeFgBrush" Color="#FDBA74" />
-    <SolidColorBrush x:Key="PlanCopilotFgBrush" Color="#C4B5FD" />
+    <SolidColorBrush x:Key="PlanCopilotFgBrush" Color="#CBD5E1" />
 </ResourceDictionary>

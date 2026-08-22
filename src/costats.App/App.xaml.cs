@@ -9,6 +9,7 @@ using costats.Application.Pulse;
 using costats.Application.Security;
 using costats.Application.Settings;
 using costats.Application.Shell;
+using costats.Infrastructure.Analytics;
 using costats.Infrastructure.Providers;
 using costats.Infrastructure.Pulse;
 using costats.Infrastructure.Security;
@@ -331,13 +332,22 @@ namespace costats.App
                     services.AddSingleton<IPulseOrchestrator, PulseOrchestrator>();
                     services.AddHostedService(sp => (PulseOrchestrator)sp.GetRequiredService<IPulseOrchestrator>());
 
+                    // Local usage analytics: reads the agent logs on demand and
+                    // computes token totals and raw API-rate cost. Nothing polls
+                    // it yet; it stays idle until a caller asks for a report.
+                    services.AddSingleton<IUsageAnalyticsService>(sp => new UsageAnalyticsService(
+                        sp.GetRequiredService<AppSettings>(),
+                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<UsageAnalyticsService>>()));
+
                     services.AddSingleton<ICredentialVault, CredentialVault>();
                     services.AddSingleton<IGlassBackdropService, GlassBackdropService>();
 
                     services.AddSingleton<PulseViewModel>();
                     services.AddSingleton<SettingsViewModel>();
+                    services.AddSingleton<UsageWindowViewModel>();
                     services.AddSingleton<GlassWidgetWindow>();
                     services.AddSingleton<SettingsWindow>();
+                    services.AddSingleton<UsageWindow>();
                     services.AddSingleton<TrayStatusPanelWindow>();
                     services.AddSingleton<TaskbarPositionService>();
                     services.AddSingleton<TrayHost>();

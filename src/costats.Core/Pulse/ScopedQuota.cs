@@ -1,10 +1,10 @@
 namespace costats.Core.Pulse;
 
 /// <summary>
-/// How a provider itself rates one of its quota windows. When a provider
-/// reports this (Claude sends <c>limits[].severity</c>) it wins over our own
-/// percentage thresholds, so a window is coloured the way the provider's own
-/// UI colours it.
+/// How a provider itself rates one of its quota windows (Claude sends
+/// <c>limits[].severity</c>). Reported through to the remote payload as-is.
+/// It does not colour anything: every surface bands by the used number alone
+/// (see <see cref="UsageBands"/>).
 /// </summary>
 public enum QuotaSeverity
 {

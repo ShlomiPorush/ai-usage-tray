@@ -23,6 +23,19 @@ public sealed record CodexAppServerRateLimitSnapshot(
     /// entry sets this; a spent per-model quota blocks that model, not the account.
     /// </summary>
     public bool IsBlocked { get; init; }
+
+    /// <summary>
+    /// Redeemable "usage limit reset" credits, from the result-level
+    /// <c>rateLimitResetCredits.availableCount</c>. The count is authoritative:
+    /// the accompanying credit list may be null or shorter than the count.
+    /// </summary>
+    public long ResetCreditsAvailable { get; init; }
+
+    /// <summary>
+    /// When the first redeemable reset credit expires, when the payload lists
+    /// it. Null when the list is absent, truncated, or carries no expiry.
+    /// </summary>
+    public DateTimeOffset? ResetCreditExpiresAt { get; init; }
 }
 
 public static class CodexAppServerRateLimitParser
@@ -66,6 +79,9 @@ public static class CodexAppServerRateLimitParser
             var accountLimitId = ReadString(rateLimits, "limitId") ?? DefaultAccountLimitId;
             var blocked = IsRefused(rateLimits);
             var scoped = ParseScopedQuotas(rateLimits, accountLimitId, ref blocked);
+            // A sibling of rateLimits, not a member of the snapshot: planType and
+            // credits live inside rateLimits, this one does not.
+            var resetCredits = ParseResetCredits(result);
 
             return new CodexAppServerRateLimitSnapshot(
                 session.RemainingPercent,
@@ -77,13 +93,63 @@ public static class CodexAppServerRateLimitParser
                 planType)
             {
                 ScopedQuotas = scoped,
-                IsBlocked = blocked
+                IsBlocked = blocked,
+                ResetCreditsAvailable = resetCredits.Available,
+                ResetCreditExpiresAt = resetCredits.ExpiresAt
             };
         }
         catch (JsonException)
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Reads the result-level <c>rateLimitResetCredits</c> block. The field can
+    /// vanish between calls (like <c>rateLimitsByLimitId</c>), so its absence
+    /// simply means "no resets to show". <c>availableCount</c> is the only
+    /// number trusted for the count: the credit list may be null or truncated,
+    /// and is used purely to pick up an expiry date.
+    /// </summary>
+    private static (long Available, DateTimeOffset? ExpiresAt) ParseResetCredits(JsonElement result)
+    {
+        if (!result.TryGetProperty("rateLimitResetCredits", out var block) ||
+            block.ValueKind != JsonValueKind.Object)
+        {
+            return (0, null);
+        }
+
+        long available = 0;
+        if (block.TryGetProperty("availableCount", out var count) &&
+            count.ValueKind == JsonValueKind.Number &&
+            count.TryGetInt64(out var parsedCount))
+        {
+            available = Math.Max(0, parsedCount);
+        }
+
+        if (available == 0 ||
+            !block.TryGetProperty("credits", out var credits) ||
+            credits.ValueKind != JsonValueKind.Array)
+        {
+            return (available, null);
+        }
+
+        foreach (var credit in credits.EnumerateArray())
+        {
+            if (credit.ValueKind != JsonValueKind.Object ||
+                !string.Equals(ReadString(credit, "status"), "available", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return (
+                available,
+                credit.TryGetProperty("expiresAt", out var expires) && expires.ValueKind == JsonValueKind.Number
+                    ? DateTimeOffset.FromUnixTimeSeconds(expires.GetInt64())
+                    : null);
+        }
+
+        return (available, null);
     }
 
     /// <summary>

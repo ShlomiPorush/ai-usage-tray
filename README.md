@@ -17,16 +17,20 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 </p>
 
 ## Features
-- Tray icon shows the worst window's used percentage as a number, coloured green/amber/red.
+- Tray icon shows the worst window's used percentage as a number, coloured by how much of the quota is gone.
+- **Four usage levels everywhere**, derived from the used percentage alone: green under 50%, yellow 50-74%, orange 75-89%, red 90% and above. The tray icon, the widget, the hover popup and the web view all use the same scale, and every surface shows used percent, never remaining.
+- Percentages are shown as quiet tinted pills, so a calm account stays calm and a hot one stands out.
 - Hovering the icon opens a popup next to it listing every account, one line each with a status dot.
 - The widget (click the icon or `Ctrl+Alt+U`) opens on an overview of all accounts, sized to fit them; click a card for details.
+- **Usage dashboard** (tray menu → **Usage stats**, or the chart button in the widget): token and cost analytics read from the local Claude Code and Codex logs, over the last 7, 30 or 90 days. Cost is priced at the published OpenAI and Anthropic API rates, so it answers "what would this have cost without a subscription". Filter by account, break the range down by model or by day, and see an account's cost in its detail view in the widget, with a link that opens the dashboard already filtered to it.
+- **Codex reset credits**: when Codex reports a redeemable usage-limit reset, the widget shows it, along with when it expires.
 - Model-scoped limits reported by Claude (e.g. the Fable weekly limit) shown per account.
 - Plan chips for Claude (`Max 5x`, `Max 20x`, `Pro`...) and Codex (`Plus`, `Pro Lite`...).
 - Optional primary account (star in Settings): drives the tray icon and is pinned to the top of the overview.
-- Light/dark theme, following the Windows theme by default.
+- **Warm stone light and blue steel dark themes**, following the Windows theme by default.
 - Providers managed in Settings as a table with add/edit dialogs; changes apply without restarting.
-- Optional reset countdowns on the overview cards; daily / 30-day cost estimates where available.
-- Optional remote view: see your usage from a phone via a private link: one checkbox, no setup (self-hosting possible).
+- Optional reset countdowns on the overview cards; daily / 30-day cost estimates where the provider supplies them.
+- Optional remote view: see your usage from a phone via a private link: one checkbox, no setup (self-hosting possible). Once it is on, a globe button in the widget opens the link straight away.
 - Self-update from this repository's releases.
 
 ## Install / set up
@@ -64,6 +68,17 @@ Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from up
 
 `appsettings.json` (`Costats:Update`) controls the self-updater: enabled, checking this repository's releases every 6 hours, verifying the published SHA-256 before staging.
 
+## Usage dashboard
+Quota tells you how much of the subscription is gone; the usage dashboard tells you what you actually spent it on. Open it from the tray menu (**Usage stats**) or the chart button in the widget.
+
+It reads the Claude Code and Codex session logs already on the machine (`~/.claude/projects`, `~/.codex/sessions` and any extra profile folders you configured), counts input, cached, cache-write and output tokens per model, and prices them at the published API list rates. The headline number is what those tokens would cost if they were billed at the full API rate, which is normally far more than a subscription costs. Nothing is uploaded and no provider API is called: this is a local read of local files, cached incrementally so repeat opens are fast.
+
+Pick a range (7, 30 or 90 days), filter by account, and read the per-provider split, the chart and a breakdown table you can switch between model and day. Models the built-in table cannot price are counted in tokens and called out instead of being silently treated as free; you can price them yourself with `%LOCALAPPDATA%\costats\pricing.json`, a flat map of model id to USD per million tokens:
+
+```json
+{ "some-new-model": { "input": 0.2, "cachedInput": 0.02, "cacheWrite5m": 0.25, "output": 1.2 } }
+```
+
 ## Remote view (phone / web)
 Optional and off by default. Enable it in Settings → Remote view and press **Copy link**: that's the whole setup. After each refresh the app uploads a small snapshot (provider, account nickname, plan, usage percentages and reset times; never tokens or folder paths) to the built-in relay (a Cloudflare Worker), keyed by a random 128-bit id that doubles as the only credential. Anyone with the link can view the data. Entries expire server-side after 7 days without updates, so data from uninstalled apps cleans itself up. The built-in relay runs at [ai.yaaps.net](https://ai.yaaps.net), and the page can be installed as an app (PWA) straight from the browser.
 
@@ -86,7 +101,8 @@ Compared with `fmdz387/costats` v1.4.6 (the fork point):
 | OpenAI / Codex | One account, reads `~/.codex/auth.json` + OAuth endpoint, log-based estimates | **Any number of accounts** via `codex app-server`, separate `CODEX_HOME`s, account selector, editable in Settings |
 | Claude | Claude Code usage from local logs; multiple profiles only through the external `multicc` tool | **Any number of Claude subscriptions** through per-account OAuth profiles (`ClaudeSubscriptionSource`), including model-scoped limits |
 | Z.AI / GLM | not available | New provider (`ZaiUsageSource`) |
-| UI | Fixed tabs per provider, static tray icon | Overview-first widget, dynamic tray icon (colour + used %), hover popup with per-account status dots, light/dark theme, primary account |
+| UI | Fixed tabs per provider, static tray icon | Overview-first widget, dynamic tray icon (colour + used %), hover popup with per-account status dots, warm stone / blue steel themes, four-level usage colours, primary account |
+| Usage analytics | Insights card CLI only | Built-in usage dashboard: tokens and API-rate cost from the local logs, per provider / account / model / day |
 | Tests | none | `tests/costats.Core.Tests` (xunit) covering the new sources, parsers and tray composer |
 | Settings | Fixed sections per provider | Providers table with add/edit dialogs; account changes apply live (`AccountSourceRegistry`) without a restart |
 | Self-update | from `fmdz387/costats` | from this fork; updater/installer expect `AIUsageTray.exe` and `ai-usage-tray-win-*` assets |

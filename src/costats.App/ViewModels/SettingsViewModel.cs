@@ -126,10 +126,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// The link to open on a phone. Empty until both the viewer page URL and
     /// the generated id exist.
     /// </summary>
-    public string ShareLink =>
-        string.IsNullOrWhiteSpace(_settings.EffectiveRemoteViewPageUrl) || string.IsNullOrWhiteSpace(_settings.RemoteViewId)
-            ? string.Empty
-            : $"{_settings.EffectiveRemoteViewPageUrl.TrimEnd('/')}/?id={_settings.RemoteViewId}";
+    public string ShareLink => _settings.RemoteViewShareLink ?? string.Empty;
 
     /// <summary>
     /// The endpoint boxes only appear on builds that ship without a remote-view
@@ -445,6 +442,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         _ = SaveSettingsAsync();
         OnPropertyChanged(nameof(ShareLink));
+        // Push a refresh so the widget shows or hides its remote view button immediately.
+        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
     }
 
     partial void OnRemoteViewUploadUrlChanged(string value)

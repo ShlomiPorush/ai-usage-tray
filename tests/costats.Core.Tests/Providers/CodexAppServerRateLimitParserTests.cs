@@ -190,6 +190,80 @@ public sealed class CodexAppServerRateLimitParserTests
     }
 
     [Fact]
+    public void Parse_reads_reset_credits_from_the_result_level_sibling_of_rate_limits()
+    {
+        const string json = """
+        {"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":5,"windowDurationMins":10080,"resetsAt":1787859069},"credits":{"hasCredits":false,"unlimited":false,"balance":"0"},"planType":"prolite","spendControlReached":false},"rateLimitsByLimitId":{},"rateLimitResetCredits":{"availableCount":1,"credits":[{"id":"x","resetType":"codexRateLimits","status":"available","grantedAt":1787358084,"expiresAt":1789950084,"title":"Full reset","description":"..."}]}}}
+        """;
+
+        var result = CodexAppServerRateLimitParser.Parse(json, expectedId: 2);
+
+        Assert.NotNull(result);
+        Assert.Equal(1, result.ResetCreditsAvailable);
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1789950084), result.ResetCreditExpiresAt);
+        Assert.Equal("prolite", result.PlanType);
+        Assert.Equal(95, result.WeeklyRemainingPercent);
+    }
+
+    [Fact]
+    public void Parse_reports_no_reset_credits_when_the_field_is_absent()
+    {
+        const string json = """
+        {"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":5,"windowDurationMins":10080,"resetsAt":1787859069},"planType":"prolite"},"rateLimitsByLimitId":{}}}
+        """;
+
+        var result = CodexAppServerRateLimitParser.Parse(json, expectedId: 2);
+
+        Assert.NotNull(result);
+        Assert.Equal(0, result.ResetCreditsAvailable);
+        Assert.Null(result.ResetCreditExpiresAt);
+    }
+
+    [Fact]
+    public void Parse_trusts_the_available_count_when_the_credit_list_is_null()
+    {
+        const string json = """
+        {"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":5,"windowDurationMins":10080}},"rateLimitResetCredits":{"availableCount":2,"credits":null}}}
+        """;
+
+        var result = CodexAppServerRateLimitParser.Parse(json, expectedId: 2);
+
+        Assert.Equal(2, result!.ResetCreditsAvailable);
+        Assert.Null(result.ResetCreditExpiresAt);
+    }
+
+    [Fact]
+    public void Parse_takes_no_expiry_from_credits_that_are_not_available()
+    {
+        const string json = """
+        {"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":5,"windowDurationMins":10080}},"rateLimitResetCredits":{"availableCount":1,"credits":[
+          {"id":"a","resetType":"codexRateLimits","status":"redeemed","grantedAt":1787358084,"expiresAt":1789950084,"title":"Full reset","description":"..."},
+          {"id":"b","resetType":"codexRateLimits","status":"redeeming","grantedAt":1787358084,"expiresAt":1789950085,"title":"Full reset","description":"..."}
+        ]}}}
+        """;
+
+        var result = CodexAppServerRateLimitParser.Parse(json, expectedId: 2);
+
+        Assert.Equal(1, result!.ResetCreditsAvailable);
+        Assert.Null(result.ResetCreditExpiresAt);
+    }
+
+    [Fact]
+    public void Parse_tolerates_a_reset_credit_without_an_expiry()
+    {
+        const string json = """
+        {"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":5,"windowDurationMins":10080}},"rateLimitResetCredits":{"availableCount":3,"credits":[
+          {"id":"a","resetType":"codexRateLimits","status":"available","grantedAt":1787358084,"expiresAt":null,"title":"Full reset","description":"..."}
+        ]}}}
+        """;
+
+        var result = CodexAppServerRateLimitParser.Parse(json, expectedId: 2);
+
+        Assert.Equal(3, result!.ResetCreditsAvailable);
+        Assert.Null(result.ResetCreditExpiresAt);
+    }
+
+    [Fact]
     public void Parse_returns_no_scoped_rows_when_the_payload_has_no_per_model_limits()
     {
         const string json = """
