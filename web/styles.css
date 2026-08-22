@@ -35,7 +35,8 @@
   /* --- Usage bands ---------------------------------------------------
      The number alone picks the band: green 0-49, yellow 50-74,
      orange 75-89, red 90-100. The vivid fill colours are identical in
-     both themes; only the ink and the hairline change. */
+     both themes; only the ink changes. Bars are plain fills: no outline,
+     no inset edge, in either theme. */
   --band-green: #10B981;
   --band-yellow: #EAB308;
   --band-orange: #F97316;
@@ -54,13 +55,6 @@
   --ink-yellow: #854D0E;
   --ink-orange: #9A3412;
   --ink-red: #991B1B;
-
-  /* Bar hairline: light only. Vivid yellow on the sand track is 1.33:1 on
-     its own, so the fill carries a 1px deeper edge. Dark needs none. */
-  --hair-green: #047857;
-  --hair-yellow: #A16207;
-  --hair-orange: #C2410C;
-  --hair-red: #B91C1C;
 
   --stale-bg: var(--tint-yellow);
   --stale-border: #A16207;
@@ -95,11 +89,6 @@
     --ink-orange: #FDBA74;
     --ink-red: #FCA5A5;
 
-    --hair-green: transparent;
-    --hair-yellow: transparent;
-    --hair-orange: transparent;
-    --hair-red: transparent;
-
     --stale-border: rgba(253, 224, 71, 0.35);
     --stale-ink: #FDE047;
 
@@ -130,11 +119,6 @@
   --ink-yellow: #FDE047;
   --ink-orange: #FDBA74;
   --ink-red: #FCA5A5;
-
-  --hair-green: transparent;
-  --hair-yellow: transparent;
-  --hair-orange: transparent;
-  --hair-red: transparent;
 
   --stale-border: rgba(253, 224, 71, 0.35);
   --stale-ink: #FDE047;
@@ -383,14 +367,39 @@ h1 {
   font-weight: 600;
 }
 
+/* Redeemable usage-limit resets: good news, and not urgent, so it stays in the
+   card's quiet register instead of borrowing a band colour. */
+.resets {
+  margin-top: 10px;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.reset-chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.reset-hint {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
 /* A soft chip of the band colour behind the number: enough to carry the
    state at a glance, quiet enough not to shout on a card full of rows.
-   Same font size as before; only the padding and the tint are new. */
+   Tint and ink only, never a border. */
 .meter-value {
   padding: 1px 6px;
   border-radius: 999px;
   color: var(--ink);
-  font-size: 15px;
+  font-size: 13.5px;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -410,16 +419,15 @@ h1 {
   transition: width 240ms ease;
 }
 
-/* The fill is vivid in both themes. The 1px inset edge is a light-theme
-   affordance only: --hair-* is transparent in dark. */
+/* A plain vivid fill in both themes: no outline, no inset edge. */
 .meter-row.is-green .meter-value { background: var(--tint-green); color: var(--ink-green); }
-.meter-row.is-green .meter-fill { background: var(--band-green); box-shadow: inset 0 0 0 1px var(--hair-green); }
+.meter-row.is-green .meter-fill { background: var(--band-green); }
 .meter-row.is-yellow .meter-value { background: var(--tint-yellow); color: var(--ink-yellow); }
-.meter-row.is-yellow .meter-fill { background: var(--band-yellow); box-shadow: inset 0 0 0 1px var(--hair-yellow); }
+.meter-row.is-yellow .meter-fill { background: var(--band-yellow); }
 .meter-row.is-orange .meter-value { background: var(--tint-orange); color: var(--ink-orange); }
-.meter-row.is-orange .meter-fill { background: var(--band-orange); box-shadow: inset 0 0 0 1px var(--hair-orange); }
+.meter-row.is-orange .meter-fill { background: var(--band-orange); }
 .meter-row.is-red .meter-value { background: var(--tint-red); color: var(--ink-red); }
-.meter-row.is-red .meter-fill { background: var(--band-red); box-shadow: inset 0 0 0 1px var(--hair-red); }
+.meter-row.is-red .meter-fill { background: var(--band-red); }
 
 .meter-reset {
   margin-top: 5px;

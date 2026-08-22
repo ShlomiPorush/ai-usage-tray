@@ -1,4 +1,3 @@
-using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using costats.App.Services;
 using costats.Core.Analytics;
@@ -168,17 +167,6 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     [ObservableProperty]
     private string weekPercentPillColor = "#2E10B981";
 
-    // Light theme only: a deeper hue hairline on the bar fill, so vivid yellow
-    // still reads against the beige track. Transparent + zero-width in dark.
-    [ObservableProperty]
-    private string sessionBarHairlineColor = "#047857";
-
-    [ObservableProperty]
-    private string weekBarHairlineColor = "#047857";
-
-    [ObservableProperty]
-    private Thickness barHairlineThickness = BandPalette.HairlineThickness(ThemeManager.IsDark);
-
     // Compact cost line for multicc stacked cards (e.g. "$4.20 today · $82.50 / 30d")
     [ObservableProperty]
     private string compactCostText = string.Empty;
@@ -280,7 +268,6 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         vm.SessionPercentText = $"{(int)Math.Round(usedPercent)}%";
         vm.SessionPercentColor = BandPalette.Ink(band, ThemeManager.IsDark);
         vm.SessionPercentPillColor = BandPalette.Pill(band);
-        vm.SessionBarHairlineColor = BandPalette.Hairline(band, ThemeManager.IsDark);
     }
 
     private static void PopulateWeekMetrics(ProviderPulseViewModel vm, ProviderReading reading)
@@ -320,7 +307,6 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         vm.WeekPercentText = $"{(int)Math.Round(usedPercent)}%";
         vm.WeekPercentColor = BandPalette.Ink(band, ThemeManager.IsDark);
         vm.WeekPercentPillColor = BandPalette.Pill(band);
-        vm.WeekBarHairlineColor = BandPalette.Hairline(band, ThemeManager.IsDark);
     }
 
     private static void PopulateScopedLimits(ProviderPulseViewModel vm, ProviderReading reading)
@@ -347,8 +333,6 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
                     BandPalette.Ink(band, isDark),
                     BandPalette.Pill(band),
                     BandPalette.Vivid(band),
-                    BandPalette.Hairline(band, isDark),
-                    BandPalette.HairlineThickness(isDark),
                     q.ResetsAt is { } resets ? $"Resets {UsageFormatter.ResetCountdown(resets)}" : string.Empty);
             })
             .ToList();
@@ -570,24 +554,6 @@ public static class BandPalette
     /// brush the active theme supplies.
     /// </summary>
     public static string Pill(UsageBand band) => string.Concat("#2E", Vivid(band).AsSpan(1));
-
-    /// <summary>
-    /// Light theme only: a 1px deeper hue hairline on the bar fill, because
-    /// vivid yellow on the beige track is only 1.33:1 on its own. Fully
-    /// transparent in the dark theme, where the fill needs no help.
-    /// </summary>
-    public static string Hairline(UsageBand band, bool isDark) => isDark
-        ? "#00000000"
-        : band switch
-        {
-            UsageBand.Red => "#B91C1C",
-            UsageBand.Orange => "#C2410C",
-            UsageBand.Yellow => "#A16207",
-            _ => "#047857"
-        };
-
-    /// <summary>Zero in the dark theme so the fill keeps its full 6px height.</summary>
-    public static Thickness HairlineThickness(bool isDark) => new(isDark ? 0 : 1);
 }
 
 /// <summary>One display row for a model-scoped quota window.</summary>
@@ -599,6 +565,4 @@ public sealed record ScopedLimitRow(
     string PercentColor,
     string PillColor,
     string BarColor,
-    string HairlineColor,
-    Thickness HairlineThickness,
     string ResetText);

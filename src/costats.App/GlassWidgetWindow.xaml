@@ -35,16 +35,16 @@
         <Geometry x:Key="RemoteViewIconPath">M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,19.93C7.05,19.44 4,16.08 4,12C4,11.38 4.08,10.78 4.21,10.21L9,15V16A2,2 0 0,0 11,18M17.9,17.39C17.64,16.58 16.9,16 16,16H15V13A1,1 0 0,0 14,12H8V10H10A1,1 0 0,0 11,9V7H13A2,2 0 0,0 15,5V4.59C17.93,5.77 20,8.64 20,12C20,14.08 19.2,15.97 17.9,17.39Z</Geometry>
 
         <!-- Percent pill: a soft 18 percent band tint behind the number, no
-             ring. Vertical padding stays zero so the pill never makes a row
-             taller than the number already made it. -->
+             ring. The sliver of vertical padding replaces the height the
+             smaller percent number gave up, so rows keep their old height. -->
         <Style x:Key="PercentPill" TargetType="Border">
             <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="Padding" Value="6,0" />
+            <Setter Property="Padding" Value="6,0.7" />
             <Setter Property="HorizontalAlignment" Value="Right" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
 
-        <!-- Text link inside a section header ("More" on the Cost section) -->
+        <!-- Text link inside a section header ("More" on the Usage section) -->
         <Style x:Key="SectionLinkButton" TargetType="Button">
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Background" Value="Transparent" />
@@ -82,13 +82,9 @@
                     <ControlTemplate TargetType="ProgressBar">
                         <Grid>
                             <Border x:Name="PART_Track" CornerRadius="4" Background="{TemplateBinding Background}" />
-                            <!-- The hairline is a light-theme-only 1px deeper hue edge on the
-                                 fill; the dark theme binds a zero thickness so the fill keeps
-                                 its full height. -->
+                            <!-- Plain vivid fill, no edge stroke, in both themes. -->
                             <Border x:Name="PART_Indicator" CornerRadius="4" HorizontalAlignment="Left"
-                                    Background="{TemplateBinding Foreground}"
-                                    BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="{TemplateBinding BorderThickness}">
+                                    Background="{TemplateBinding Foreground}">
                                 <Border.Width>
                                     <MultiBinding Converter="{x:Static local:ProgressWidthConverter.Instance}">
                                         <Binding RelativeSource="{RelativeSource TemplatedParent}" Path="Value" />
@@ -247,9 +243,8 @@
                                         </Border>
                                         <!-- Redeemable usage-limit resets; quiet, and only when there is one -->
                                         <Border DockPanel.Dock="Right" CornerRadius="4" Padding="6,1" Margin="0,0,6,0"
-                                                VerticalAlignment="Center" BorderThickness="1"
+                                                VerticalAlignment="Center"
                                                 Background="{DynamicResource KindBadgeBrush}"
-                                                BorderBrush="{DynamicResource AccentBrush}"
                                                 ToolTip="Redeem it in the Codex CLI with /usage"
                                                 Visibility="{Binding HasResetCredits, Converter={StaticResource BoolToVisibilityConverter}}">
                                             <TextBlock Text="{Binding ResetCreditsChipText}" FontSize="9.5" FontWeight="SemiBold"
@@ -279,7 +274,7 @@
                                                 <Border.Background>
                                                     <SolidColorBrush Color="{Binding SessionPercentPillColor}" />
                                                 </Border.Background>
-                                                <TextBlock Text="{Binding SessionPercentText}" FontSize="11.5" FontWeight="SemiBold">
+                                                <TextBlock Text="{Binding SessionPercentText}" FontSize="10.5" FontWeight="SemiBold">
                                                     <TextBlock.Foreground>
                                                         <SolidColorBrush Color="{Binding SessionPercentColor}" />
                                                     </TextBlock.Foreground>
@@ -290,14 +285,10 @@
                                                    DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0,4,0"
                                                    Visibility="{Binding DataContext.ShowResetTimes, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibilityConverter}}" />
                                         <ProgressBar Style="{StaticResource UsageProgressBar}" Height="6"
-                                                     Value="{Binding SessionProgress}" Maximum="1"
-                                                     BorderThickness="{Binding BarHairlineThickness}" VerticalAlignment="Center">
+                                                     Value="{Binding SessionProgress}" Maximum="1" VerticalAlignment="Center">
                                             <ProgressBar.Foreground>
                                                 <SolidColorBrush Color="{Binding SessionStatusColor}" />
                                             </ProgressBar.Foreground>
-                                            <ProgressBar.BorderBrush>
-                                                <SolidColorBrush Color="{Binding SessionBarHairlineColor}" />
-                                            </ProgressBar.BorderBrush>
                                         </ProgressBar>
                                     </DockPanel>
 
@@ -310,7 +301,7 @@
                                                 <Border.Background>
                                                     <SolidColorBrush Color="{Binding WeekPercentPillColor}" />
                                                 </Border.Background>
-                                                <TextBlock Text="{Binding WeekPercentText}" FontSize="11.5" FontWeight="SemiBold">
+                                                <TextBlock Text="{Binding WeekPercentText}" FontSize="10.5" FontWeight="SemiBold">
                                                     <TextBlock.Foreground>
                                                         <SolidColorBrush Color="{Binding WeekPercentColor}" />
                                                     </TextBlock.Foreground>
@@ -321,14 +312,10 @@
                                                    DockPanel.Dock="Right" VerticalAlignment="Center" Margin="8,0,4,0"
                                                    Visibility="{Binding DataContext.ShowResetTimes, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibilityConverter}}" />
                                         <ProgressBar Style="{StaticResource UsageProgressBar}" Height="6"
-                                                     Value="{Binding WeekProgress}" Maximum="1"
-                                                     BorderThickness="{Binding BarHairlineThickness}" VerticalAlignment="Center">
+                                                     Value="{Binding WeekProgress}" Maximum="1" VerticalAlignment="Center">
                                             <ProgressBar.Foreground>
                                                 <SolidColorBrush Color="{Binding WeekStatusColor}" />
                                             </ProgressBar.Foreground>
-                                            <ProgressBar.BorderBrush>
-                                                <SolidColorBrush Color="{Binding WeekBarHairlineColor}" />
-                                            </ProgressBar.BorderBrush>
                                         </ProgressBar>
                                     </DockPanel>
 
@@ -356,7 +343,7 @@
                                                             <Border.Background>
                                                                 <SolidColorBrush Color="{Binding PillColor}" />
                                                             </Border.Background>
-                                                            <TextBlock Text="{Binding PercentText}" FontSize="11.5" FontWeight="SemiBold">
+                                                            <TextBlock Text="{Binding PercentText}" FontSize="10.5" FontWeight="SemiBold">
                                                                 <TextBlock.Foreground>
                                                                     <SolidColorBrush Color="{Binding PercentColor}" />
                                                                 </TextBlock.Foreground>
@@ -368,13 +355,10 @@
                                                                Visibility="{Binding DataContext.ShowResetTimes, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibilityConverter}}" />
                                                     <ProgressBar Style="{StaticResource UsageProgressBar}" Height="6"
                                                                  Value="{Binding Progress, Mode=OneWay}" Maximum="1"
-                                                                 BorderThickness="{Binding HairlineThickness}" VerticalAlignment="Center">
+                                                                 VerticalAlignment="Center">
                                                         <ProgressBar.Foreground>
                                                             <SolidColorBrush Color="{Binding BarColor}" />
                                                         </ProgressBar.Foreground>
-                                                        <ProgressBar.BorderBrush>
-                                                            <SolidColorBrush Color="{Binding HairlineColor}" />
-                                                        </ProgressBar.BorderBrush>
                                                     </ProgressBar>
                                                 </DockPanel>
                                             </DataTemplate>
@@ -490,14 +474,10 @@
                             </Style>
                         </TextBlock.Style>
                     </TextBlock>
-                    <ProgressBar Style="{StaticResource UsageProgressBar}" Value="{Binding SessionProgress}" Maximum="1"
-                                 BorderThickness="{Binding BarHairlineThickness}">
+                    <ProgressBar Style="{StaticResource UsageProgressBar}" Value="{Binding SessionProgress}" Maximum="1">
                         <ProgressBar.Foreground>
                             <SolidColorBrush Color="{Binding SessionStatusColor}" />
                         </ProgressBar.Foreground>
-                        <ProgressBar.BorderBrush>
-                            <SolidColorBrush Color="{Binding SessionBarHairlineColor}" />
-                        </ProgressBar.BorderBrush>
                     </ProgressBar>
                     <DockPanel Margin="0,8,0,0">
                         <TextBlock Text="{Binding SessionUsageLabel}" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" DockPanel.Dock="Left" />
@@ -520,14 +500,10 @@
                             </Style>
                         </TextBlock.Style>
                     </TextBlock>
-                    <ProgressBar Style="{StaticResource UsageProgressBar}" Value="{Binding WeekProgress}" Maximum="1"
-                                 BorderThickness="{Binding BarHairlineThickness}">
+                    <ProgressBar Style="{StaticResource UsageProgressBar}" Value="{Binding WeekProgress}" Maximum="1">
                         <ProgressBar.Foreground>
                             <SolidColorBrush Color="{Binding WeekStatusColor}" />
                         </ProgressBar.Foreground>
-                        <ProgressBar.BorderBrush>
-                            <SolidColorBrush Color="{Binding WeekBarHairlineColor}" />
-                        </ProgressBar.BorderBrush>
                     </ProgressBar>
                     <DockPanel Margin="0,8,0,0">
                         <TextBlock Text="{Binding WeekUsageLabel}" FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" DockPanel.Dock="Left" />
@@ -623,7 +599,7 @@
                                             <Border.Background>
                                                 <SolidColorBrush Color="{Binding PillColor}" />
                                             </Border.Background>
-                                            <TextBlock Text="{Binding PercentText}" FontSize="12" FontWeight="SemiBold">
+                                            <TextBlock Text="{Binding PercentText}" FontSize="10.5" FontWeight="SemiBold">
                                                 <TextBlock.Foreground>
                                                     <SolidColorBrush Color="{Binding PercentColor}" />
                                                 </TextBlock.Foreground>
@@ -631,14 +607,10 @@
                                         </Border>
                                     </DockPanel>
                                     <ProgressBar Style="{StaticResource UsageProgressBar}"
-                                                 Value="{Binding Progress, Mode=OneWay}" Maximum="1"
-                                                 BorderThickness="{Binding HairlineThickness}">
+                                                 Value="{Binding Progress, Mode=OneWay}" Maximum="1">
                                         <ProgressBar.Foreground>
                                             <SolidColorBrush Color="{Binding BarColor}" />
                                         </ProgressBar.Foreground>
-                                        <ProgressBar.BorderBrush>
-                                            <SolidColorBrush Color="{Binding HairlineColor}" />
-                                        </ProgressBar.BorderBrush>
                                     </ProgressBar>
                                     <TextBlock Text="{Binding ResetText}" FontSize="11" Foreground="{DynamicResource TextMutedBrush}"
                                                Margin="0,4,0,0" HorizontalAlignment="Right"
@@ -649,11 +621,11 @@
                     </ItemsControl>
                 </StackPanel>
 
-                <!-- Divider (shares the Cost section's visibility: no cost data, no divider) -->
+                <!-- Divider (shares the Usage section's visibility: no cost data, no divider) -->
                 <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,4,0,16"
                         Visibility="{Binding HasCostData, Converter={StaticResource BoolToVisibilityConverter}}" />
 
-                <!-- Cost section -->
+                <!-- Usage section -->
                 <StackPanel>
                     <StackPanel.Style>
                         <Style TargetType="StackPanel">
@@ -671,7 +643,7 @@
                         </Style>
                     </StackPanel.Style>
                     <DockPanel Margin="0,0,0,10">
-                        <TextBlock Text="Cost" FontSize="14" FontWeight="SemiBold"
+                        <TextBlock Text="Usage" FontSize="14" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextPrimaryBrush}"
                                    DockPanel.Dock="Left" VerticalAlignment="Center" />
                         <!-- Opens the usage window already filtered to this account -->

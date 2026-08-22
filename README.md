@@ -16,6 +16,11 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
   <img src="assets/light-mode.png" alt="widget, light mode" width="330" />
 </p>
 
+<p align="center">
+  <img src="assets/usage-dashboard.png" alt="usage dashboard" width="680" />
+</p>
+<p align="center"><sub>Usage dashboard: cost and tokens over the last 30 days, per provider, model or day.</sub></p>
+
 ## Features
 - Tray icon shows the worst window's used percentage as a number, coloured by how much of the quota is gone.
 - **Four usage levels everywhere**, derived from the used percentage alone: green under 50%, yellow 50-74%, orange 75-89%, red 90% and above. The tray icon, the widget, the hover popup and the web view all use the same scale, and every surface shows used percent, never remaining.

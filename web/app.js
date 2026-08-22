@@ -164,6 +164,11 @@
     return isNaN(date.getTime()) ? null : date;
   }
 
+  // "Sep 20": a date far enough out that a countdown would read as noise.
+  function formatDay(date) {
+    return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+
   // used -> band. The number alone decides: green 0-49, yellow 50-74,
   // orange 75-89, red 90-100. The same rule runs on every surface of the
   // product, so one percentage can never wear two colours.
@@ -312,6 +317,28 @@
     return row;
   }
 
+  // Codex hands out redeemable "usage limit reset" credits. They belong to the
+  // account rather than to any one window, so they sit under the header as a
+  // quiet line of their own. Absent from the payload when there is none.
+  function renderResetCredits(source) {
+    if (!source || typeof source !== "object") return null;
+
+    var available = Math.floor(Number(source.available));
+    if (!isFinite(available) || available < 1) return null;
+
+    var text = available === 1
+      ? "1 reset available"
+      : available + " resets available";
+
+    var expiresAt = parseDate(source.expiresAt);
+    if (expiresAt) text += ", expires " + formatDay(expiresAt);
+
+    var box = el("div", "resets");
+    box.appendChild(el("span", "reset-chip", text));
+    box.appendChild(el("span", "reset-hint", "Redeem in the Codex CLI with /usage"));
+    return box;
+  }
+
   function renderCard(account, isPrimary, now) {
     var name = typeof account.name === "string" && account.name ? account.name : "Account";
     var card = el("article", "card");
@@ -342,6 +369,9 @@
     if (account.blocked) {
       card.appendChild(el("p", "blocked-banner", "Limit reached - requests are being refused."));
     }
+
+    var resets = renderResetCredits(account.resetCredits);
+    if (resets) card.appendChild(resets);
 
     var rows = windowsOf(account);
     if (rows.length === 0) {

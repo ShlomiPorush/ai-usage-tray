@@ -16,13 +16,17 @@ public sealed class RemoteSnapshotComposerTests
         long? weekUsed = null,
         DateTimeOffset? sessionResetsAt = null,
         DateTimeOffset? weekResetsAt = null,
-        IReadOnlyList<ScopedQuota>? scopedQuotas = null) =>
+        IReadOnlyList<ScopedQuota>? scopedQuotas = null,
+        long resetCreditsAvailable = 0,
+        DateTimeOffset? resetCreditExpiresAt = null) =>
         new(
             "claude", Now, sessionUsed, 100, weekUsed, 100, null, null,
             sessionResetsAt is null ? null : new QuotaWindow(TimeSpan.FromHours(5), sessionResetsAt),
             weekResetsAt is null ? null : new QuotaWindow(TimeSpan.FromDays(7), weekResetsAt))
         {
-            ScopedQuotas = scopedQuotas ?? []
+            ScopedQuotas = scopedQuotas ?? [],
+            ResetCreditsAvailable = resetCreditsAvailable,
+            ResetCreditExpiresAt = resetCreditExpiresAt
         };
 
     [Fact]
@@ -204,6 +208,70 @@ public sealed class RemoteSnapshotComposerTests
         Assert.Equal(JsonValueKind.String, window.GetProperty("resetsAt").ValueKind);
         Assert.Equal(JsonValueKind.Null, window.GetProperty("scope").ValueKind);
         Assert.Equal(JsonValueKind.Null, window.GetProperty("severity").ValueKind);
+    }
+
+    [Fact]
+    public void Compose_publishes_reset_credits_when_the_provider_reports_any()
+    {
+        var expiresAt = Now.AddDays(28);
+
+        var snapshot = RemoteSnapshotComposer.Compose(
+            null,
+            [
+                new RemoteSnapshotEntry(
+                    "codex:codex-1",
+                    "Codex",
+                    "Plus",
+                    Pulse(weekUsed: 82, resetCreditsAvailable: 2, resetCreditExpiresAt: expiresAt))
+            ],
+            Now);
+
+        var credits = Assert.Single(snapshot.Accounts).ResetCredits;
+        Assert.NotNull(credits);
+        Assert.Equal(2, credits!.Available);
+        Assert.Equal(expiresAt, credits.ExpiresAt);
+    }
+
+    [Fact]
+    public void Compose_omits_reset_credits_when_there_is_nothing_to_redeem()
+    {
+        var snapshot = RemoteSnapshotComposer.Compose(
+            null,
+            [
+                new RemoteSnapshotEntry("codex:codex-1", "Codex", "Plus", Pulse(weekUsed: 12)),
+                new RemoteSnapshotEntry("zai", "GLM", "Coding", null)
+            ],
+            Now);
+
+        Assert.All(snapshot.Accounts, account => Assert.Null(account.ResetCredits));
+    }
+
+    [Fact]
+    public void Serialized_snapshot_keeps_reset_credits_out_of_the_json_unless_present()
+    {
+        var expiresAt = Now.AddDays(28);
+
+        var snapshot = RemoteSnapshotComposer.Compose(
+            null,
+            [
+                new RemoteSnapshotEntry(
+                    "codex:codex-1",
+                    "Codex",
+                    "Plus",
+                    Pulse(weekUsed: 82, resetCreditsAvailable: 1, resetCreditExpiresAt: expiresAt)),
+                new RemoteSnapshotEntry("claude:claude-1", "Claude", "Max", Pulse(weekUsed: 10))
+            ],
+            Now);
+
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(snapshot, WebOptions));
+        var accounts = document.RootElement.GetProperty("accounts").EnumerateArray().ToList();
+
+        var credits = accounts[0].GetProperty("resetCredits");
+        Assert.Equal(1, credits.GetProperty("available").GetInt64());
+        Assert.Equal(expiresAt, credits.GetProperty("expiresAt").GetDateTimeOffset());
+
+        // Absent, not null: an account with nothing to redeem carries no key.
+        Assert.False(accounts[1].TryGetProperty("resetCredits", out _));
     }
 
     [Fact]

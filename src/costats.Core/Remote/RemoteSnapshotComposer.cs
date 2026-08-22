@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using costats.Core.Pulse;
 
 namespace costats.Core.Remote;
@@ -25,6 +26,13 @@ public sealed record RemoteWindowSnapshot(
     string? Scope = null,
     string? Severity = null);
 
+/// <summary>
+/// Redeemable "usage limit reset" credits on one account (Codex). Display only:
+/// redeeming stays in the Codex CLI. <c>ExpiresAt</c> is null when the provider
+/// gives no expiry.
+/// </summary>
+public sealed record RemoteResetCredits(long Available, DateTimeOffset? ExpiresAt);
+
 /// <summary>One account in the published snapshot.</summary>
 public sealed record RemoteAccountSnapshot(
     string Id,
@@ -32,7 +40,11 @@ public sealed record RemoteAccountSnapshot(
     string Name,
     string Plan,
     IReadOnlyList<RemoteWindowSnapshot> Windows,
-    bool Blocked = false);
+    bool Blocked = false,
+    // Additive on top of schema v2: the key is absent entirely for the accounts
+    // and providers that have nothing to redeem, so old viewers are unaffected.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    RemoteResetCredits? ResetCredits = null);
 
 /// <summary>
 /// The whole payload uploaded to the remote endpoint. Serialized with
@@ -114,8 +126,18 @@ public static class RemoteSnapshotComposer
             entry.DisplayName,
             entry.Plan,
             windows,
-            entry.Usage?.IsBlocked ?? false);
+            entry.Usage?.IsBlocked ?? false,
+            ResetCreditsOf(entry.Usage));
     }
+
+    /// <summary>
+    /// Only publish reset credits there is something to redeem: an account with
+    /// zero available leaves the key out of the payload altogether.
+    /// </summary>
+    private static RemoteResetCredits? ResetCreditsOf(UsagePulse? usage) =>
+        usage is { ResetCreditsAvailable: > 0 } credited
+            ? new RemoteResetCredits(credited.ResetCreditsAvailable, credited.ResetCreditExpiresAt)
+            : null;
 
     private static string WindowLabelFor(string group) =>
         group.Contains("week", StringComparison.OrdinalIgnoreCase) ? WeeklyLabel : SessionLabel;
