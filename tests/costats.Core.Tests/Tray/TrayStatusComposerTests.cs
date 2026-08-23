@@ -36,7 +36,7 @@ public sealed class TrayStatusComposerTests
         var result = TrayStatusComposer.Compose(accounts, Now);
 
         Assert.Equal(
-            "Claude Session 66% · 2h34m | Weekly 40% · 3.2d\n" +
+            "Claude Weekly 40% · 3.2d | Session 66% · 2h34m\n" +
             "PA Weekly 55% · 5.1d\n" +
             "GPT Weekly 27% · 2.6d",
             result.Tooltip);
@@ -54,6 +54,18 @@ public sealed class TrayStatusComposerTests
         var result = TrayStatusComposer.Compose(accounts, Now);
 
         Assert.Equal("PA Weekly 13% · 6.8d", result.Tooltip);
+    }
+
+    [Fact]
+    public void ComposeRows_puts_weekly_to_the_left_of_session()
+    {
+        var account = new AccountUsageStatus(
+            "Claude", 34, Now.AddHours(2), 60, Now.AddDays(3));
+
+        var row = Assert.Single(TrayStatusComposer.ComposeRows([account], Now));
+
+        Assert.StartsWith("Weekly 40%", row.WindowsText, StringComparison.Ordinal);
+        Assert.Contains("|  Session 66%", row.WindowsText, StringComparison.Ordinal);
     }
 
     [Fact]

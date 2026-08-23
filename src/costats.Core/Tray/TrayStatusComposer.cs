@@ -197,13 +197,13 @@ public static class TrayStatusComposer
             // Leads the line: "which window" matters less than "you are stopped".
             windows.Add("blocked");
         }
-        if (account.SessionRemainingPercent.HasValue && account.SessionResetsAt.HasValue)
-        {
-            windows.Add(FormatWindow("Session", 100 - account.SessionRemainingPercent.Value, account.SessionResetsAt.Value, now, weekly: false));
-        }
         if (account.WeeklyRemainingPercent.HasValue && account.WeeklyResetsAt.HasValue)
         {
             windows.Add(FormatWindow("Weekly", 100 - account.WeeklyRemainingPercent.Value, account.WeeklyResetsAt.Value, now, weekly: true));
+        }
+        if (account.SessionRemainingPercent.HasValue && account.SessionResetsAt.HasValue)
+        {
+            windows.Add(FormatWindow("Session", 100 - account.SessionRemainingPercent.Value, account.SessionResetsAt.Value, now, weekly: false));
         }
         foreach (var scoped in account.ScopedQuotas ?? [])
         {
