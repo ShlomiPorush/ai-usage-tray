@@ -276,6 +276,21 @@
 
                 <!-- The link and its warning only make sense while remote view is on. -->
                 <StackPanel Visibility="{Binding RemoteViewEnabled, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <Button Content="Generate QR" Command="{Binding GenerateRemoteViewQrCodeCommand}"
+                            ToolTip="Create a QR code for the read-only phone view"
+                            Style="{StaticResource SettingsButton}" Padding="12,6" FontSize="11"
+                            HorizontalAlignment="Left" Margin="0,0,0,8" />
+                    <Border Background="White" CornerRadius="8" Padding="8" HorizontalAlignment="Center"
+                            Margin="0,0,0,8"
+                            Visibility="{Binding HasRemoteViewQrCode, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                        <StackPanel>
+                            <Image Source="{Binding RemoteViewQrImage}" Width="210" Height="210"
+                                   Stretch="Uniform" SnapsToDevicePixels="True" />
+                            <TextBlock Text="Scan to open the read-only phone view"
+                                       Foreground="#222222" FontSize="11" HorizontalAlignment="Center"
+                                       Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
                     <DockPanel Margin="0,0,0,6">
                         <Button Content="Copy link" Command="{Binding CopyShareLinkCommand}"
                                 Style="{StaticResource SettingsButton}" Padding="10,5" FontSize="11"
