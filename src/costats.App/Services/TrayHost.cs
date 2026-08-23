@@ -27,6 +27,9 @@ namespace costats.App.Services
         private readonly IDisposable _pulseSubscription;
         private readonly IEnumerable<ISignalSource> _staticSources;
         private readonly IAccountSourceRegistry _accountSources;
+        private readonly SettingsViewModel _settingsViewModel;
+        private readonly ISettingsStore _settingsStore;
+        private readonly TrayPanelPlacementState _trayPanelPlacement;
         private Icon _currentIcon;
         private System.Windows.Controls.StackPanel _tooltipPanel = null!;
         private Window? _hoverTooltipWindow;
@@ -44,7 +47,9 @@ namespace costats.App.Services
             TaskbarPositionService taskbarPosition,
             IEnumerable<ISignalSource> sources,
             IAccountSourceRegistry accountSources,
-            AppSettings settings)
+            AppSettings settings,
+            SettingsViewModel settingsViewModel,
+            ISettingsStore settingsStore)
         {
             _viewModel = viewModel;
             _widgetWindow = widgetWindow;
@@ -56,6 +61,9 @@ namespace costats.App.Services
             _settings = settings;
             _staticSources = sources;
             _accountSources = accountSources;
+            _settingsViewModel = settingsViewModel;
+            _settingsStore = settingsStore;
+            _trayPanelPlacement = new TrayPanelPlacementState(settings);
 
             _currentIcon = CreateIcon(TraySeverity.Unknown, null);
             _taskbarIcon = new TaskbarIcon();
@@ -114,6 +122,8 @@ namespace costats.App.Services
             SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
             _widgetWindow.SizeChanged += OnWidgetSizeChanged;
             _settingsWindow.Dismissing += OnSettingsDismissing;
+            _trayPanel.PositionChangedByUser += OnTrayPanelPositionChangedByUser;
+            _trayPanel.CloseRequested += OnTrayPanelCloseRequested;
         }
 
         private void OnTrayLeftClick(object? sender, EventArgs e)
@@ -445,7 +455,7 @@ namespace costats.App.Services
             // Always-on top panel next to the clock. Sized first, then positioned
             // so its right edge sits flush against the tray area. Gated by
             // AppSettings.ShowClockPanel, off by default.
-            var panelText = status.Tooltip;
+            var panelText = status.PanelText;
             if (string.IsNullOrWhiteSpace(panelText) || !_settings.ShowClockPanel)
             {
                 _trayPanel.HidePanel();
@@ -455,7 +465,8 @@ namespace costats.App.Services
                 _trayPanel.UpdateMeasure();
                 var size = _trayPanel.GetDesiredSize();
                 var pos = _taskbarPosition.GetTrayPanelPosition(size.Width, size.Height);
-                _trayPanel.Update(panelText, pos.X, pos.Y);
+                var resolved = _trayPanelPlacement.Resolve(pos.X, pos.Y);
+                _trayPanel.Update(panelText, resolved.Left, resolved.Top);
             }
         }
 
@@ -466,6 +477,8 @@ namespace costats.App.Services
             _pulseSubscription.Dispose();
             _widgetWindow.SizeChanged -= OnWidgetSizeChanged;
             _settingsWindow.Dismissing -= OnSettingsDismissing;
+            _trayPanel.PositionChangedByUser -= OnTrayPanelPositionChangedByUser;
+            _trayPanel.CloseRequested -= OnTrayPanelCloseRequested;
             SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
             _taskbarIcon.Dispose();
             _currentIcon.Dispose();
@@ -506,6 +519,30 @@ namespace costats.App.Services
             // Force the next refresh to re-anchor the tray panel to the
             // (possibly new) bottom-right corner.
             _lastAppliedStatus = null;
+        }
+
+        private void OnTrayPanelPositionChangedByUser(double left, double top)
+        {
+            _trayPanelPlacement.Remember(left, top);
+            _ = SaveTrayPanelSettingsAsync();
+        }
+
+        private void OnTrayPanelCloseRequested(object? sender, EventArgs e)
+        {
+            _trayPanel.HidePanel();
+            _settingsViewModel.ShowClockPanel = false;
+        }
+
+        private async Task SaveTrayPanelSettingsAsync()
+        {
+            try
+            {
+                await _settingsStore.SaveAsync(_settings, CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                Log.Warning(exception, "Could not persist tray panel position");
+            }
         }
 
         private void PositionWidget()

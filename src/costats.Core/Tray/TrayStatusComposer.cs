@@ -65,6 +65,13 @@ public sealed record TrayStatus(
     /// shell 127-character limit; custom WPF tray tooltips can show this one.
     /// </summary>
     public string FullTooltip { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Compact two-row text for the draggable clock panel. It keeps the
+    /// reference panel's PA/Claude and GPT/GLM grouping when those labels are
+    /// present, then fills any remaining slots in account order.
+    /// </summary>
+    public string PanelText { get; init; } = string.Empty;
 }
 
 public static class TrayStatusComposer
@@ -88,7 +95,85 @@ public static class TrayStatusComposer
             ? fullTooltip[..MaximumTooltipLength]
             : fullTooltip;
 
-        return new TrayStatus(highest, severity, tooltip) { FullTooltip = fullTooltip };
+        return new TrayStatus(highest, severity, tooltip)
+        {
+            FullTooltip = fullTooltip,
+            PanelText = BuildPanelText(materialized, now)
+        };
+    }
+
+    private static string BuildPanelText(IReadOnlyList<AccountUsageStatus> accounts, DateTimeOffset now)
+    {
+        var remaining = accounts.ToList();
+        var ordered = new List<AccountUsageStatus>(Math.Min(accounts.Count, 4));
+
+        foreach (var label in new[] { "PA", "Claude", "GPT", "GLM" })
+        {
+            var match = remaining.FirstOrDefault(account =>
+                account.Label.Equals(label, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+            {
+                continue;
+            }
+
+            ordered.Add(match);
+            remaining.Remove(match);
+        }
+
+        ordered.AddRange(remaining);
+
+        return string.Join('\n', ordered
+            .Take(4)
+            .Chunk(2)
+            .Select(pair => string.Join(" | ", pair.Select(account => FormatPanelAccount(account, now)))));
+    }
+
+    private static string FormatPanelAccount(AccountUsageStatus account, DateTimeOffset now)
+    {
+        var windows = new List<string>(2);
+        if (account.WeeklyRemainingPercent is { } weeklyRemaining)
+        {
+            windows.Add(FormatPanelWindow(
+                "W", 100 - weeklyRemaining, account.WeeklyResetsAt, now, weekly: true));
+        }
+        if (account.SessionRemainingPercent is { } sessionRemaining)
+        {
+            windows.Add(FormatPanelWindow(
+                "S", 100 - sessionRemaining, account.SessionResetsAt, now, weekly: false));
+        }
+
+        return windows.Count == 0
+            ? $"{account.Label}: unavailable"
+            : $"{account.Label}: {string.Join(" <> ", windows)}";
+    }
+
+    private static string FormatPanelWindow(
+        string label,
+        double usedPercent,
+        DateTimeOffset? resetsAt,
+        DateTimeOffset now,
+        bool weekly)
+    {
+        var percent = Math.Clamp(usedPercent, 0, 100)
+            .ToString("0", CultureInfo.InvariantCulture);
+        if (!resetsAt.HasValue)
+        {
+            return $"{label} {percent}%";
+        }
+
+        var remaining = resetsAt.Value - now;
+        if (remaining < TimeSpan.Zero)
+        {
+            remaining = TimeSpan.Zero;
+        }
+
+        if (weekly)
+        {
+            return $"{label} {percent}%-{remaining.TotalDays.ToString("0.0", CultureInfo.InvariantCulture)}d";
+        }
+
+        var totalHours = (int)Math.Floor(remaining.TotalHours);
+        return $"{label} {percent}%-{totalHours}h{remaining.Minutes:00}m";
     }
 
     /// <summary>

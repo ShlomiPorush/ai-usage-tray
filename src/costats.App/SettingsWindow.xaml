@@ -140,6 +140,14 @@
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12"
                            TextWrapping="Wrap" />
 
+                <CheckBox IsChecked="{Binding ShowClockPanel}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                    <TextBlock Text="Show always-on clock panel" FontSize="12"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                </CheckBox>
+                <TextBlock Text="Shows the draggable two-row quota panel. Hover it to reveal the close button."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12"
+                           TextWrapping="Wrap" />
+
                 <CheckBox IsChecked="{Binding ShowOverviewResetTimes}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
                     <TextBlock Text="Show &quot;Resets in...&quot; times on the main page" FontSize="12"
                                Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />

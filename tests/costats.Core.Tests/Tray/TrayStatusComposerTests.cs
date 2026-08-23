@@ -5,6 +5,26 @@ namespace costats.Core.Tests.Tray;
 
 public sealed class TrayStatusComposerTests
 {
+    [Fact]
+    public void Compose_builds_the_reference_two_row_clock_panel_text_with_used_percentages()
+    {
+        var now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");
+        var accounts = new[]
+        {
+            new AccountUsageStatus("Claude", 67, now.AddHours(1).AddMinutes(5), 94, now.AddDays(6)),
+            new AccountUsageStatus("GLM", null, null, null, null),
+            new AccountUsageStatus("GPT", null, null, 83, now.AddDays(3.6)),
+            new AccountUsageStatus("PA", null, null, 66, now.AddDays(3.6))
+        };
+
+        var status = TrayStatusComposer.Compose(accounts, now);
+
+        Assert.Equal(
+            "PA: W 34%-3.6d | Claude: W 6%-6.0d <> S 33%-1h05m\n" +
+            "GPT: W 17%-3.6d | GLM: unavailable",
+            status.PanelText);
+    }
+
     private static readonly DateTimeOffset Now = new(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]

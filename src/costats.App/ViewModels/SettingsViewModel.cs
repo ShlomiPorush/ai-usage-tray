@@ -58,6 +58,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         refreshMinutes = settings.RefreshMinutes;
         startAtLogin = GetStartupRegistryValue();
+        showClockPanel = settings.ShowClockPanel;
 
         _settings.Accounts = settings.GetEffectiveAccounts().ToList();
         RebuildProviderRows();
@@ -85,6 +86,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool startAtLogin;
+
+    [ObservableProperty]
+    private bool showClockPanel;
 
     /// <summary>One row per monitored provider: Claude/Codex accounts plus Z.AI and Copilot when configured.</summary>
     public System.Collections.ObjectModel.ObservableCollection<ProviderRowViewModel> ProviderRows { get; } = new();
@@ -266,6 +270,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         _settings.StartAtLogin = value;
         SetStartupRegistryValue(value);
         SaveSettingsInBackground();
+    }
+
+    partial void OnShowClockPanelChanged(bool value)
+    {
+        _settings.ShowClockPanel = value;
+        SaveSettingsInBackground();
+        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
     }
 
     private void RebuildProviderRows()

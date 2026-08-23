@@ -1,78 +1,116 @@
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
 
 namespace costats.App.Services;
 
 /// <summary>
-/// Always-on-top, non-interactive window that displays the current tray
-/// status as readable text next to the system clock. Updates on every
-/// PulseState publish so the user can read all three provider quotas at a
-/// glance without hovering the tray icon.
-///
-/// <para>
-/// Important limitations:
-/// <list type="bullet">
-///   <item>This is a normal Win32 window, not a real tray item. It looks like
-///         a tray item because Windows draws it flush against the taskbar,
-///         but it is a real borderless window owned by AI Usage Tray.</item>
-///   <item>It can be dragged by the user. Dragging will re-position it inside
-///         the work area but does not persist; the next refresh snaps it
-///         back next to the clock.</item>
-///   <item>On multi-monitor or non-default taskbar layouts the position is
-///         a best-effort fit. Use the tray tooltip for the source of truth.</item>
-/// </list>
-/// </para>
+/// Draggable, always-on-top two-row clock panel restored from the v1.2.24
+/// reference build. The close button requests hiding so the window can be
+/// reopened from Settings without recreating it.
 /// </summary>
 public partial class TrayStatusPanelWindow : Window
 {
+    private static readonly Brush OpenAiBrush = BrushFrom("#4F8CFF");
+    private static readonly Brush ClaudeBrush = BrushFrom("#FF6B4A");
+    private static readonly Brush GlmBrush = BrushFrom("#FF000000");
+    private static readonly Brush GlmBackgroundBrush = BrushFrom("#FFE3E5E8");
+    private static readonly Brush DefaultBrush = BrushFrom("#FFF4F5F7");
+    private static readonly Brush SeparatorBrush = BrushFrom("#FF8F949E");
+
+    public event Action<double, double>? PositionChangedByUser;
+    public event EventHandler? CloseRequested;
+
     public TrayStatusPanelWindow()
     {
         InitializeComponent();
     }
 
-    /// <summary>
-    /// Updates the rendered text and re-positions the window so it hugs the
-    /// bottom-right corner of the work area, just to the left of the tray
-    /// clock. Safe to call from any UI thread.
-    /// </summary>
     public void Update(string text, double x, double y)
     {
-        StatusText.Text = string.IsNullOrWhiteSpace(text) ? "AI Usage Tray · no data" : text;
+        var rows = (string.IsNullOrWhiteSpace(text) ? "AI Usage Tray: no data" : text).Split('\n');
+        RenderRow(RowOneText, rows.ElementAtOrDefault(0) ?? string.Empty);
+        RenderRow(RowTwoText, rows.ElementAtOrDefault(1) ?? string.Empty);
         Left = x;
         Top = y;
-        // Re-show if it was previously hidden.
+
         if (!IsVisible)
         {
             Show();
         }
     }
 
-    /// <summary>
-    /// Forces a layout pass so the panel measures itself according to the
-    /// current text content. Call this before <see cref="GetDesiredSize"/>.
-    /// </summary>
     public void UpdateMeasure()
     {
-        // SizeToContent = WidthAndHeight is set in XAML. We nudge the size by
-        // toggling Visibility so the layout system recalculates ActualWidth /
-        // ActualHeight for the new content.
         InvalidateMeasure();
         UpdateLayout();
     }
 
-    /// <summary>
-    /// Returns the panel's current measured size, after a layout pass.
-    /// Falls back to the design-time defaults when ActualWidth/Height are 0.
-    /// </summary>
-    public Size GetDesiredSize() => new(
-        ActualWidth > 0 ? ActualWidth : 260,
-        ActualHeight > 0 ? ActualHeight : 22);
+    public Size GetDesiredSize() => new(Width, Height);
 
-    /// <summary>
-    /// Hides the panel without closing it. The window stays alive so the
-    /// next Update call can re-show it cheaply.
-    /// </summary>
     public void HidePanel()
     {
-        if (IsVisible) Hide();
+        if (IsVisible)
+        {
+            Hide();
+        }
+    }
+
+    private static void RenderRow(TextBlock target, string text)
+    {
+        target.Inlines.Clear();
+        var parts = text.Split(" | ");
+        for (var index = 0; index < parts.Length; index++)
+        {
+            if (index > 0)
+            {
+                target.Inlines.Add(new Run("  |  ") { Foreground = SeparatorBrush });
+            }
+
+            var part = parts[index];
+            var provider = part.Split(':', 2)[0].Trim();
+            target.Inlines.Add(new Run(part)
+            {
+                Foreground = ProviderBrush(provider),
+                Background = provider.Equals("GLM", StringComparison.OrdinalIgnoreCase)
+                    ? GlmBackgroundBrush
+                    : Brushes.Transparent
+            });
+        }
+    }
+
+    private static Brush ProviderBrush(string provider) => provider.ToUpperInvariant() switch
+    {
+        "PA" or "GPT" => OpenAiBrush,
+        "CLAUDE" => ClaudeBrush,
+        "GLM" => GlmBrush,
+        _ => DefaultBrush
+    };
+
+    private static Brush BrushFrom(string color)
+    {
+        var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(color));
+        brush.Freeze();
+        return brush;
+    }
+
+    private void OnPanelMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ButtonState != MouseButtonState.Pressed || CloseButton.IsMouseOver)
+        {
+            return;
+        }
+
+        DragMove();
+        PositionChangedByUser?.Invoke(Left, Top);
+        e.Handled = true;
+    }
+
+    private void OnCloseClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        CloseRequested?.Invoke(this, EventArgs.Empty);
     }
 }

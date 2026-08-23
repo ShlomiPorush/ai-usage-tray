@@ -4,37 +4,100 @@
         WindowStyle="None"
         ResizeMode="NoResize"
         AllowsTransparency="True"
-        Background="Transparent"
+        Background="#00FFFFFF"
         ShowInTaskbar="False"
         Topmost="True"
         Focusable="False"
         ShowActivated="False"
-        IsHitTestVisible="False"
-        SizeToContent="WidthAndHeight"
+        Width="410"
+        Height="56"
+        SizeToContent="Manual"
         UseLayoutRounding="True"
         SnapsToDevicePixels="True">
 
-    <!--
-        Always-on-top, non-interactive, transparent panel that lives next to
-        the system clock. The panel exposes a single TextBlock whose content
-        is the resolved TrayStatus.Tooltip. It updates on every PulseState
-        publish, so the user can read all three provider quotas at a glance
-        without hovering the tray icon.
-    -->
-    <Border CornerRadius="4"
-            Background="{DynamicResource PanelBgBrush}"
-            BorderBrush="{DynamicResource WindowBorderBrush}"
+    <Border x:Name="PanelBorder"
+            Margin="3"
+            CornerRadius="9"
+            Background="#E62B2D31"
+            BorderBrush="#667D828A"
             BorderThickness="1"
-            Padding="8,3"
-            SnapsToDevicePixels="True">
-        <TextBlock x:Name="StatusText"
-                   FontFamily="Segoe UI"
-                   FontSize="11"
-                   Foreground="{DynamicResource TextPrimaryBrush}"
-                   VerticalAlignment="Center"
-                   TextAlignment="Left"
-                   TextTrimming="CharacterEllipsis"
-                   MaxWidth="520"
-                   Text="AI Usage Tray · loading…" />
+            Padding="12,5.85,10,5.85"
+            SnapsToDevicePixels="True"
+            MouseLeftButtonDown="OnPanelMouseLeftButtonDown">
+        <Border.Effect>
+            <DropShadowEffect Color="#CC000000"
+                              BlurRadius="12"
+                              ShadowDepth="2"
+                              Opacity="0.42" />
+        </Border.Effect>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="18" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="18.2" />
+                <RowDefinition Height="18.2" />
+            </Grid.RowDefinitions>
+
+            <TextBlock x:Name="RowOneText"
+                       Grid.Row="0"
+                       Grid.Column="0"
+                       FontFamily="Segoe UI"
+                       FontSize="12"
+                       FontWeight="Bold"
+                       Foreground="#FFF4F5F7"
+                       VerticalAlignment="Center"
+                       TextAlignment="Left"
+                       TextTrimming="CharacterEllipsis"
+                       Cursor="SizeAll"
+                       Text="PA: loading | Claude: loading" />
+
+            <TextBlock x:Name="RowTwoText"
+                       Grid.Row="1"
+                       Grid.Column="0"
+                       FontFamily="Segoe UI"
+                       FontSize="12"
+                       FontWeight="Bold"
+                       Foreground="#FFF4F5F7"
+                       VerticalAlignment="Center"
+                       TextAlignment="Left"
+                       TextTrimming="CharacterEllipsis"
+                       Cursor="SizeAll"
+                       Text="GPT: loading | GLM: loading" />
+
+            <Button x:Name="CloseButton"
+                    Grid.Row="0"
+                    Grid.RowSpan="2"
+                    Grid.Column="1"
+                    Width="16"
+                    Height="16"
+                    Padding="0"
+                    VerticalAlignment="Top"
+                    HorizontalContentAlignment="Center"
+                    VerticalContentAlignment="Center"
+                    Background="#00FFFFFF"
+                    BorderThickness="0"
+                    Foreground="#FFB8BBC2"
+                    FontFamily="Segoe UI"
+                    FontSize="11"
+                    FontWeight="Bold"
+                    Focusable="False"
+                    ToolTip="Hide clock panel"
+                    Content="×"
+                    Click="OnCloseClick">
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Setter Property="Opacity" Value="0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsMouseOver, ElementName=PanelBorder}" Value="True">
+                                <Setter Property="Opacity" Value="1" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+            </Button>
+        </Grid>
     </Border>
 </Window>

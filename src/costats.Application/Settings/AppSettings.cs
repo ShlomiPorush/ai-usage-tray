@@ -17,6 +17,12 @@ public sealed class AppSettings
     /// </summary>
     public bool ShowClockPanel { get; set; } = false;
 
+    /// <summary>Saved horizontal position after the user drags the clock panel.</summary>
+    public double? ClockPanelLeft { get; set; }
+
+    /// <summary>Saved vertical position after the user drags the clock panel.</summary>
+    public double? ClockPanelTop { get; set; }
+
     /// <summary>
     /// Whether multicc integration is enabled. Default true when multicc is detected.
     /// </summary>
