@@ -45,6 +45,8 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
 
     public IObservable<PulseState> PulseStream => _broadcaster;
 
+    public PulseState? CurrentState => Volatile.Read(ref _lastState);
+
     // Account sources come from the registry so Settings edits apply on the
     // next refresh; static sources (Copilot, Z.AI) stay DI-registered.
     private IEnumerable<ISignalSource> AllSources() => _staticSources.Concat(_accountSources.Current);

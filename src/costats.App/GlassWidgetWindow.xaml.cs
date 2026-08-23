@@ -106,7 +106,7 @@ namespace costats.App
             if (sender is FrameworkElement { DataContext: ProviderPulseViewModel account } &&
                 !string.IsNullOrWhiteSpace(account.UsageAccountId))
             {
-                _usageWindow.ShowUsageForAccount(account.UsageAccountId);
+                _usageWindow.ShowUsageForAccount(account.ProviderId);
             }
         }
 

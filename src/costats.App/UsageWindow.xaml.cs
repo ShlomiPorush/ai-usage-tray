@@ -77,11 +77,11 @@ namespace costats.App
         }
 
         /// <summary>
-        /// Shows the window filtered to one analytics account, for callers that
-        /// arrive from a single account's panel. Codex accounts must pass the
-        /// merged Codex bucket id: the logs cannot be split per profile.
+        /// Shows the window filtered to one monitored account, for callers that
+        /// arrive from a single account's panel. Account-specific quotas remain
+        /// separate even when the underlying Codex token log is shared.
         /// </summary>
-        public void ShowUsageForAccount(string accountId)
+        public void ShowUsageForAccount(string providerId)
         {
             if (!IsVisible)
             {
@@ -94,7 +94,7 @@ namespace costats.App
             }
 
             Activate();
-            _ = _viewModel.InitializeForAccountAsync(accountId);
+            _ = _viewModel.InitializeForAccountAsync(providerId);
         }
 
         /// <summary>Closes the window for real, on application shutdown.</summary>

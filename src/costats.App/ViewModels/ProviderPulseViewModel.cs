@@ -21,7 +21,11 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         }
     }
 
-    partial void OnProviderIdChanged(string value) => OnPropertyChanged(nameof(ProviderKind));
+    partial void OnProviderIdChanged(string value)
+    {
+        OnPropertyChanged(nameof(ProviderKind));
+        OnPropertyChanged(nameof(ShowSessionQuota));
+    }
 
     /// <summary>True for the user-selected primary account (pinned to the overview top, drives the tray icon).</summary>
     [ObservableProperty]
@@ -69,6 +73,16 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     // Session metrics
     [ObservableProperty]
     private bool hasSessionData;
+
+    /// <summary>
+    /// Whether the compact Usage card should show a short-window quota.
+    /// Codex's app-server can emit a synthetic 0% session value without a
+    /// usable reset window; the meaningful account quota there is weekly.
+    /// </summary>
+    public bool ShowSessionQuota =>
+        HasSessionData && !ProviderKind.Equals("codex", StringComparison.OrdinalIgnoreCase);
+
+    partial void OnHasSessionDataChanged(bool value) => OnPropertyChanged(nameof(ShowSessionQuota));
 
     [ObservableProperty]
     private double sessionProgress;

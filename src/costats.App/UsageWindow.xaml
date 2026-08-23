@@ -274,6 +274,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -326,8 +327,98 @@
             </StackPanel>
         </DockPanel>
 
-        <!-- 2 + 3. Hero block and the daily chart -->
-        <Grid Grid.Row="1" Margin="0,0,0,22">
+        <!-- 2. Account-specific subscription quotas. Weekly is deliberately
+             left of Session, matching the compact tray surfaces. -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,18"
+                    Visibility="{Binding HasQuotaCards, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+            <TextBlock Text="{Binding QuotaHeaderText}" FontSize="14" FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,9" />
+            <ItemsControl ItemsSource="{Binding QuotaCards}" Margin="0,0,-10,0" Focusable="False">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Rows="1" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Style="{StaticResource StatCard}" Padding="13,10">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <DockPanel Grid.Row="0" Margin="0,0,0,8">
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding PlanText}" FontSize="10.5"
+                                               Foreground="{DynamicResource TextFaintBrush}" />
+                                    <Ellipse Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center">
+                                        <Ellipse.Fill>
+                                            <SolidColorBrush Color="{Binding OverallStatusColor}" />
+                                        </Ellipse.Fill>
+                                    </Ellipse>
+                                    <TextBlock Text="{Binding DisplayName}" FontSize="12.5" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                                <Grid Grid.Row="1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition>
+                                            <ColumnDefinition.Style>
+                                                <Style TargetType="ColumnDefinition">
+                                                    <Setter Property="Width" Value="1" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding ShowSessionQuota}" Value="False">
+                                                            <Setter Property="Width" Value="0" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </ColumnDefinition.Style>
+                                        </ColumnDefinition>
+                                        <ColumnDefinition>
+                                            <ColumnDefinition.Style>
+                                                <Style TargetType="ColumnDefinition">
+                                                    <Setter Property="Width" Value="*" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding ShowSessionQuota}" Value="False">
+                                                            <Setter Property="Width" Value="0" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </ColumnDefinition.Style>
+                                        </ColumnDefinition>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                                        <TextBlock Text="Weekly" FontSize="10.5" Foreground="{DynamicResource TextMutedBrush}" />
+                                        <TextBlock Text="{Binding WeekPercentText}" FontSize="18" FontWeight="Bold"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,0" />
+                                        <TextBlock Text="{Binding WeekResetText}" FontSize="9.5"
+                                                   Foreground="{DynamicResource TextFaintBrush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                    <Border Grid.Column="1" Width="1" Background="{DynamicResource DividerBrush}"
+                                            Visibility="{Binding ShowSessionQuota, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
+                                    <StackPanel Grid.Column="2" Margin="10,0,0,0"
+                                                Visibility="{Binding ShowSessionQuota, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                                        <TextBlock Text="Session" FontSize="10.5" Foreground="{DynamicResource TextMutedBrush}" />
+                                        <TextBlock Text="{Binding SessionPercentText}" FontSize="18" FontWeight="Bold"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,2,0,0" />
+                                        <TextBlock Text="{Binding SessionResetText}" FontSize="9.5"
+                                                   Foreground="{DynamicResource TextFaintBrush}" TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Grid>
+                                <TextBlock Grid.Row="2" Text="{Binding StatusSummary}" FontSize="9.5" Margin="0,7,0,0"
+                                           Foreground="{DynamicResource TextFaintBrush}" TextTrimming="CharacterEllipsis" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="{Binding AnalyticsScopeNote}" FontSize="10.5" Margin="0,8,0,0"
+                       Foreground="#F97316" TextWrapping="Wrap"
+                       Visibility="{Binding AnalyticsScopeNote, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+        </StackPanel>
+
+        <!-- 3 + 4. Hero block and the daily chart -->
+        <Grid Grid.Row="2" Margin="0,0,0,22">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="340" />
                 <ColumnDefinition Width="*" />
@@ -414,8 +505,8 @@
             </Grid>
         </Grid>
 
-        <!-- 4. The five headline tiles -->
-        <ItemsControl Grid.Row="2" ItemsSource="{Binding Tiles}" Margin="0,0,-10,22" Focusable="False">
+        <!-- 5. The five headline tiles -->
+        <ItemsControl Grid.Row="3" ItemsSource="{Binding Tiles}" Margin="0,0,-10,22" Focusable="False">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                     <UniformGrid Rows="1" />
@@ -438,8 +529,8 @@
             </ItemsControl.ItemTemplate>
         </ItemsControl>
 
-        <!-- 5. Breakdown -->
-        <Grid Grid.Row="3">
+        <!-- 6. Breakdown -->
+        <Grid Grid.Row="4">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -503,7 +594,7 @@
         </Grid>
 
         <!-- Empty / loading / error state, over the whole body -->
-        <Border Grid.Row="1" Grid.RowSpan="3" Background="{DynamicResource WidgetBgBrush}"
+        <Border Grid.Row="2" Grid.RowSpan="3" Background="{DynamicResource WidgetBgBrush}"
                 Visibility="{Binding HasData, Converter={x:Static local:BoolToVisibilityConverter.Instance}, ConverterParameter=Invert}">
             <TextBlock Text="{Binding StatusText}" FontSize="13" HorizontalAlignment="Center"
                        VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />

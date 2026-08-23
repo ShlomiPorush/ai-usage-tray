@@ -1,14 +1,26 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using costats.App.Controls;
+using costats.Application.Analytics;
+using costats.Application.Pulse;
+using costats.Application.Settings;
 using costats.Core.Analytics;
+using costats.Core.Pulse;
 using costats.Infrastructure.Analytics;
 using Serilog;
 
 namespace costats.App.ViewModels;
 
-/// <summary>One entry of the account filter. A null id means "every account".</summary>
-public sealed record UsageAccountOption(string? AccountId, string DisplayName);
+/// <summary>One monitored account in the Usage filter.</summary>
+/// <param name="ProviderId">Pulse id such as "codex:openai-1"; null means every account.</param>
+/// <param name="DisplayName">User-facing account nickname.</param>
+/// <param name="AnalyticsAccountIds">Local-log buckets; empty for quota-only providers.</param>
+/// <param name="ProviderKind">Provider family: claude, codex, zai, or copilot.</param>
+public sealed record UsageAccountOption(
+    string? ProviderId,
+    string DisplayName,
+    IReadOnlyList<string> AnalyticsAccountIds,
+    string ProviderKind);
 
 /// <summary>A provider's line in the hero block: cost, share bar and caption.</summary>
 /// <param name="Name">User-facing provider name.</param>
@@ -52,19 +64,36 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     public static readonly int[] RangeChoices = [7, 30, 90];
 
     private readonly IUsageAnalyticsService _analytics;
+    private readonly IPulseOrchestrator _orchestrator;
+    private readonly AppSettings _settings;
+    private readonly IEnumerable<ISignalSource> _staticSources;
+    private readonly IAccountSourceRegistry _accountSources;
     private CancellationTokenSource? _inFlight;
     private UsageReport? _report;
     private DateOnly _from;
     private DateOnly _to;
     private bool _suppressReload;
     private string? _pendingAccountId;
-    private string? _selectedAccountId;
+    private string? _selectedProviderId;
 
     /// <summary>Creates the view model over the app's analytics service.</summary>
-    public UsageWindowViewModel(IUsageAnalyticsService analytics)
+    public UsageWindowViewModel(
+        IUsageAnalyticsService analytics,
+        IPulseOrchestrator orchestrator,
+        AppSettings settings,
+        IEnumerable<ISignalSource> staticSources,
+        IAccountSourceRegistry accountSources)
     {
         ArgumentNullException.ThrowIfNull(analytics);
+        ArgumentNullException.ThrowIfNull(orchestrator);
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(staticSources);
+        ArgumentNullException.ThrowIfNull(accountSources);
         _analytics = analytics;
+        _orchestrator = orchestrator;
+        _settings = settings;
+        _staticSources = staticSources;
+        _accountSources = accountSources;
 
         var today = DateOnly.FromDateTime(DateTime.Now);
         _from = today.AddDays(-(RangeDays - 1));
@@ -75,7 +104,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         tiles = EmptyTiles();
     }
 
-    private static UsageAccountOption AllAccountsOption => new(null, "All accounts");
+    private static UsageAccountOption AllAccountsOption => new(null, "All accounts", [], string.Empty);
 
     /// <summary>The account filter, "All accounts" first.</summary>
     [ObservableProperty]
@@ -116,6 +145,20 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     /// <summary>Per-provider hero rows, most expensive first.</summary>
     [ObservableProperty]
     private IReadOnlyList<UsageProviderRow> providerRows = [];
+
+    /// <summary>Latest account-specific subscription quotas, all accounts or the selected one.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasQuotaCards))]
+    private IReadOnlyList<ProviderPulseViewModel> quotaCards = [];
+
+    public bool HasQuotaCards => QuotaCards.Count > 0;
+
+    [ObservableProperty]
+    private string quotaHeaderText = "Quota usage";
+
+    /// <summary>Explains when local cost history is broader than the selected account.</summary>
+    [ObservableProperty]
+    private string analyticsScopeNote = string.Empty;
 
     /// <summary>The five headline tiles.</summary>
     [ObservableProperty]
@@ -182,7 +225,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             return;
         }
 
-        _selectedAccountId = value.AccountId;
+        _selectedProviderId = value.ProviderId;
         Reload();
     }
 
@@ -203,7 +246,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             return;
         }
 
-        var restored = Accounts.FirstOrDefault(option => option.AccountId == _selectedAccountId) ?? Accounts[0];
+        var restored = Accounts.FirstOrDefault(option => option.ProviderId == _selectedProviderId) ?? Accounts[0];
         var suppressed = _suppressReload;
         _suppressReload = true;
         try
@@ -265,6 +308,11 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             if (invalidate)
             {
                 _analytics.Invalidate();
+                await _orchestrator.RefreshOnceAsync(RefreshTrigger.Manual, token).ConfigureAwait(true);
+            }
+            else if (_orchestrator.CurrentState is null)
+            {
+                await _orchestrator.RefreshOnceAsync(RefreshTrigger.Silent, token).ConfigureAwait(true);
             }
 
             var accountList = await Task.Run(() => _analytics.GetAccountsAsync(token), token).ConfigureAwait(true);
@@ -277,9 +325,22 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             // account's view moves the selection here, and the report has to be
             // the one the picker now claims to show.
             ApplyAccounts(accountList);
-            var accountId = SelectedAccount?.AccountId;
+            ApplyQuotaCards();
+            var selected = SelectedAccount;
 
-            string[]? filter = accountId is null ? null : [accountId];
+            if (selected?.ProviderId is not null && selected.AnalyticsAccountIds.Count == 0)
+            {
+                ApplyQuotaOnly(selected);
+                return;
+            }
+
+            AnalyticsScopeNote = selected?.ProviderKind == MonitoredAccountSettings.CodexType
+                ? "Token and raw-cost history includes all Codex accounts because Codex stores local rollouts in one shared log set."
+                : string.Empty;
+
+            IReadOnlyCollection<string>? filter = selected?.ProviderId is null
+                ? null
+                : selected.AnalyticsAccountIds;
             var report = await Task.Run(() => _analytics.GetReportAsync(range, filter, token), token).ConfigureAwait(true);
             if (token.IsCancellationRequested)
             {
@@ -315,8 +376,19 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
     private void ApplyAccounts(IReadOnlyList<UsageAccountInfo> discovered)
     {
-        var options = new List<UsageAccountOption>(discovered.Count + 1) { AllAccountsOption };
-        options.AddRange(discovered.Select(account => new UsageAccountOption(account.AccountId, account.DisplayName)));
+        var profiles = _staticSources
+            .Concat(_accountSources.Current)
+            .Select(source => source.Profile)
+            .Where(profile => ShouldInclude(profile.ProviderId))
+            .ToList();
+
+        var catalog = UsageAccountCatalog.Build(profiles, discovered);
+        var options = new List<UsageAccountOption>(catalog.Count + 1) { AllAccountsOption };
+        options.AddRange(catalog.Select(account => new UsageAccountOption(
+            account.ProviderId,
+            account.DisplayName,
+            account.AnalyticsAccountIds,
+            account.ProviderKind)));
 
         // A one-shot request from another window wins over whatever the picker
         // was left on; it is consumed here whether or not it matches an account.
@@ -327,12 +399,10 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             Accounts.Zip(options).All(pair => pair.First == pair.Second);
 
         var wanted = requested is null
-            ? SelectedAccount?.AccountId
-            : options
-                .FirstOrDefault(option => string.Equals(option.AccountId, requested, StringComparison.OrdinalIgnoreCase))
-                ?.AccountId;
+            ? SelectedAccount?.ProviderId
+            : ResolveRequestedProviderId(options, requested);
 
-        if (sameList && wanted == SelectedAccount?.AccountId)
+        if (sameList && wanted == SelectedAccount?.ProviderId)
         {
             return;
         }
@@ -348,12 +418,94 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             // Always pick out of the live list, so the picker's selection is an
             // item it actually holds.
             var live = Accounts;
-            SelectedAccount = live.FirstOrDefault(option => option.AccountId == wanted) ?? live[0];
+            SelectedAccount = live.FirstOrDefault(option => option.ProviderId == wanted) ?? live[0];
         }
         finally
         {
             _suppressReload = false;
         }
+    }
+
+    private bool ShouldInclude(string providerId)
+    {
+        var kind = UsageAccountCatalog.ProviderKind(providerId);
+        return kind switch
+        {
+            "copilot" => _settings.CopilotEnabled,
+            "zai" => _settings.HasZaiKey,
+            _ => true
+        };
+    }
+
+    private static string? ResolveRequestedProviderId(
+        IReadOnlyList<UsageAccountOption> options,
+        string requested)
+    {
+        var exact = options.FirstOrDefault(option =>
+            string.Equals(option.ProviderId, requested, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+        {
+            return exact.ProviderId;
+        }
+
+        // Backward compatibility for old callers that passed an analytics id.
+        // Only use it when the mapping is unambiguous; merged Codex deliberately
+        // has two account choices and must not silently pick one.
+        var analyticsMatches = options
+            .Where(option => option.AnalyticsAccountIds.Any(id =>
+                string.Equals(id, requested, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        return analyticsMatches.Count == 1 ? analyticsMatches[0].ProviderId : null;
+    }
+
+    private void ApplyQuotaCards()
+    {
+        var state = _orchestrator.CurrentState;
+        var selectedId = SelectedAccount?.ProviderId;
+        var candidates = Accounts
+            .Where(option => option.ProviderId is not null &&
+                (selectedId is null || string.Equals(option.ProviderId, selectedId, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        QuotaCards = candidates.Select(option =>
+        {
+            if (state?.Providers.TryGetValue(option.ProviderId!, out var reading) == true)
+            {
+                return ProviderPulseViewModel.FromReading(reading, option.DisplayName);
+            }
+
+            return new ProviderPulseViewModel
+            {
+                ProviderId = option.ProviderId!,
+                DisplayName = option.DisplayName,
+                StatusSummary = "No quota data available yet"
+            };
+        }).ToList();
+
+        QuotaHeaderText = SelectedAccount?.ProviderId is null
+            ? "Quota usage"
+            : $"{SelectedAccount.DisplayName} quota";
+    }
+
+    private void ApplyQuotaOnly(UsageAccountOption selected)
+    {
+        _report = null;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var range = UsageDateRange.LastDays(RangeDays, today);
+        _from = range.From ?? today;
+        _to = range.To ?? today;
+        RangeLabel = UsageNumberFormat.RangeLabel(_from, _to);
+        HasData = false;
+        AnalyticsScopeNote = string.Empty;
+        ProviderRows = [];
+        Tiles = EmptyTiles();
+        Chart = UsageChartData.Empty;
+        BreakdownRows = [];
+        TotalCostText = "$0.00";
+        UnpricedNote = string.Empty;
+        StatusText = selected.ProviderKind == "zai"
+            ? "GLM quota usage is shown above. Z.AI's quota endpoint provides the current limits, but no historical token or raw-cost data to graph."
+            : $"{selected.DisplayName} quota usage is shown above. No local token history is available for this provider.";
     }
 
     private void Apply(UsageReport report)
@@ -530,7 +682,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         UsageNumberFormat.CostOrUnpriced(totals.CostUsd, totals.UnpricedTokens);
 
     private static string DisplayName(UsageProviderKind provider) =>
-        provider == UsageProviderKind.Claude ? "Claude Code" : "Codex";
+        provider == UsageProviderKind.Claude ? "Claude Code" : "Codex (all accounts)";
 
     private static string Key(UsageProviderKind provider) =>
         provider == UsageProviderKind.Claude ? "claude" : "codex";
