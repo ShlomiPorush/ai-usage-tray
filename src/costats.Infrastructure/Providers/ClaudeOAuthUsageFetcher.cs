@@ -137,9 +137,17 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                     return null;
                 }
 
-                var email = await TryFetchProfileEmailAsync(credentials.AccessToken, cancellationToken)
+                var profile = await TryFetchProfileAsync(credentials.AccessToken, cancellationToken)
                     .ConfigureAwait(false);
-                return usage with { Email = email };
+
+                // The profile carries the account's current plan; the values from
+                // .credentials.json are a login-time snapshot kept only as fallback.
+                return usage with
+                {
+                    Email = profile?.Email,
+                    SubscriptionType = profile?.SubscriptionType ?? usage.SubscriptionType,
+                    RateLimitTier = profile?.RateLimitTier ?? usage.RateLimitTier
+                };
             }
 
             return null;
@@ -155,10 +163,11 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
     }
 
     /// <summary>
-    /// Resolves the identity owned by the same OAuth token that supplied the
-    /// usage reading. Profile failure never hides otherwise valid quota data.
+    /// Resolves the identity and current plan owned by the same OAuth token that
+    /// supplied the usage reading. Profile failure never hides otherwise valid
+    /// quota data.
     /// </summary>
-    private async Task<string?> TryFetchProfileEmailAsync(
+    private async Task<ClaudeOAuthProfile?> TryFetchProfileAsync(
         string accessToken,
         CancellationToken cancellationToken)
     {
@@ -174,7 +183,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             }
 
             var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            return ClaudeOAuthProfileParser.ParseEmail(content);
+            return ClaudeOAuthProfileParser.Parse(content);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
