@@ -122,18 +122,40 @@ public sealed class UpdateCheckFlowTests : IDisposable
     }
 
     [Fact]
-    public void FormatReleaseNotes_MakesGitHubMarkdownReadable()
+    public void FormatReleaseNotes_ShowsOnlyTheWhatsChangedSection()
     {
         const string markdown = """
         ## What's Changed
         * **Account email privacy** by [Shlomi](https://github.com/Shlomi)
 
         **Full Changelog**: https://github.com/example/compare/v1...v2
+
+        ## Downloads
+
+        | Platform | Download |
+        | Windows x64 | app.zip |
+
+        ## Installation
+
+        Run the installer.
         """;
 
         var formatted = StartupUpdateCoordinator.FormatReleaseNotes(markdown);
 
-        Assert.Equal("What's Changed\n• Account email privacy by Shlomi", formatted);
+        Assert.Equal("• Account email privacy by Shlomi", formatted);
+    }
+
+    [Fact]
+    public void FormatReleaseNotes_UsesTheWholeBodyWhenWhatsChangedIsMissing()
+    {
+        const string markdown = """
+        ## Release notes
+        * Fixed startup.
+        """;
+
+        var formatted = StartupUpdateCoordinator.FormatReleaseNotes(markdown);
+
+        Assert.Equal("Release notes\n• Fixed startup.", formatted);
     }
 
     public void Dispose()
