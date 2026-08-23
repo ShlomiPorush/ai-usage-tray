@@ -72,6 +72,11 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, IDisposable
                 return null;
             }
 
+            // codex app-server writes progress to stderr. Leaving that pipe
+            // unread deadlocks the child once its buffer fills, which stalls the
+            // stdout loop below until the timeout fires.
+            _ = DrainAsync(process.StandardError, timeout.Token);
+
             await process.StandardInput.WriteLineAsync(
                 "{\"method\":\"initialize\",\"id\":1,\"params\":{\"clientInfo\":{\"name\":\"ai_usage_tray\",\"title\":\"AI Usage Tray\",\"version\":\"0.1.0\"}}}");
             await process.StandardInput.WriteLineAsync(
@@ -108,6 +113,22 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, IDisposable
         finally
         {
             TryTerminate(process);
+        }
+    }
+
+    /// <summary>
+    /// Reads a redirected stream to completion, ignoring failures. Never throws,
+    /// so callers can leave it running without observing the task.
+    /// </summary>
+    private static async Task DrainAsync(StreamReader reader, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Draining exists only to keep the child's pipe from filling up.
         }
     }
 

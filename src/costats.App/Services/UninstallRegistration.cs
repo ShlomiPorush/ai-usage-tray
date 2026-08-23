@@ -1,5 +1,6 @@
 using System.IO;
 using System.Reflection;
+using costats.App.Services.Updates;
 using Microsoft.Win32;
 using Serilog;
 
@@ -56,6 +57,18 @@ namespace costats.App.Services
                     return;
                 }
 
+                if (!InstallMarker.IsManagedInstallDirectory(installDir, installedBy: "uninstall-registration-migration"))
+                {
+                    // The uninstall entry deletes InstallLocation. A debug build
+                    // or a ZIP unpacked into a shared folder must never get an
+                    // Uninstall button that wipes that folder.
+                    Log.Information(
+                        "Skipping Add/remove programs registration: {InstallDir} is not a managed install directory",
+                        installDir);
+                    RemoveStaleEntry(installDir);
+                    return;
+                }
+
                 var powershell = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.System),
                     "WindowsPowerShell", "v1.0", "powershell.exe");
@@ -88,6 +101,39 @@ namespace costats.App.Services
             catch (Exception ex)
             {
                 Log.Warning(ex, "Could not write the Add/remove programs entry");
+            }
+        }
+
+        /// <summary>
+        /// Drops an entry this same folder registered before the ownership check
+        /// existed. An entry pointing somewhere else belongs to a real install
+        /// and is left alone.
+        /// </summary>
+        private static void RemoveStaleEntry(string installDir)
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(KeyPath, writable: false);
+                if (key?.GetValue("InstallLocation") is not string registered)
+                {
+                    return;
+                }
+
+                if (!string.Equals(
+                        Path.TrimEndingDirectorySeparator(registered),
+                        Path.TrimEndingDirectorySeparator(installDir),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                key.Dispose();
+                Registry.CurrentUser.DeleteSubKeyTree(KeyPath, throwOnMissingSubKey: false);
+                Log.Information("Removed a stale Add/remove programs entry for {InstallDir}", installDir);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Could not remove the stale Add/remove programs entry");
             }
         }
 

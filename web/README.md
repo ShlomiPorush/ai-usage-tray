@@ -68,12 +68,15 @@ shows the landing page instead, which is the way back out.
 The app builds the link for you in **Settings → Remote view**. It has the form:
 
 ```
-https://your-site/?id=<32-hex>
+https://your-site/?id=<32-hex read id>
 ```
 
-The id is a 32-character lowercase hex string and is the only credential, so treat
-the link as a secret. Without a valid `id` the page shows a landing view with links
-to the app's releases and repository.
+The id in the link is the **read id**: a 32-character lowercase hex string that can
+only fetch the snapshot. The app keeps a separate secret **write id** and never puts
+it in a link, so sharing a link cannot let anyone overwrite or delete your data. The
+read id is still a capability, so treat the link as unlisted rather than public.
+Without a valid `id` the page shows a landing view with links to the app's releases
+and repository. See `remote/worker/README.md` for how the two ids relate.
 
 `?id=demo` is the one non-hex id the page accepts: the worker answers it with a
 sample payload, and the page marks it with a "Demo data" badge. It is deliberately

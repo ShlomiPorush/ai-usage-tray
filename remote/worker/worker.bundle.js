@@ -5,17 +5,35 @@
 // Sources: worker.js and every file in web/ (page, styles, script, manifest,
 //          service worker, icons).
 //
-// Serves the JSON API (PUT/GET /u/{id}) and the viewer page from a single URL.
+// Serves the JSON API (PUT/DELETE /u/{writeId}, GET /u/{readId}) and the viewer
+// page from a single URL.
 // Requires one KV binding named USAGE.
 
 // AI Usage Tray - remote view worker.
-// Stores a small JSON snapshot per random id and serves it back to the web page.
-// The 128-bit id in the path is the only credential, for reads and writes alike.
+// Stores a small JSON snapshot per id and serves it back to the web page.
+//
+// Protocol v2 splits the single id in two:
+//   writeId  128-bit secret held only by the app, 32 lowercase hex characters.
+//   readId   sha256(utf8(writeId))[0..16] as 32 lowercase hex characters, i.e.
+//            the first 32 characters of the hex digest of the writeId STRING
+//            (the 32 ASCII characters, not the 16 bytes they encode).
+// The app uploads to PUT /u/{writeId}; the share link carries only the readId,
+// so whoever holds a share link can read the snapshot but can never overwrite
+// or delete it. The KV key is always the readId.
+//
 // The single exception is GET /u/demo, a built-in read-only sample payload.
 
 const ID_RE = /^[a-f0-9]{32}$/;
 const MAX_BODY = 16 * 1024; // 16 KB
 const TTL_SECONDS = 604800; // 7 days
+
+// Payload limits. Deliberately generous: an app newer than this worker must
+// keep working, so unknown fields are ignored and only the shape the viewer
+// actually depends on is enforced.
+const MAX_ACCOUNTS = 32;
+const MAX_WINDOWS = 32;
+const MAX_STRING = 256;
+const MAX_DEPTH = 8;
 
 // A public sample so the project can be linked to without exposing a real id.
 // It is built per request, never stored, and cannot be written to.
@@ -23,8 +41,16 @@ const DEMO_ID = "demo";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, PUT, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Expose-Headers": "X-Read-Id",
+};
+
+// Applied to every response this file produces. The bundled viewer page layers
+// a Content-Security-Policy and framing rules on top; see bundle.mjs.
+const SECURITY = {
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer",
 };
 
 function json(status, obj) {
@@ -32,17 +58,72 @@ function json(status, obj) {
     status,
     headers: {
       ...CORS,
+      ...SECURITY,
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
     },
   });
 }
 
-function empty(status) {
-  return new Response(null, { status, headers: { ...CORS } });
+function empty(status, extra) {
+  return new Response(null, { status, headers: { ...CORS, ...SECURITY, ...extra } });
 }
 
-async function put(request, env, id) {
+// readId = first 32 hex characters of SHA-256 over the UTF-8 bytes of the
+// lowercase 32-hex writeId string. One-way, so a share link never yields the
+// write credential.
+async function deriveReadId(writeId) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(writeId));
+  const bytes = new Uint8Array(digest);
+  let hex = "";
+  for (let i = 0; i < 16; i++) hex += bytes[i].toString(16).padStart(2, "0");
+  return hex;
+}
+
+// Guards against a single oversized string being smuggled through in a field
+// nobody validates, and against absurdly nested payloads.
+function stringsWithinLimits(value, depth) {
+  if (typeof value === "string") return value.length <= MAX_STRING;
+  if (depth >= MAX_DEPTH) return false;
+  if (Array.isArray(value)) {
+    return value.every((item) => stringsWithinLimits(item, depth + 1));
+  }
+  if (value !== null && typeof value === "object") {
+    for (const key of Object.keys(value)) {
+      if (key.length > MAX_STRING) return false;
+      if (!stringsWithinLimits(value[key], depth + 1)) return false;
+    }
+  }
+  return true;
+}
+
+// Returns null when the payload is acceptable, otherwise a short reason code.
+// Only the shape web/app.js reads is checked; everything else passes through.
+function validatePayload(data) {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    return "not_an_object";
+  }
+  if (typeof data.version !== "number" || !Number.isFinite(data.version)) {
+    return "bad_version";
+  }
+  if (!Array.isArray(data.accounts)) return "bad_accounts";
+  if (data.accounts.length > MAX_ACCOUNTS) return "too_many_accounts";
+
+  for (const account of data.accounts) {
+    if (account === null || typeof account !== "object" || Array.isArray(account)) {
+      return "bad_account";
+    }
+    if (account.windows !== undefined) {
+      if (!Array.isArray(account.windows)) return "bad_windows";
+      if (account.windows.length > MAX_WINDOWS) return "too_many_windows";
+    }
+  }
+
+  if (!stringsWithinLimits(data, 0)) return "field_too_long";
+  return null;
+}
+
+async function put(request, env, writeId) {
   const type = request.headers.get("Content-Type") || "";
   if (!type.toLowerCase().includes("application/json")) {
     return json(415, { error: "unsupported_media_type" });
@@ -59,14 +140,30 @@ async function put(request, env, id) {
     return json(413, { error: "too_large" });
   }
 
+  let data;
   try {
-    JSON.parse(body);
+    data = JSON.parse(body);
   } catch {
     return json(400, { error: "invalid_json" });
   }
 
-  await env.USAGE.put(id, body, { expirationTtl: TTL_SECONDS });
-  return empty(204);
+  const reason = validatePayload(data);
+  if (reason !== null) {
+    return json(422, { error: "invalid_payload", reason });
+  }
+
+  const readId = await deriveReadId(writeId);
+  await env.USAGE.put(readId, body, { expirationTtl: TTL_SECONDS });
+  // Diagnostics only: the app derives the same value locally.
+  return empty(204, { "X-Read-Id": readId });
+}
+
+// Deleting an absent snapshot answers 204 as well: a probe must not learn
+// whether a given writeId was ever in use.
+async function remove(env, writeId) {
+  const readId = await deriveReadId(writeId);
+  await env.USAGE.delete(readId);
+  return empty(204, { "X-Read-Id": readId });
 }
 
 // Timestamps are relative to the request, so the sample never reads as stale.
@@ -126,13 +223,14 @@ function demoSnapshot() {
   };
 }
 
-async function get(env, id) {
-  const body = await env.USAGE.get(id);
+async function get(env, readId) {
+  const body = await env.USAGE.get(readId);
   if (body === null) return json(404, { error: "not_found" });
   return new Response(body, {
     status: 200,
     headers: {
       ...CORS,
+      ...SECURITY,
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
     },
@@ -147,30 +245,42 @@ const api = {
     const match = /^\/u\/([^/]+)\/?$/.exec(path);
     if (!match) return json(404, { error: "not_found" });
 
-    if (request.method !== "GET" && request.method !== "PUT") {
+    const method = request.method;
+    if (method !== "GET" && method !== "PUT" && method !== "DELETE") {
       return json(405, { error: "method_not_allowed" });
     }
 
-    // The demo is read-only: a PUT must never be able to replace the sample.
+    // The demo is read-only: a write must never be able to touch the sample.
     if (match[1] === DEMO_ID) {
-      return request.method === "PUT"
-        ? json(405, { error: "method_not_allowed" })
-        : json(200, demoSnapshot());
+      return method === "GET"
+        ? json(200, demoSnapshot())
+        : json(405, { error: "method_not_allowed" });
     }
 
     if (!ID_RE.test(match[1])) return json(400, { error: "invalid_id" });
 
-    return request.method === "PUT"
-      ? put(request, env, match[1])
-      : get(env, match[1]);
+    // GET takes a readId and looks it up directly. PUT and DELETE take the
+    // secret writeId and address the same entry through the derivation.
+    if (method === "PUT") return put(request, env, match[1]);
+    if (method === "DELETE") return remove(env, match[1]);
+    return get(env, match[1]);
   },
 };
 
 const STATIC_CACHE = "public, max-age=300";
 
+// Only the page needs these; SECURITY (nosniff, no-referrer) comes from the
+// API section above and is applied to every response.
+const HTML_HEADERS = {
+  "Content-Security-Policy": "default-src 'none'; base-uri 'none'; script-src 'self' 'sha256-iXOs36kKnW4yh4Y+/FCzNMJlwKSeAf4FG07t+z5Up38='; style-src 'self'; img-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; form-action 'none'; frame-ancestors 'none'",
+  "X-Frame-Options": "DENY",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+};
+
 const ASSETS = {
   "/index.html": {
     type: "text/html; charset=utf-8",
+    html: true,
     body: "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"color-scheme\" content=\"light dark\">\n<meta name=\"robots\" content=\"noindex, nofollow\">\n<meta name=\"theme-color\" data-scheme=\"light\" media=\"(prefers-color-scheme: light)\" content=\"#EDE8E0\">\n<meta name=\"theme-color\" data-scheme=\"dark\" media=\"(prefers-color-scheme: dark)\" content=\"#1A2233\">\n<title>AI Usage Tray</title>\n<link rel=\"icon\" type=\"image/png\" href=\"icon-192.png\">\n<link rel=\"apple-touch-icon\" href=\"icon-192.png\">\n<link rel=\"manifest\" href=\"manifest.webmanifest\">\n<link rel=\"stylesheet\" href=\"styles.css\">\n<script>\n  // Applied before first paint so a forced theme never flashes the other palette.\n  try {\n    var saved = localStorage.getItem(\"aiUsageTray.theme\");\n    if (saved === \"light\" || saved === \"dark\") {\n      document.documentElement.setAttribute(\"data-theme\", saved);\n    }\n  } catch (e) { /* private mode: stay on the system theme */ }\n</script>\n</head>\n<body>\n<main class=\"page\">\n  <header class=\"page-header\">\n    <div class=\"header-row\">\n      <h1>AI usage</h1>\n      <span class=\"demo-badge\" id=\"demo-badge\" hidden>Demo data</span>\n      <button type=\"button\" class=\"theme-toggle\" id=\"theme-toggle\" data-mode=\"auto\" hidden>\n        <svg class=\"theme-icon theme-icon-auto\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\"\n             fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" aria-hidden=\"true\" focusable=\"false\">\n          <circle cx=\"12\" cy=\"12\" r=\"8.2\"/>\n          <path d=\"M12 3.8a8.2 8.2 0 0 1 0 16.4z\" fill=\"currentColor\" stroke=\"none\"/>\n        </svg>\n        <svg class=\"theme-icon theme-icon-light\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\"\n             fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"\n             aria-hidden=\"true\" focusable=\"false\">\n          <circle cx=\"12\" cy=\"12\" r=\"4.2\"/>\n          <path d=\"M12 2.5v2.2M12 19.3v2.2M4.22 4.22l1.56 1.56M18.22 18.22l1.56 1.56M2.5 12h2.2M19.3 12h2.2M4.22 19.78l1.56-1.56M18.22 5.78l1.56-1.56\"/>\n        </svg>\n        <svg class=\"theme-icon theme-icon-dark\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\"\n             fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linejoin=\"round\"\n             aria-hidden=\"true\" focusable=\"false\">\n          <path d=\"M20 13.6A8.2 8.2 0 0 1 10.4 4a8.2 8.2 0 1 0 9.6 9.6z\"/>\n        </svg>\n      </button>\n    </div>\n    <p class=\"updated\" id=\"updated\" hidden></p>\n  </header>\n\n  <p class=\"notice notice-stale\" id=\"staleness\" role=\"status\" hidden></p>\n  <p class=\"notice notice-quiet\" id=\"connection\" role=\"status\" hidden></p>\n\n  <div id=\"content\"></div>\n</main>\n\n<script src=\"config.js\"></script>\n<script src=\"app.js\"></script>\n</body>\n</html>\n",
   },
   "/styles.css": {
@@ -192,7 +302,7 @@ const ASSETS = {
   "/sw.js": {
     type: "text/javascript; charset=utf-8",
     cache: "no-store",
-    body: "// AI Usage Tray - remote view service worker.\n//\n// Its only job is to make the page installable and to survive a flaky\n// connection: the static shell is cached, the usage snapshot never is.\n// Bump CACHE whenever a shell file changes: a new cache name is what makes\n// the update land.\n\nvar CACHE = \"ai-usage-tray-shell-v5\";\n\nvar SHELL = [\n  \"./\",\n  \"./index.html\",\n  \"./styles.css\",\n  \"./app.js\",\n  \"./config.js\",\n  \"./manifest.webmanifest\",\n  \"./icon-192.png\",\n  \"./icon-512.png\"\n];\n\nself.addEventListener(\"install\", function (event) {\n  event.waitUntil(\n    caches.open(CACHE)\n      .then(function (cache) { return cache.addAll(SHELL); })\n      // A single missing file must not block installation.\n      .catch(function () { /* ignore */ })\n      .then(function () { return self.skipWaiting(); })\n  );\n});\n\nself.addEventListener(\"activate\", function (event) {\n  event.waitUntil(\n    caches.keys()\n      .then(function (keys) {\n        return Promise.all(keys.map(function (key) {\n          return key === CACHE ? null : caches.delete(key);\n        }));\n      })\n      .then(function () { return self.clients.claim(); })\n  );\n});\n\nself.addEventListener(\"fetch\", function (event) {\n  var request = event.request;\n  if (request.method !== \"GET\") return;\n\n  var url;\n  try {\n    url = new URL(request.url);\n  } catch (error) {\n    return;\n  }\n\n  // Usage snapshots and anything cross-origin go straight to the network,\n  // uncached: stale usage numbers would be worse than none.\n  if (url.origin !== self.location.origin) return;\n  if (url.pathname.indexOf(\"/u/\") !== -1) return;\n\n  // ignoreSearch so a shared link (/?id=…) still matches the cached shell.\n  event.respondWith(\n    caches.match(request, { ignoreSearch: true }).then(function (hit) {\n      if (hit) return hit;\n\n      return fetch(request).then(function (response) {\n        if (response && response.ok && response.type === \"basic\") {\n          var copy = response.clone();\n          caches.open(CACHE).then(function (cache) {\n            cache.put(request, copy);\n          }).catch(function () { /* quota or private mode */ });\n        }\n        return response;\n      });\n    })\n  );\n});\n",
+    body: "// AI Usage Tray - remote view service worker.\n//\n// Its only job is to make the page installable and to survive a flaky\n// connection: the static shell is cached, the usage snapshot never is.\n// Bump CACHE whenever a shell file changes: a new cache name is what makes\n// the update land.\n\n// v6: the shell files are unchanged, but the worker now serves them with a\n// Content-Security-Policy. Cached responses carry their headers, so an old\n// cache would keep replaying the page without one.\nvar CACHE = \"ai-usage-tray-shell-v6\";\n\nvar SHELL = [\n  \"./\",\n  \"./index.html\",\n  \"./styles.css\",\n  \"./app.js\",\n  \"./config.js\",\n  \"./manifest.webmanifest\",\n  \"./icon-192.png\",\n  \"./icon-512.png\"\n];\n\nself.addEventListener(\"install\", function (event) {\n  event.waitUntil(\n    caches.open(CACHE)\n      .then(function (cache) { return cache.addAll(SHELL); })\n      // A single missing file must not block installation.\n      .catch(function () { /* ignore */ })\n      .then(function () { return self.skipWaiting(); })\n  );\n});\n\nself.addEventListener(\"activate\", function (event) {\n  event.waitUntil(\n    caches.keys()\n      .then(function (keys) {\n        return Promise.all(keys.map(function (key) {\n          return key === CACHE ? null : caches.delete(key);\n        }));\n      })\n      .then(function () { return self.clients.claim(); })\n  );\n});\n\nself.addEventListener(\"fetch\", function (event) {\n  var request = event.request;\n  if (request.method !== \"GET\") return;\n\n  var url;\n  try {\n    url = new URL(request.url);\n  } catch (error) {\n    return;\n  }\n\n  // Usage snapshots and anything cross-origin go straight to the network,\n  // uncached: stale usage numbers would be worse than none.\n  if (url.origin !== self.location.origin) return;\n  if (url.pathname.indexOf(\"/u/\") !== -1) return;\n\n  // ignoreSearch so a shared link (/?id=…) still matches the cached shell.\n  event.respondWith(\n    caches.match(request, { ignoreSearch: true }).then(function (hit) {\n      if (hit) return hit;\n\n      return fetch(request).then(function (response) {\n        if (response && response.ok && response.type === \"basic\") {\n          var copy = response.clone();\n          caches.open(CACHE).then(function (cache) {\n            cache.put(request, copy);\n          }).catch(function () { /* quota or private mode */ });\n        }\n        return response;\n      });\n    })\n  );\n});\n",
   },
   "/icon-192.png": {
     type: "image/png",
@@ -216,12 +326,15 @@ function decode(entry) {
 }
 
 function asset(entry) {
+  const headers = {
+    ...SECURITY,
+    "Content-Type": entry.type,
+    "Cache-Control": entry.cache || STATIC_CACHE,
+  };
+  if (entry.html) Object.assign(headers, HTML_HEADERS);
   return new Response(entry.base64 === undefined ? entry.body : decode(entry), {
     status: 200,
-    headers: {
-      "Content-Type": entry.type,
-      "Cache-Control": entry.cache || STATIC_CACHE,
-    },
+    headers,
   });
 }
 

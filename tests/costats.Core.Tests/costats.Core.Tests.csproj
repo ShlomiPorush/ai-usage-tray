@@ -18,4 +18,12 @@
     <ProjectReference Include="../../src/costats.Core/costats.Core.csproj" />
     <ProjectReference Include="../../src/costats.Infrastructure/costats.Infrastructure.csproj" />
   </ItemGroup>
+  <!-- costats.App targets net10.0-windows and cannot be referenced from here, so
+       the updater sources are compiled into the test assembly instead. They have
+       no WPF dependency. -->
+  <ItemGroup>
+    <Compile Include="../../src/costats.App/Services/Updates/UpdateCheckResult.cs" Link="Updates/UpdateCheckResult.cs" />
+    <Compile Include="../../src/costats.App/Services/Updates/UpdateOptions.cs" Link="Updates/UpdateOptions.cs" />
+    <Compile Include="../../src/costats.App/Services/Updates/StartupUpdateCoordinator.cs" Link="Updates/StartupUpdateCoordinator.cs" />
+  </ItemGroup>
 </Project>

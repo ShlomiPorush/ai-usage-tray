@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using costats.Application.Pulse;
 using costats.Core.Pulse;
@@ -11,13 +12,48 @@ public sealed class JsonPulseSnapshotWriter : IPulseSnapshotWriter
         WriteIndented = false
     };
 
+    /// <summary>
+    /// Writes the snapshot through a temp file in the same directory and moves it
+    /// into place. Serializing straight into the destination would leave a
+    /// truncated pulse.json behind whenever the refresh is cancelled mid-write.
+    /// </summary>
     public async Task WriteAsync(PulseState state, CancellationToken cancellationToken)
     {
         var path = GetSnapshotPath();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
-        await using var stream = File.Create(path);
-        await JsonSerializer.SerializeAsync(stream, state, _serializerOptions, cancellationToken);
+        var temp = path + "." + Environment.CurrentManagedThreadId.ToString(CultureInfo.InvariantCulture) + ".tmp";
+
+        try
+        {
+            await using (var stream = File.Create(temp))
+            {
+                await JsonSerializer.SerializeAsync(stream, state, _serializerOptions, cancellationToken).ConfigureAwait(false);
+                await stream.FlushAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+
+            File.Move(temp, path, overwrite: true);
+        }
+        catch
+        {
+            TryDelete(temp);
+            throw;
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+            // A leftover temp file is harmless; the next write overwrites it.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     private static string GetSnapshotPath()

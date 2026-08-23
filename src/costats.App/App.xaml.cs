@@ -26,6 +26,14 @@ namespace costats.App
 {
     public partial class App : System.Windows.Application
     {
+        /// <summary>Dispatcher exceptions tolerated inside <see cref="DispatcherFailureWindow"/>.</summary>
+        private const int DispatcherFailureLimit = 5;
+
+        private static readonly TimeSpan DispatcherFailureWindow = TimeSpan.FromSeconds(60);
+
+        /// <summary>Timestamps of recent dispatcher exceptions; touched on the UI thread only.</summary>
+        private readonly Queue<DateTimeOffset> _dispatcherFailures = new();
+
         private IHost? _host;
         private SingleInstanceCoordinator? _singleInstance;
         private StartupUpdateCoordinator? _updateCoordinator;
@@ -102,7 +110,7 @@ namespace costats.App
                     return;
                 }
 
-                var settingsStore = new JsonSettingsStore();
+                var settingsStore = new JsonSettingsStore(new CredentialVault());
                 var settings = await settingsStore.LoadAsync(CancellationToken.None).ConfigureAwait(false);
 
                 // Remote view ships with a working endpoint, so the user only has
@@ -205,11 +213,28 @@ namespace costats.App
 
         private static IConfiguration BuildStartupConfiguration()
         {
-            return new ConfigurationBuilder()
+            var builder = new ConfigurationBuilder()
                 .SetBasePath(AppContext.BaseDirectory)
-                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
-                .AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false)
-                .Build();
+                .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false);
+
+            if (IsDevelopmentEnvironment())
+            {
+                builder.AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: false);
+            }
+
+            return builder.Build();
+        }
+
+        /// <summary>
+        /// Development overrides (Serilog debug logging, for example) must never
+        /// reach a shipped build, so they load only when the environment says so.
+        /// The host builder applies the same rule through its own convention.
+        /// </summary>
+        private static bool IsDevelopmentEnvironment()
+        {
+            var environment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT")
+                ?? Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT");
+            return string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -238,10 +263,32 @@ namespace costats.App
 
         private void RegisterExceptionHandlers()
         {
+            // One bad click handler must not kill a tray app, so UI exceptions
+            // stay suppressed. A dispatcher that keeps faulting is different:
+            // with no main window it would leave a zombie icon behind, so a
+            // burst of failures shuts the app down instead.
             DispatcherUnhandledException += (_, args) =>
             {
                 Log.Error(args.Exception, "Unhandled UI exception");
                 args.Handled = true;
+
+                var now = DateTimeOffset.UtcNow;
+                _dispatcherFailures.Enqueue(now);
+                while (_dispatcherFailures.Count > 0 && now - _dispatcherFailures.Peek() > DispatcherFailureWindow)
+                {
+                    _dispatcherFailures.Dequeue();
+                }
+
+                if (_dispatcherFailures.Count > DispatcherFailureLimit)
+                {
+                    Log.Fatal(
+                        args.Exception,
+                        "{Count} unhandled UI exceptions within {Seconds}s, shutting down",
+                        _dispatcherFailures.Count,
+                        DispatcherFailureWindow.TotalSeconds);
+                    _dispatcherFailures.Clear();
+                    Shutdown(2);
+                }
             };
 
             TaskScheduler.UnobservedTaskException += (_, args) =>
@@ -281,8 +328,9 @@ namespace costats.App
             _host = Host.CreateDefaultBuilder()
                 .ConfigureAppConfiguration(config =>
                 {
+                    // CreateDefaultBuilder already layers appsettings.{Environment}.json
+                    // on top of this, so no Development file is added by hand.
                     config.AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
-                    config.AddJsonFile("appsettings.Development.json", optional: true, reloadOnChange: true);
                 })
                 .UseSerilog((context, services, loggerConfig) =>
                 {

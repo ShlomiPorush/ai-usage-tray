@@ -113,8 +113,8 @@ public partial class AddAccountWindow : Window
                 NamePanel.Visibility = Visibility.Visible;
                 SecretLabel.Text = "API key";
                 SecretHint.Text = _isEditMode
-                    ? "Coding-plan key from z.ai/manage-apikey. Leave empty to keep the current key."
-                    : "Coding-plan key from z.ai/manage-apikey. Stored in settings.json.";
+                    ? "Coding-plan key from z.ai/manage-apikey. Leave empty to keep the current key. Stored in Windows Credential Manager."
+                    : "Coding-plan key from z.ai/manage-apikey. Stored in Windows Credential Manager, not in settings.json.";
                 if (string.IsNullOrWhiteSpace(NameBox.Text) || NameBox.Text is "Claude" or "Codex")
                 {
                     NameBox.Text = "GLM";

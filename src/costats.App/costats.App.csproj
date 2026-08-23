@@ -61,7 +61,8 @@
 
   <ItemGroup>
     <Content Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="appsettings.Development.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Copied for local F5 runs only; a shipped build must never carry it. -->
+    <Content Include="appsettings.Development.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
     <Content Include="Services\Updates\apply-update.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="apply-update.ps1" />
     <!-- Shipped next to the exe so the Add/remove programs entry has something to run. -->
     <Content Include="..\..\scripts\uninstall.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="uninstall.ps1" />

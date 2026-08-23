@@ -271,12 +271,15 @@ namespace costats.App.Services
                 .GroupBy(profile => profile.ProviderId, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First().DisplayName, StringComparer.OrdinalIgnoreCase);
 
+            var primaryId = _settings.PrimaryAccountId;
+
             var accounts = state.Providers
                 .Where(pair =>
-                    pair.Key.Equals("claude", StringComparison.OrdinalIgnoreCase) ||
-                    (pair.Key.Equals("zai", StringComparison.OrdinalIgnoreCase) && _settings.HasZaiKey) ||
-                    pair.Key.StartsWith("claude:", StringComparison.OrdinalIgnoreCase) ||
-                    pair.Key.StartsWith("codex:", StringComparison.OrdinalIgnoreCase))
+                    TrayAccountFilter.IsVisible(pair.Key, _settings.HasZaiKey, _settings.CopilotEnabled) ||
+                    // The primary account drives the icon, so it must never be
+                    // missing from the list the tooltip is built from.
+                    (!string.IsNullOrWhiteSpace(primaryId) &&
+                     pair.Key.Equals(primaryId, StringComparison.OrdinalIgnoreCase)))
                 .Select(pair =>
                 {
                     var label = displayNames.TryGetValue(pair.Key, out var displayName)
@@ -295,7 +298,6 @@ namespace costats.App.Services
 
             // When a primary account is configured, its status drives the icon
             // (colour + number); the tooltip still lists every account, primary first.
-            var primaryId = _settings.PrimaryAccountId;
             if (!string.IsNullOrWhiteSpace(primaryId) &&
                 state.Providers.TryGetValue(primaryId, out var primaryReading))
             {

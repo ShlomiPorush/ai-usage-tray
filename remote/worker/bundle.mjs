@@ -11,6 +11,7 @@
 // web/config.js is deliberately NOT bundled: the bundled worker serves the page and
 // the API from the same origin, so it emits an empty apiBase instead.
 
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,8 +43,38 @@ const CONFIG_BODY = 'window.REMOTE_VIEW_CONFIG = { apiBase: "" };\n';
 // re-installing itself long after the worker was redeployed.
 const NO_STORE = "no-store";
 
+const indexHtml = read(join(webDir, "index.html"));
+
+// --- Content-Security-Policy -------------------------------------------------
+// The page carries one inline <script> (the pre-paint theme guard). Rather than
+// weaken script-src with 'unsafe-inline', every inline script is hashed here at
+// build time, so the policy stays exact and breaks loudly if the page changes
+// without a rebuild.
+const INLINE_SCRIPT_RE = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
+const scriptHashes = [...indexHtml.matchAll(INLINE_SCRIPT_RE)].map(
+  (m) => `'sha256-${createHash("sha256").update(m[1], "utf8").digest("base64")}'`,
+);
+
+// default-src 'none' plus one allowance per resource the page actually uses.
+// connect-src 'self' is enough because the bundled config.js leaves apiBase
+// empty: page and API share an origin.
+const CSP = [
+  "default-src 'none'",
+  "base-uri 'none'",
+  `script-src 'self'${scriptHashes.length ? " " + scriptHashes.join(" ") : ""}`,
+  // No inline style attributes in the markup; app.js only touches CSSOM
+  // properties, which CSP does not govern.
+  "style-src 'self'",
+  "img-src 'self'",
+  "connect-src 'self'",
+  "manifest-src 'self'",
+  "worker-src 'self'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join("; ");
+
 const assets = [
-  { path: "/index.html", type: "text/html; charset=utf-8", text: read(join(webDir, "index.html")) },
+  { path: "/index.html", type: "text/html; charset=utf-8", text: indexHtml, html: true },
   { path: "/styles.css", type: "text/css; charset=utf-8", text: read(join(webDir, "styles.css")) },
   { path: "/app.js", type: "text/javascript; charset=utf-8", text: read(join(webDir, "app.js")) },
   { path: "/config.js", type: "text/javascript; charset=utf-8", text: CONFIG_BODY },
@@ -67,6 +98,7 @@ const assets = [
 const assetEntries = assets
   .map((entry) => {
     const fields = [`    type: ${JSON.stringify(entry.type)},`];
+    if (entry.html) fields.push("    html: true,");
     if (entry.cache) fields.push(`    cache: ${JSON.stringify(entry.cache)},`);
     fields.push(
       entry.base64 === undefined
@@ -85,12 +117,21 @@ const output = `// AI Usage Tray - remote view worker, bundled.
 // Sources: worker.js and every file in web/ (page, styles, script, manifest,
 //          service worker, icons).
 //
-// Serves the JSON API (PUT/GET /u/{id}) and the viewer page from a single URL.
+// Serves the JSON API (PUT/DELETE /u/{writeId}, GET /u/{readId}) and the viewer
+// page from a single URL.
 // Requires one KV binding named USAGE.
 
 ${apiSection}
 
 const STATIC_CACHE = "public, max-age=300";
+
+// Only the page needs these; SECURITY (nosniff, no-referrer) comes from the
+// API section above and is applied to every response.
+const HTML_HEADERS = {
+  "Content-Security-Policy": ${JSON.stringify(CSP)},
+  "X-Frame-Options": "DENY",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+};
 
 const ASSETS = {
 ${assetEntries}
@@ -108,12 +149,15 @@ function decode(entry) {
 }
 
 function asset(entry) {
+  const headers = {
+    ...SECURITY,
+    "Content-Type": entry.type,
+    "Cache-Control": entry.cache || STATIC_CACHE,
+  };
+  if (entry.html) Object.assign(headers, HTML_HEADERS);
   return new Response(entry.base64 === undefined ? entry.body : decode(entry), {
     status: 200,
-    headers: {
-      "Content-Type": entry.type,
-      "Cache-Control": entry.cache || STATIC_CACHE,
-    },
+    headers,
   });
 }
 

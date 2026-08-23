@@ -26,6 +26,23 @@ public sealed class CredentialVault : ICredentialVault
         return Task.FromResult(credential?.Password);
     }
 
+    public Task DeleteAsync(string key, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var target = BuildTarget(key);
+        try
+        {
+            CredentialManager.RemoveCredentials(target, CredentialType.Generic);
+        }
+        catch
+        {
+            // Credential Manager throws when the target does not exist. Clearing
+            // a secret that was never stored is a no-op, not an error.
+        }
+
+        return Task.CompletedTask;
+    }
+
     private static string BuildTarget(string key)
     {
         if (string.IsNullOrWhiteSpace(key))

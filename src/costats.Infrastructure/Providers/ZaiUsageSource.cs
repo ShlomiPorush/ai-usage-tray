@@ -49,7 +49,7 @@ public sealed class ZaiUsageSource : ISignalSource
                 Usage: null,
                 Identity: new IdentityCard(
                     Profile.ProviderId, Profile.DisplayName, null, null, null, "Z.AI API"),
-                StatusSummary: "Z.AI: not configured or API key invalid. Add ZAiCodingApiKey to appsettings.json.",
+                StatusSummary: "Z.AI: not configured or API key invalid. Add the key in Settings > Accounts.",
                 CapturedAt: now,
                 Confidence: ReadingConfidence.Low,
                 Source: ReadingSource.Api);

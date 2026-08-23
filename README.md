@@ -63,7 +63,7 @@ Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from up
 | `Hotkey` | `Ctrl+Alt+U` | Toggle the widget |
 | `StartAtLogin` | `false` | Registers `AiUsageTray` in the Run key |
 | `Accounts[]` | one Claude (`~/.claude`) + one Codex (`~/.codex`) | Any mix of accounts: `Id`, `Type` (`claude`/`codex`), `DisplayName`, `ConfigDir`. Editable in Settings (add/remove). Legacy `OpenAiAccounts`/`ClaudeConfigDir` settings are migrated automatically. |
-| `ZAiCodingApiKey` / `ZAiApiKey` | empty | Z.AI coding-plan / pay-as-you-go keys |
+| Z.AI keys | empty | Coding-plan / pay-as-you-go keys. Set them in Settings → Accounts; they are stored in Windows Credential Manager, never in `settings.json`. |
 | `ShowClockPanel` | `false` | Always-on-top status text next to the clock |
 | `CopilotEnabled` | `false` | Enable the Copilot provider |
 | `Theme` | `system` | `system` / `light` / `dark` |

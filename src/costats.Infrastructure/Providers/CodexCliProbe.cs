@@ -49,7 +49,12 @@ public sealed class CodexCliProbe
         {
             process.Start();
 
+            // stderr is redirected too, so it has to be drained: waiting on stdout
+            // alone deadlocks once the child fills the stderr buffer.
             var outputTask = process.StandardOutput.ReadToEndAsync(cts.Token);
+            var errorTask = process.StandardError.ReadToEndAsync(cts.Token);
+
+            await Task.WhenAll(outputTask, errorTask);
             await process.WaitForExitAsync(cts.Token);
 
             return outputTask.Result;

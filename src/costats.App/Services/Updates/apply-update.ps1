@@ -19,6 +19,13 @@ $backupDir = "$InstallDir.__backup"
 $oldExePath = Join-Path $InstallDir $ExecutableRelativePath
 $newExePath = $null
 
+# The whole InstallDir is swapped below, so it must be a folder that belongs to
+# this app and nothing else. install.ps1 writes this marker after extracting and
+# every update carries it forward; without it the swap is refused.
+$installMarkerName = "install-manifest.json"
+$installMarkerApp = "AIUsageTray"
+$installMarkerSchema = 1
+
 function Write-Log {
     param([string]$Message)
     $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
@@ -43,6 +50,57 @@ function Invoke-WithRetry {
             Start-Sleep -Milliseconds $DelayMs
         }
     }
+}
+
+function Test-InstallMarker {
+    param([string]$Directory)
+
+    if ([string]::IsNullOrWhiteSpace($Directory)) { return $false }
+
+    $markerPath = Join-Path $Directory $installMarkerName
+    if (-not (Test-Path -LiteralPath $markerPath)) { return $false }
+
+    try {
+        $marker = Get-Content -Raw -LiteralPath $markerPath | ConvertFrom-Json
+        if (-not (Get-Member -InputObject $marker -Name "app" -MemberType NoteProperty)) { return $false }
+        return ($marker.app -eq $installMarkerApp)
+    } catch {
+        return $false
+    }
+}
+
+function New-InstallMarker {
+    param([string]$Directory)
+
+    try {
+        $payload = [ordered]@{
+            app           = $installMarkerApp
+            schemaVersion = $installMarkerSchema
+            installedUtc  = (Get-Date).ToUniversalTime().ToString("o")
+            installedBy   = "apply-update.ps1"
+        }
+        $markerPath = Join-Path $Directory $installMarkerName
+        $payload | ConvertTo-Json | Set-Content -LiteralPath $markerPath -Encoding UTF8
+        Write-Log "Wrote the install marker to $markerPath."
+    } catch {
+        Write-Log "Could not write the install marker: $($_.Exception.Message)"
+    }
+}
+
+function Test-ForbiddenInstallDir {
+    param([string]$Directory)
+
+    $full = [IO.Path]::GetFullPath($Directory)
+    $candidates = @([IO.Path]::GetPathRoot($full), $env:USERPROFILE, $env:LOCALAPPDATA, $env:APPDATA,
+                    $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:windir)
+    if ($env:USERPROFILE) {
+        $candidates += (Join-Path $env:USERPROFILE "Desktop")
+        $candidates += (Join-Path $env:USERPROFILE "Documents")
+        $candidates += (Join-Path $env:USERPROFILE "Downloads")
+    }
+
+    $forbidden = $candidates | Where-Object { $_ } | ForEach-Object { $_.TrimEnd('/', [char]92) }
+    return ($forbidden -contains $full.TrimEnd('/', [char]92))
 }
 
 function Relaunch-App {
@@ -144,6 +202,34 @@ try {
         return
     }
 
+    # --- Validate the install directory ---
+    # Everything below replaces InstallDir as a whole, so refuse anything that is
+    # not provably a dedicated AI Usage Tray folder. The pending update is dropped
+    # so the app does not retry the same refusal on every start.
+    if (Test-ForbiddenInstallDir -Directory $InstallDir) {
+        Write-Log "Refusing to update: '$InstallDir' is a drive root, profile or system folder."
+        Remove-Item -Force $PendingFilePath -ErrorAction SilentlyContinue
+        Relaunch-App
+        return
+    }
+
+    if (-not (Test-InstallMarker -Directory $InstallDir)) {
+        Write-Log "Refusing to update: '$InstallDir' has no valid $installMarkerName, so it is not a managed install."
+        Remove-Item -Force $PendingFilePath -ErrorAction SilentlyContinue
+        Relaunch-App
+        return
+    }
+
+    # Carry the marker into the new version so the next update is allowed too.
+    try {
+        $currentMarkerPath = Join-Path $InstallDir $installMarkerName
+        $stagedMarkerPath = Join-Path $StagingDir $installMarkerName
+        Copy-Item -LiteralPath $currentMarkerPath -Destination $stagedMarkerPath -Force
+        Write-Log "Carried the install marker into the staged version."
+    } catch {
+        Write-Log "Could not carry the install marker into staging: $($_.Exception.Message)"
+    }
+
     # --- Clean old backup ---
     if (Test-Path $backupDir) {
         try {
@@ -197,6 +283,11 @@ try {
         }
         Relaunch-App
         return
+    }
+
+    # The marker must survive the swap or the next update would refuse to run.
+    if (-not (Test-InstallMarker -Directory $InstallDir)) {
+        New-InstallMarker -Directory $InstallDir
     }
 
     $updateSucceeded = $true

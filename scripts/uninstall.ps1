@@ -13,6 +13,10 @@
     This script ships inside the app folder it deletes, so it copies itself to
     %TEMP% and re-runs from there.
 
+    It refuses to run unless the app folder holds the install-manifest.json
+    marker written by install.ps1, or is the default %LOCALAPPDATA%\AIUsageTray\app
+    path. A ZIP unpacked next to your own files is never deleted.
+
 .PARAMETER PurgeData
     Also delete %LOCALAPPDATA%\costats (settings, logs, snapshots).
 
@@ -49,11 +53,66 @@ $runValueNames = @("AiUsageTray", "AIUsageTray", "costats")
 $shortcutName = "AI Usage Tray.lnk"
 $logPath = Join-Path $env:TEMP "ai-usage-tray-uninstall.log"
 
+# Written by install.ps1 and carried through every update. Nothing is deleted
+# from a folder that does not have it.
+$installMarkerName = "install-manifest.json"
+$installMarkerApp = "AIUsageTray"
+
 function Write-Step {
     param([string]$Message, [string]$Colour = "Gray")
     $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
     try { Add-Content -LiteralPath $logPath -Value "$stamp  $Message" } catch { }
     if (-not $Silent) { Write-Host $Message -ForegroundColor $Colour }
+}
+
+function Test-InstallMarker {
+    param([string]$Directory)
+
+    if ([string]::IsNullOrWhiteSpace($Directory)) { return $false }
+
+    $markerPath = Join-Path $Directory $installMarkerName
+    if (-not (Test-Path -LiteralPath $markerPath)) { return $false }
+
+    try {
+        $marker = Get-Content -Raw -LiteralPath $markerPath | ConvertFrom-Json
+        if (-not (Get-Member -InputObject $marker -Name "app" -MemberType NoteProperty)) { return $false }
+        return ($marker.app -eq $installMarkerApp)
+    } catch {
+        return $false
+    }
+}
+
+function Test-DefaultManagedDir {
+    # %LOCALAPPDATA%\AIUsageTray\app has always been created by install.ps1 alone,
+    # so it is accepted for installs made before the marker existed.
+    param([string]$Directory)
+
+    if (-not $env:LOCALAPPDATA) { return $false }
+    $expected = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "AIUsageTray\app"))
+    return ($Directory.TrimEnd('/', [char]92) -ieq $expected.TrimEnd('/', [char]92))
+}
+
+function Test-RootHoldsOnlyLeftovers {
+    # After the app folder is gone the install root may still hold updater
+    # leftovers: log files and abandoned "<name>.__backup" copies. Any other
+    # file means the folder is shared with something else and must survive.
+    param([string]$Root)
+
+    $files = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force -ErrorAction SilentlyContinue)
+    foreach ($file in $files) {
+        if ($file.Extension -ieq ".log") { continue }
+
+        $relative = $file.FullName.Substring($Root.Length).TrimStart('/', [char]92)
+        $fromUpdater = $false
+        foreach ($segment in $relative.Split([char]92)) {
+            if ($segment -like "*.__backup") { $fromUpdater = $true; break }
+        }
+        if ($fromUpdater) { continue }
+
+        return $false
+    }
+
+    return $true
 }
 
 function Remove-Tree {
@@ -78,10 +137,24 @@ if ([string]::IsNullOrWhiteSpace($AppDir)) {
 $AppDir = [IO.Path]::GetFullPath($AppDir)
 
 # Never let a bad argument turn this into a profile wipe.
-$forbidden = @([IO.Path]::GetPathRoot($AppDir), $env:USERPROFILE, $env:LOCALAPPDATA, $env:APPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:windir) |
-    Where-Object { $_ } | ForEach-Object { $_.TrimEnd('/', [char]92) }
+$candidates = @([IO.Path]::GetPathRoot($AppDir), $env:USERPROFILE, $env:LOCALAPPDATA, $env:APPDATA,
+                $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:windir)
+if ($env:USERPROFILE) {
+    $candidates += (Join-Path $env:USERPROFILE "Desktop")
+    $candidates += (Join-Path $env:USERPROFILE "Documents")
+    $candidates += (Join-Path $env:USERPROFILE "Downloads")
+}
+$forbidden = $candidates | Where-Object { $_ } | ForEach-Object { $_.TrimEnd('/', [char]92) }
 if ($forbidden -contains $AppDir.TrimEnd('/', [char]92)) {
     throw "Refusing to delete '$AppDir' - that is not an app folder."
+}
+
+# This script deletes AppDir whole, and the release ZIP is flat, so a copy
+# unpacked next to unrelated files would take them with it. Only a folder that
+# carries the install marker (or the default managed path, for installs made
+# before the marker existed) is ever deleted.
+if (-not ((Test-InstallMarker -Directory $AppDir) -or (Test-DefaultManagedDir -Directory $AppDir))) {
+    throw "Refusing to uninstall from '$AppDir': it has no $installMarkerName, so it is not an AI Usage Tray installation. Delete the folder yourself if you are sure."
 }
 
 if (-not $Relaunched) {
@@ -147,13 +220,18 @@ if (-not (Remove-Tree -Path $AppDir)) {
     Write-Step "Deleted $AppDir"
 }
 
-# The standard layout is <root>\AIUsageTray\app, and the updater stages into
-# the same root, so take the whole root with it. Matching on the folder name
-# rather than on a LOCALAPPDATA prefix avoids short-path ("SHLOMI~1") mismatches.
+# The standard layout is <root>\AIUsageTray\app, and the updater leaves backups
+# and logs beside it, so the root goes too - but only when nothing else is left
+# inside it. Matching on the folder name rather than on a LOCALAPPDATA prefix
+# avoids short-path ("SHLOMI~1") mismatches.
 $installRoot = Split-Path -Parent $AppDir
 if ($installRoot -and (Split-Path -Leaf $installRoot) -eq "AIUsageTray" -and (Test-Path -LiteralPath $installRoot)) {
-    if (Remove-Tree -Path $installRoot) {
-        Write-Step "Deleted $installRoot"
+    if (Test-RootHoldsOnlyLeftovers -Root $installRoot) {
+        if (Remove-Tree -Path $installRoot) {
+            Write-Step "Deleted $installRoot"
+        }
+    } else {
+        Write-Step "Kept $installRoot - it holds files that are not ours." "Yellow"
     }
 }
 

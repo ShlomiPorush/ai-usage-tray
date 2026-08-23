@@ -24,6 +24,13 @@ public sealed class SourceSelector : ISourceSelector
             {
                 return await source.ReadAsync(cancellationToken);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // A cancelled refresh is not a source failure. Swallowing it here
+                // would turn every source into null and publish an empty "No data"
+                // reading over the last good state.
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Source {Source} failed for {ProviderId}", source.GetType().Name, providerId);

@@ -1,3 +1,5 @@
+using costats.Core.RemoteView;
+
 namespace costats.Application.Settings;
 
 public sealed class AppSettings
@@ -64,22 +66,25 @@ public sealed class AppSettings
     public bool RemoteViewEnabled { get; set; } = false;
 
     /// <summary>
-    /// Random 32-character lowercase hex id identifying this machine's snapshot
-    /// on the remote endpoint. Generated once, the first time remote view is
-    /// enabled, and then kept so the share link stays stable.
+    /// The secret write id: 32 lowercase hex characters that authorise uploading
+    /// and deleting this machine's snapshot. Minted the first time remote view is
+    /// enabled and then kept, so the share link stays stable. It never leaves the
+    /// app: the link carries the derived <see cref="RemoteViewReadId"/> instead.
     /// </summary>
     public string? RemoteViewId { get; set; }
 
     /// <summary>
     /// Base URL of the upload endpoint (a Cloudflare Worker), e.g.
     /// <c>https://usage-api.example.com</c>. Snapshots are PUT to
-    /// <c>{url}/u/{id}</c>.
+    /// <c>{url}/u/{writeId}</c>. Must be https (or http on a loopback host);
+    /// anything else is ignored.
     /// </summary>
     public string? RemoteViewUploadUrl { get; set; }
 
     /// <summary>
     /// Base URL of the public viewer page, e.g. <c>https://usage.example.com</c>.
-    /// The shareable link is <c>{url}/?id={id}</c>.
+    /// The shareable link is <c>{url}/?id={readId}</c>. Same https rule as
+    /// <see cref="RemoteViewUploadUrl"/>.
     /// </summary>
     public string? RemoteViewPageUrl { get; set; }
 
@@ -104,13 +109,14 @@ public sealed class AppSettings
 
     /// <summary>
     /// Upload endpoint actually used: a hand-edited user value wins, otherwise
-    /// the built-in default, otherwise null (remote view stays inert).
+    /// the built-in default, otherwise null (remote view stays inert). A value
+    /// that is not https (or http on loopback) counts as absent, so a bad
+    /// override cannot downgrade the connection that carries the write id.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string? EffectiveRemoteViewUploadUrl =>
-        !string.IsNullOrWhiteSpace(RemoteViewUploadUrl) ? RemoteViewUploadUrl
-        : !string.IsNullOrWhiteSpace(DefaultRemoteViewUploadUrl) ? DefaultRemoteViewUploadUrl
-        : null;
+        RemoteViewEndpoints.Normalize(RemoteViewUploadUrl)
+        ?? RemoteViewEndpoints.Normalize(DefaultRemoteViewUploadUrl);
 
     /// <summary>
     /// Viewer page actually used, resolved like
@@ -118,9 +124,16 @@ public sealed class AppSettings
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string? EffectiveRemoteViewPageUrl =>
-        !string.IsNullOrWhiteSpace(RemoteViewPageUrl) ? RemoteViewPageUrl
-        : !string.IsNullOrWhiteSpace(DefaultRemoteViewPageUrl) ? DefaultRemoteViewPageUrl
-        : null;
+        RemoteViewEndpoints.Normalize(RemoteViewPageUrl)
+        ?? RemoteViewEndpoints.Normalize(DefaultRemoteViewPageUrl);
+
+    /// <summary>
+    /// The public id derived from <see cref="RemoteViewId"/>: what the share
+    /// link carries, and the only id a reader ever sees. Null when no valid
+    /// write id has been minted yet.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? RemoteViewReadId => RemoteViewIds.TryDeriveReadId(RemoteViewId);
 
     /// <summary>
     /// The link to open the remote view in a browser, or null while remote view
@@ -128,21 +141,28 @@ public sealed class AppSettings
     /// widget can never disagree about the URL.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
-    public string? RemoteViewShareLink =>
-        RemoteViewEnabled &&
-        !string.IsNullOrWhiteSpace(EffectiveRemoteViewPageUrl) &&
-        !string.IsNullOrWhiteSpace(RemoteViewId)
-            ? $"{EffectiveRemoteViewPageUrl.TrimEnd('/')}/?id={RemoteViewId}"
-            : null;
+    public string? RemoteViewShareLink
+    {
+        get
+        {
+            var page = EffectiveRemoteViewPageUrl;
+            var readId = RemoteViewReadId;
+            return RemoteViewEnabled && page is not null && readId is not null
+                ? $"{page.TrimEnd('/')}/?id={readId}"
+                : null;
+        }
+    }
 
     /// <summary>
     /// True when the build ships a complete remote-view service, so Settings can
-    /// hide the endpoint boxes and remote view becomes a single checkbox.
+    /// hide the endpoint boxes and remote view becomes a single checkbox. A
+    /// default that fails the https rule does not count: the boxes stay visible
+    /// rather than leaving the user with a silently inert feature.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public bool HasRemoteViewDefaults =>
-        !string.IsNullOrWhiteSpace(DefaultRemoteViewUploadUrl) &&
-        !string.IsNullOrWhiteSpace(DefaultRemoteViewPageUrl);
+        RemoteViewEndpoints.IsAllowed(DefaultRemoteViewUploadUrl) &&
+        RemoteViewEndpoints.IsAllowed(DefaultRemoteViewPageUrl);
 
     /// <summary>True when any Z.AI API key is configured.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
@@ -154,7 +174,10 @@ public sealed class AppSettings
     /// (<c>https://api.z.ai/api/coding/paas/v4/usage</c>). When empty, the
     /// coding-plan path is skipped. Get the key from
     /// <c>https://z.ai/manage-apikey</c>.
+    /// Never serialized: the secret lives in Windows Credential Manager and is
+    /// hydrated into this in-memory property by the settings store.
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? ZAiCodingApiKey { get; set; }
 
     /// <summary>
@@ -162,7 +185,10 @@ public sealed class AppSettings
     /// (<c>https://api.z.ai/api/paas/v4/usage</c>). Used as a fallback when
     /// no coding plan is configured. Get the key from
     /// <c>https://z.ai/manage-apikey</c>.
+    /// Never serialized, for the same reason as
+    /// <see cref="ZAiCodingApiKey"/>.
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? ZAiApiKey { get; set; }
 
     /// <summary>

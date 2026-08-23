@@ -85,11 +85,22 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
                 providerReads[providerId] = reading;
             }
 
+            // Nothing below this line may run for a refresh that was cancelled:
+            // the reads would be incomplete and would overwrite the last good state.
+            cancellationToken.ThrowIfCancellationRequested();
+
             var state = new PulseState(providerReads, _clock.UtcNow, errors, false, trigger);
             _lastState = state;
             _hasSuccessfulLoad = true;
             _broadcaster.Publish(state);
             await _snapshotWriter.WriteAsync(state, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Cancellation is a normal outcome (shutdown, interval change). Keep the
+            // last good state and publish nothing.
+            _logger.LogDebug("Pulse refresh cancelled ({Trigger})", trigger);
+            throw;
         }
         catch (Exception ex)
         {
@@ -146,6 +157,9 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
 
             var reading = await _selector.SelectAsync(providerId, providerSources, cancellationToken).ConfigureAwait(false);
 
+            // A cancelled read must not be merged into the published state.
+            cancellationToken.ThrowIfCancellationRequested();
+
             // Merge with existing state
             var existingProviders = _lastState?.Providers
                 ?? new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase);
@@ -160,6 +174,11 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
             _broadcaster.Publish(state);
 
             _logger.LogDebug("Silent refresh completed for {ProviderId}", providerId);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Cancelled silent refresh: keep the last good state, publish nothing.
+            _logger.LogDebug("Silent refresh cancelled for {ProviderId}", providerId);
         }
         catch (Exception ex)
         {

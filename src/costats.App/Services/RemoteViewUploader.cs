@@ -6,6 +6,8 @@ using costats.Application.Pulse;
 using costats.Application.Settings;
 using costats.Core.Pulse;
 using costats.Core.Remote;
+using costats.Core.RemoteView;
+using costats.Core.Tray;
 using Serilog;
 
 namespace costats.App.Services
@@ -31,6 +33,7 @@ namespace costats.App.Services
         private DateTimeOffset _lastSuccessfulUpload = DateTimeOffset.MinValue;
         private int _consecutiveFailures;
         private int _uploadInFlight;
+        private int _warnedAboutRejectedUrl;
 
         public RemoteViewUploader(
             IPulseOrchestrator pulseOrchestrator,
@@ -54,10 +57,10 @@ namespace costats.App.Services
                     return;
                 }
 
-                var uploadUrl = _settings.EffectiveRemoteViewUploadUrl;
+                var uploadUrl = ResolveUploadUrl();
                 if (!_settings.RemoteViewEnabled ||
-                    string.IsNullOrWhiteSpace(_settings.RemoteViewId) ||
-                    string.IsNullOrWhiteSpace(uploadUrl))
+                    !RemoteViewIds.IsValidId(_settings.RemoteViewId) ||
+                    uploadUrl is null)
                 {
                     return;
                 }
@@ -69,6 +72,7 @@ namespace costats.App.Services
                 }
 
                 var snapshot = Compose(state, now);
+                // The write id, never the read id: only this app can PUT.
                 var url = $"{uploadUrl.TrimEnd('/')}/u/{_settings.RemoteViewId}";
 
                 // One upload at a time; a slow endpoint must not queue refreshes up.
@@ -118,13 +122,74 @@ namespace costats.App.Services
             return RemoteSnapshotComposer.Compose(_settings.PrimaryAccountId, entries, generatedAt);
         }
 
-        /// <summary>Same account filter the tray tooltip uses, plus Copilot when it is enabled.</summary>
+        /// <summary>
+        /// Exactly the account filter the tray surfaces use. Shared so the two
+        /// cannot drift: what you see in the tray is what the phone sees.
+        /// </summary>
         private bool IsPublished(string providerId) =>
-            providerId.StartsWith("claude:", StringComparison.OrdinalIgnoreCase) ||
-            providerId.StartsWith("codex:", StringComparison.OrdinalIgnoreCase) ||
-            providerId.Equals("claude", StringComparison.OrdinalIgnoreCase) ||
-            (providerId.Equals("zai", StringComparison.OrdinalIgnoreCase) && _settings.HasZaiKey) ||
-            (providerId.Equals("copilot", StringComparison.OrdinalIgnoreCase) && _settings.CopilotEnabled);
+            TrayAccountFilter.IsVisible(providerId, _settings.HasZaiKey, _settings.CopilotEnabled);
+
+        /// <summary>
+        /// The upload endpoint, or null when none is configured or the user's
+        /// override fails the https rule. Warns once per session about a
+        /// rejected override so the feature does not just look broken.
+        /// </summary>
+        private string? ResolveUploadUrl()
+        {
+            var resolved = _settings.EffectiveRemoteViewUploadUrl;
+            var overrideUrl = _settings.RemoteViewUploadUrl;
+
+            if (!string.IsNullOrWhiteSpace(overrideUrl) &&
+                !RemoteViewEndpoints.IsAllowed(overrideUrl) &&
+                Interlocked.Exchange(ref _warnedAboutRejectedUrl, 1) == 0)
+            {
+                Log.Warning(
+                    "Remote view upload URL is not https and was ignored; using the built-in endpoint instead");
+            }
+
+            return resolved;
+        }
+
+        /// <summary>
+        /// Clears the upload throttle so the next pulse publishes immediately.
+        /// Used after the write id is rotated, where waiting a minute would leave
+        /// the freshly copied link showing nothing.
+        /// </summary>
+        public void RequestImmediateUpload() => _lastSuccessfulUpload = DateTimeOffset.MinValue;
+
+        /// <summary>
+        /// Removes the snapshot stored under <paramref name="writeId"/>. Best
+        /// effort: returns false instead of throwing, because the caller is a UI
+        /// toggle that must not fail. The worker answers 204 whether or not
+        /// anything was stored.
+        /// </summary>
+        public async Task<bool> DeleteAsync(string? writeId)
+        {
+            var uploadUrl = ResolveUploadUrl();
+            if (!RemoteViewIds.IsValidId(writeId) || uploadUrl is null)
+            {
+                return false;
+            }
+
+            var url = $"{uploadUrl.TrimEnd('/')}/u/{writeId}";
+            try
+            {
+                using var response = await _http.DeleteAsync(url).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+
+                Log.Warning(
+                    "Remote view delete answered {StatusCode}", (int)response.StatusCode);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Remote view delete failed");
+                return false;
+            }
+        }
 
         private async Task UploadAsync(string url, RemoteSnapshot snapshot)
         {

@@ -189,9 +189,15 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromSeconds(5));
 
+            // Both pipes are redirected, so both must be drained: waiting for exit
+            // without reading them deadlocks as soon as the CLI fills a buffer.
+            var stdoutDrain = DrainAsync(process.StandardOutput, cts.Token);
+            var stderrDrain = DrainAsync(process.StandardError, cts.Token);
+
             try
             {
                 await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
+                await Task.WhenAll(stdoutDrain, stderrDrain).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
@@ -208,6 +214,22 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         catch
         {
             _refreshBlockedUntil = DateTimeOffset.UtcNow + RefreshCooldownFailure;
+        }
+    }
+
+    /// <summary>
+    /// Reads a redirected stream to completion, ignoring failures. Never throws,
+    /// so an abandoned drain cannot surface as an unobserved task exception.
+    /// </summary>
+    private static async Task DrainAsync(StreamReader reader, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Draining exists only to keep the child's pipe from filling up.
         }
     }
 
@@ -242,8 +264,17 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                 RedirectStandardOutput = true
             };
             process.Start();
-            var output = process.StandardOutput.ReadLine();
+
+            // Read the whole pipe, not just the first line: "where" can report
+            // several matches and an unread pipe blocks the child.
+            var allOutput = process.StandardOutput.ReadToEnd();
             process.WaitForExit(2000);
+
+            var output = allOutput
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Select(line => line.Trim())
+                .FirstOrDefault(line => line.Length > 0);
+
             if (!string.IsNullOrWhiteSpace(output) && File.Exists(output))
             {
                 return output;

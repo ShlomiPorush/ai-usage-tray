@@ -29,6 +29,10 @@ public sealed class StartupUpdateCoordinator
         @"^(?<hash>[A-Fa-f0-9]{64})\s+\*?(?<name>.+)$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex RepositoryRegex = new(
+        @"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private readonly UpdateOptions _options;
     private readonly HttpClient _httpClient;
     private readonly string _appBaseDirectory;
@@ -251,19 +255,28 @@ public sealed class StartupUpdateCoordinator
                 return UpdateCheckResult.UpToDate;
             }
 
+            // Persist the check timestamp before downloading so a repeatedly
+            // failing release does not trigger a fresh download on every start.
+            state.LastSeenVersion = releaseVersion.ToString(3);
+            await WriteJsonAsync(_statePath, state, cancellationToken).ConfigureAwait(false);
+
             var downloadsDir = Path.Combine(_updatesRoot, "downloads");
             Directory.CreateDirectory(downloadsDir);
             var zipPath = Path.Combine(downloadsDir, zipAsset.Name);
             await DownloadToFileAsync(zipAsset.DownloadUrl, zipPath, cancellationToken).ConfigureAwait(false);
 
-            var expectedHash = await TryResolveChecksumAsync(release, zipAsset, cancellationToken).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(expectedHash))
+            try
             {
+                // The checksum is mandatory: an unverified ZIP is never extracted,
+                // because the updater also runs the apply-update.ps1 it contains.
+                var expectedHash = await TryResolveChecksumAsync(release, zipAsset, cancellationToken).ConfigureAwait(false);
                 var actualHash = await ComputeSha256Async(zipPath, cancellationToken).ConfigureAwait(false);
-                if (!string.Equals(expectedHash, actualHash, StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidDataException("Downloaded update checksum does not match release checksum.");
-                }
+                EnsureChecksumMatches(expectedHash, actualHash, zipAsset.Name);
+            }
+            catch
+            {
+                SafeDeleteFile(zipPath);
+                throw;
             }
 
             var stageDir = Path.Combine(
@@ -315,7 +328,73 @@ public sealed class StartupUpdateCoordinator
 
     private static string BuildLatestReleaseUri(string repository)
     {
-        return $"https://api.github.com/repos/{repository}/releases/latest";
+        if (!IsValidRepositoryName(repository))
+        {
+            throw new InvalidOperationException($"Update repository '{repository}' is not a valid owner/name pair.");
+        }
+
+        var uri = $"https://api.github.com/repos/{repository}/releases/latest";
+        EnsureTrustedUrl(uri);
+        return uri;
+    }
+
+    /// <summary>Only "owner/name" is accepted, so the release URL cannot be redirected elsewhere.</summary>
+    internal static bool IsValidRepositoryName(string? repository)
+    {
+        return !string.IsNullOrWhiteSpace(repository) && RepositoryRegex.IsMatch(repository);
+    }
+
+    /// <summary>
+    /// Release metadata is JSON from the network, so every URL taken from it is
+    /// checked before a request is made: HTTPS only, and only GitHub hosts.
+    /// </summary>
+    internal static bool IsTrustedUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var host = uri.Host;
+        if (string.Equals(host, "github.com", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(host, "api.github.com", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(host, "githubusercontent.com", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void EnsureTrustedUrl(string? url)
+    {
+        if (!IsTrustedUrl(url))
+        {
+            throw new InvalidOperationException($"Refusing to fetch update content from an untrusted URL: {url}");
+        }
+    }
+
+    /// <summary>
+    /// Fails when no published checksum was found as well as on a mismatch: a
+    /// release without a usable .sha256 asset is treated as a failed check.
+    /// </summary>
+    internal static void EnsureChecksumMatches(string? expectedHash, string actualHash, string assetName)
+    {
+        if (string.IsNullOrWhiteSpace(expectedHash))
+        {
+            throw new InvalidDataException(
+                $"No published SHA-256 checksum was found for {assetName}. Refusing to install an unverified download.");
+        }
+
+        if (!string.Equals(expectedHash.Trim(), actualHash?.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException($"Downloaded update {assetName} does not match the published SHA-256 checksum.");
+        }
     }
 
     private bool CanSelfUpdate()
@@ -331,8 +410,7 @@ public sealed class StartupUpdateCoordinator
             return false;
         }
 
-        if (_appBaseDirectory.Contains(@"\bin\", StringComparison.OrdinalIgnoreCase) &&
-            _appBaseDirectory.Contains(@"\src\", StringComparison.OrdinalIgnoreCase))
+        if (InstallMarker.IsDevelopmentDirectory(_appBaseDirectory))
         {
             // Development runs should not self-update.
             return false;
@@ -340,6 +418,15 @@ public sealed class StartupUpdateCoordinator
 
         if (!HasWriteAccess(_appBaseDirectory))
         {
+            return false;
+        }
+
+        if (!InstallMarker.IsManagedInstallDirectory(_appBaseDirectory, installedBy: "self-update-migration"))
+        {
+            // The updater replaces the install directory as a whole. Without the
+            // install marker there is no proof the folder belongs to this app,
+            // and a ZIP extracted next to unrelated files would be wiped.
+            Trace.WriteLine($"[costats-update] self-update disabled: {_appBaseDirectory} is not a managed install directory");
             return false;
         }
 
@@ -573,7 +660,7 @@ public sealed class StartupUpdateCoordinator
         return null;
     }
 
-    private static string? ExtractChecksum(string checksumText, string packageName)
+    internal static string? ExtractChecksum(string checksumText, string packageName)
     {
         if (string.IsNullOrWhiteSpace(checksumText))
         {
@@ -605,6 +692,7 @@ public sealed class StartupUpdateCoordinator
 
     private async Task<string> DownloadAsStringAsync(string url, CancellationToken cancellationToken)
     {
+        EnsureTrustedUrl(url);
         using var response = await _httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -612,6 +700,7 @@ public sealed class StartupUpdateCoordinator
 
     private async Task DownloadToFileAsync(string url, string destinationPath, CancellationToken cancellationToken)
     {
+        EnsureTrustedUrl(url);
         var tempPath = $"{destinationPath}.part";
         SafeDeleteFile(tempPath);
 
@@ -765,6 +854,13 @@ $backupDir = "$InstallDir.__backup"
 $oldExePath = Join-Path $InstallDir $ExecutableRelativePath
 $newExePath = $null
 
+# The whole InstallDir is swapped below, so it must be a folder that belongs to
+# this app and nothing else. install.ps1 writes this marker after extracting and
+# every update carries it forward; without it the swap is refused.
+$installMarkerName = "install-manifest.json"
+$installMarkerApp = "AIUsageTray"
+$installMarkerSchema = 1
+
 function Write-Log {
     param([string]$Message)
     $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
@@ -789,6 +885,57 @@ function Invoke-WithRetry {
             Start-Sleep -Milliseconds $DelayMs
         }
     }
+}
+
+function Test-InstallMarker {
+    param([string]$Directory)
+
+    if ([string]::IsNullOrWhiteSpace($Directory)) { return $false }
+
+    $markerPath = Join-Path $Directory $installMarkerName
+    if (-not (Test-Path -LiteralPath $markerPath)) { return $false }
+
+    try {
+        $marker = Get-Content -Raw -LiteralPath $markerPath | ConvertFrom-Json
+        if (-not (Get-Member -InputObject $marker -Name "app" -MemberType NoteProperty)) { return $false }
+        return ($marker.app -eq $installMarkerApp)
+    } catch {
+        return $false
+    }
+}
+
+function New-InstallMarker {
+    param([string]$Directory)
+
+    try {
+        $payload = [ordered]@{
+            app           = $installMarkerApp
+            schemaVersion = $installMarkerSchema
+            installedUtc  = (Get-Date).ToUniversalTime().ToString("o")
+            installedBy   = "apply-update.ps1"
+        }
+        $markerPath = Join-Path $Directory $installMarkerName
+        $payload | ConvertTo-Json | Set-Content -LiteralPath $markerPath -Encoding UTF8
+        Write-Log "Wrote the install marker to $markerPath."
+    } catch {
+        Write-Log "Could not write the install marker: $($_.Exception.Message)"
+    }
+}
+
+function Test-ForbiddenInstallDir {
+    param([string]$Directory)
+
+    $full = [IO.Path]::GetFullPath($Directory)
+    $candidates = @([IO.Path]::GetPathRoot($full), $env:USERPROFILE, $env:LOCALAPPDATA, $env:APPDATA,
+                    $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:windir)
+    if ($env:USERPROFILE) {
+        $candidates += (Join-Path $env:USERPROFILE "Desktop")
+        $candidates += (Join-Path $env:USERPROFILE "Documents")
+        $candidates += (Join-Path $env:USERPROFILE "Downloads")
+    }
+
+    $forbidden = $candidates | Where-Object { $_ } | ForEach-Object { $_.TrimEnd('/', [char]92) }
+    return ($forbidden -contains $full.TrimEnd('/', [char]92))
 }
 
 function Relaunch-App {
@@ -890,6 +1037,34 @@ try {
         return
     }
 
+    # --- Validate the install directory ---
+    # Everything below replaces InstallDir as a whole, so refuse anything that is
+    # not provably a dedicated AI Usage Tray folder. The pending update is dropped
+    # so the app does not retry the same refusal on every start.
+    if (Test-ForbiddenInstallDir -Directory $InstallDir) {
+        Write-Log "Refusing to update: '$InstallDir' is a drive root, profile or system folder."
+        Remove-Item -Force $PendingFilePath -ErrorAction SilentlyContinue
+        Relaunch-App
+        return
+    }
+
+    if (-not (Test-InstallMarker -Directory $InstallDir)) {
+        Write-Log "Refusing to update: '$InstallDir' has no valid $installMarkerName, so it is not a managed install."
+        Remove-Item -Force $PendingFilePath -ErrorAction SilentlyContinue
+        Relaunch-App
+        return
+    }
+
+    # Carry the marker into the new version so the next update is allowed too.
+    try {
+        $currentMarkerPath = Join-Path $InstallDir $installMarkerName
+        $stagedMarkerPath = Join-Path $StagingDir $installMarkerName
+        Copy-Item -LiteralPath $currentMarkerPath -Destination $stagedMarkerPath -Force
+        Write-Log "Carried the install marker into the staged version."
+    } catch {
+        Write-Log "Could not carry the install marker into staging: $($_.Exception.Message)"
+    }
+
     # --- Clean old backup ---
     if (Test-Path $backupDir) {
         try {
@@ -945,6 +1120,11 @@ try {
         return
     }
 
+    # The marker must survive the swap or the next update would refuse to run.
+    if (-not (Test-InstallMarker -Directory $InstallDir)) {
+        New-InstallMarker -Directory $InstallDir
+    }
+
     $updateSucceeded = $true
     Write-Log "Swap completed successfully."
 
@@ -971,4 +1151,185 @@ try {
     Relaunch-App
 }
 """;
+}
+
+/// <summary>
+/// The install marker: a small JSON file written into the install directory that
+/// proves the directory belongs to AI Usage Tray.
+/// </summary>
+/// <remarks>
+/// The updater and the uninstaller both replace or delete the install directory
+/// as a whole. The release ZIP is flat, so a user can extract it into a folder
+/// that holds unrelated files, and without an ownership check those files would
+/// be destroyed. install.ps1 writes the marker after extracting, apply-update.ps1
+/// carries it into every new version, and uninstall.ps1 refuses to delete a
+/// folder that does not have it.
+///
+/// This type lives next to <see cref="StartupUpdateCoordinator"/> so both the
+/// updater and the Add/remove programs registration share one definition.
+/// </remarks>
+public static class InstallMarker
+{
+    /// <summary>File name of the marker, identical in the PowerShell scripts.</summary>
+    public const string FileName = "install-manifest.json";
+
+    /// <summary>Value of the "app" property that makes a marker ours.</summary>
+    public const string AppIdentifier = "AIUsageTray";
+
+    /// <summary>Current marker layout version.</summary>
+    public const int SchemaVersion = 1;
+
+    private const string ManagedRootFolderName = "AIUsageTray";
+    private const string ManagedAppFolderName = "app";
+
+    private static readonly JsonSerializerOptions MarkerJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true
+    };
+
+    /// <summary>Full path of the marker inside <paramref name="installDirectory"/>.</summary>
+    public static string PathFor(string installDirectory) => Path.Combine(installDirectory, FileName);
+
+    /// <summary>True when the text is a marker written for this app.</summary>
+    public static bool IsValidContent(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (!document.RootElement.TryGetProperty("app", out var appElement) ||
+                appElement.ValueKind != JsonValueKind.String)
+            {
+                return false;
+            }
+
+            return string.Equals(appElement.GetString(), AppIdentifier, StringComparison.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>True when a valid marker sits in the directory.</summary>
+    public static bool Exists(string? installDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(installDirectory))
+        {
+            return false;
+        }
+
+        try
+        {
+            var path = PathFor(installDirectory);
+            return File.Exists(path) && IsValidContent(File.ReadAllText(path));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The marker payload. Kept in sync with the scripts by hand.</summary>
+    public static string CreateContent(string installedBy, DateTimeOffset createdUtc)
+    {
+        return JsonSerializer.Serialize(
+            new
+            {
+                app = AppIdentifier,
+                schemaVersion = SchemaVersion,
+                installedUtc = createdUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture),
+                installedBy
+            },
+            MarkerJsonOptions);
+    }
+
+    /// <summary>Writes a marker. Returns false instead of throwing.</summary>
+    public static bool TryWrite(string installDirectory, string installedBy)
+    {
+        try
+        {
+            Directory.CreateDirectory(installDirectory);
+            File.WriteAllText(
+                PathFor(installDirectory),
+                CreateContent(installedBy, DateTimeOffset.UtcNow),
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Where install.ps1 puts the app when no directory is given.</summary>
+    public static string DefaultManagedDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        ManagedRootFolderName,
+        ManagedAppFolderName);
+
+    /// <summary>True for %LOCALAPPDATA%\AIUsageTray\app.</summary>
+    public static bool IsDefaultManagedDirectory(string? directory)
+        => IsDefaultManagedDirectory(
+            directory,
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+
+    /// <summary>Overload that takes the local app data root, so it can be tested.</summary>
+    public static bool IsDefaultManagedDirectory(string? directory, string? localApplicationData)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(localApplicationData))
+        {
+            return false;
+        }
+
+        try
+        {
+            var expected = Path.Combine(localApplicationData, ManagedRootFolderName, ManagedAppFolderName);
+            return string.Equals(Normalize(directory), Normalize(expected), StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>True for a build running straight out of the repository.</summary>
+    public static bool IsDevelopmentDirectory(string? directory)
+    {
+        return !string.IsNullOrWhiteSpace(directory) &&
+               directory.Contains(@"\bin\", StringComparison.OrdinalIgnoreCase) &&
+               directory.Contains(@"\src\", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// True when the directory may be replaced or removed as a whole. Installs
+    /// made before the marker existed are migrated in place, but only at the
+    /// default managed path, which install.ps1 has always owned exclusively.
+    /// </summary>
+    public static bool IsManagedInstallDirectory(string? directory, string installedBy)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || IsDevelopmentDirectory(directory))
+        {
+            return false;
+        }
+
+        if (Exists(directory))
+        {
+            return true;
+        }
+
+        return IsDefaultManagedDirectory(directory) && TryWrite(directory, installedBy);
+    }
+
+    private static string Normalize(string path)
+        => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
 }

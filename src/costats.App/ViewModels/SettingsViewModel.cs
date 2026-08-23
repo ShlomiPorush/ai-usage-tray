@@ -4,13 +4,16 @@ using System.Reflection;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using costats.App.Services;
 using costats.App.Services.Updates;
 using costats.Application.Pulse;
 using costats.Application.Security;
 using costats.Application.Settings;
 using costats.Core.Pulse;
+using costats.Core.RemoteView;
 using costats.Infrastructure.Providers;
 using Microsoft.Win32;
+using Serilog;
 using System.Linq;
 
 namespace costats.App.ViewModels;
@@ -25,6 +28,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly StartupUpdateCoordinator? _updateCoordinator;
     private readonly IMulticcDiscovery? _multiccDiscovery;
     private readonly IAccountSourceRegistry? _accountSources;
+    private readonly RemoteViewUploader? _remoteViewUploader;
     private const string StartupRegistryKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
     // Renamed from "costats" so the entry does not collide with upstream builds.
     private const string AppName = "AiUsageTray";
@@ -38,7 +42,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         CopilotUsageFetcher copilotFetcher,
         IAccountSourceRegistry? accountSources = null,
         StartupUpdateCoordinator? updateCoordinator = null,
-        IMulticcDiscovery? multiccDiscovery = null)
+        IMulticcDiscovery? multiccDiscovery = null,
+        RemoteViewUploader? remoteViewUploader = null)
     {
         _settingsStore = settingsStore;
         _settings = settings;
@@ -48,6 +53,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _copilotFetcher = copilotFetcher;
         _updateCoordinator = updateCoordinator;
         _multiccDiscovery = multiccDiscovery;
+        _remoteViewUploader = remoteViewUploader;
 
         refreshMinutes = settings.RefreshMinutes;
         startAtLogin = GetStartupRegistryValue();
@@ -67,6 +73,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         remoteViewEnabled = settings.RemoteViewEnabled;
         remoteViewUploadUrl = settings.RemoteViewUploadUrl ?? string.Empty;
         remoteViewPageUrl = settings.RemoteViewPageUrl ?? string.Empty;
+        remoteViewMessage = DescribeRemoteViewUrlProblems();
 
         _ = LoadCopilotTokenStatusAsync();
     }
@@ -123,8 +130,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string remoteViewPageUrl = string.Empty;
 
     /// <summary>
-    /// The link to open on a phone. Empty until both the viewer page URL and
-    /// the generated id exist.
+    /// One short line under the Remote view section: a rejected endpoint URL, or
+    /// the result of the last "New link" / turn-off action. Empty means nothing
+    /// to say.
+    /// </summary>
+    [ObservableProperty]
+    private string remoteViewMessage = string.Empty;
+
+    /// <summary>
+    /// The link to open on a phone: the viewer page plus the read id derived
+    /// from the write id. Empty until both exist.
     /// </summary>
     public string ShareLink => _settings.RemoteViewShareLink ?? string.Empty;
 
@@ -138,7 +153,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Explains what leaves the machine, worded for the shipped relay or for a self-hosted endpoint.</summary>
     public string RemoteViewHint =>
         _settings.HasRemoteViewDefaults
-            ? "After each refresh, uploads a small snapshot to the built-in relay: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The random link id is the only credential, and the snapshot expires server-side after about a week without updates."
+            ? "After each refresh, uploads a small snapshot to the built-in relay: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The share link is read-only, and the snapshot expires server-side after about a week without updates."
             : "After each refresh, uploads a small snapshot to your endpoint: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The snapshot expires server-side after about a week without updates.";
 
     public static IReadOnlyList<ThemeOption> ThemeOptions { get; } =
@@ -161,7 +176,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
 
             _settings.Theme = value.Value;
-            _ = SaveSettingsAsync();
+            SaveSettingsInBackground();
             Services.ThemeService.Apply(value.Value);
             // Refresh so view-model-computed colours (percent text) match the new theme.
             _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
@@ -213,7 +228,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         _settings.RefreshMinutes = value;
         _pulseOrchestrator.UpdateRefreshInterval(TimeSpan.FromMinutes(value));
-        _ = SaveSettingsAsync();
+        SaveSettingsInBackground();
         OnPropertyChanged(nameof(SelectedRefreshOption));
     }
 
@@ -221,7 +236,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         _settings.StartAtLogin = value;
         SetStartupRegistryValue(value);
-        _ = SaveSettingsAsync();
+        SaveSettingsInBackground();
     }
 
     private void RebuildProviderRows()
@@ -265,7 +280,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         _settings.PrimaryAccountId = row.IsPrimary ? null : row.ProviderId;
-        _ = SaveSettingsAsync();
+        SaveSettingsInBackground();
         RebuildProviderRows();
         AccountsRestartMessage = row.IsPrimary ? "Primary account cleared." : $"{row.Name} set as primary.";
         _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
@@ -274,7 +289,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>Persists account changes and applies them live (no restart needed).</summary>
     private void ApplyAccountsChanged(string message = "Saved and applied.")
     {
-        _ = SaveSettingsAsync();
+        SaveSettingsInBackground();
         _accountSources?.Reload();
         RebuildProviderRows();
         AccountsRestartMessage = message;
@@ -410,7 +425,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         _settings.MulticcEnabled = value;
         MulticcRestartMessage = "Restart required to apply changes.";
-        _ = SaveSettingsAsync();
+        SaveSettingsInBackground();
     }
 
     partial void OnMulticcSelectedProfileChanged(string? value)
@@ -418,13 +433,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         _settings.MulticcSelectedProfile = value;
         MulticcRestartMessage = "Restart required to apply changes.";
         OnPropertyChanged(nameof(IsMulticcAllProfiles));
-        _ = SaveSettingsAsync();
+        SaveSettingsInBackground();
     }
 
     partial void OnShowOverviewResetTimesChanged(bool value)
     {
         _settings.ShowOverviewResetTimes = value;
-        _ = SaveSettingsAsync();
+        SaveSettingsInBackground();
         // Push a refresh so the widget picks the flag up immediately.
         _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
     }
@@ -433,14 +448,27 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         _settings.RemoteViewEnabled = value;
 
-        // The id is minted on first enable and then kept, so the share link
-        // a user has already sent to their phone keeps working.
-        if (value && string.IsNullOrWhiteSpace(_settings.RemoteViewId))
+        RemoteViewMessage = DescribeRemoteViewUrlProblems();
+
+        if (value)
         {
-            _settings.RemoteViewId = Guid.NewGuid().ToString("N");
+            // The write id is minted on first enable and then kept, so the link
+            // a user has already sent to their phone keeps working. Ids from
+            // older versions are already 32 lowercase hex characters.
+            if (!RemoteViewIds.IsValidId(_settings.RemoteViewId))
+            {
+                _settings.RemoteViewId = RemoteViewIds.MintWriteId();
+            }
+        }
+        else
+        {
+            // Turning it off stops uploads; the stored snapshot is removed too,
+            // instead of sitting on the server until the weekly expiry. The
+            // write id is kept so re-enabling restores the same link.
+            _ = ReportRemoteSnapshotDeleteAsync(_settings.RemoteViewId);
         }
 
-        _ = SaveSettingsAsync();
+        SaveSettingsInBackground();
         OnPropertyChanged(nameof(ShareLink));
         // Push a refresh so the widget shows or hides its remote view button immediately.
         _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
@@ -449,14 +477,83 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnRemoteViewUploadUrlChanged(string value)
     {
         _settings.RemoteViewUploadUrl = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-        _ = SaveSettingsAsync();
+        RemoteViewMessage = DescribeRemoteViewUrlProblems();
+        SaveSettingsInBackground();
     }
 
     partial void OnRemoteViewPageUrlChanged(string value)
     {
         _settings.RemoteViewPageUrl = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-        _ = SaveSettingsAsync();
+        RemoteViewMessage = DescribeRemoteViewUrlProblems();
+        SaveSettingsInBackground();
         OnPropertyChanged(nameof(ShareLink));
+    }
+
+    /// <summary>
+    /// Names any endpoint override that was rejected. An override that is not
+    /// https (or http on loopback) is ignored rather than used, because the
+    /// snapshot and the write id travel over it.
+    /// </summary>
+    private string DescribeRemoteViewUrlProblems()
+    {
+        var badUpload = !string.IsNullOrWhiteSpace(_settings.RemoteViewUploadUrl) &&
+                        !RemoteViewEndpoints.IsAllowed(_settings.RemoteViewUploadUrl);
+        var badPage = !string.IsNullOrWhiteSpace(_settings.RemoteViewPageUrl) &&
+                      !RemoteViewEndpoints.IsAllowed(_settings.RemoteViewPageUrl);
+
+        return (badUpload, badPage) switch
+        {
+            (true, true) => "Both URLs must start with https. They are ignored until you fix them.",
+            (true, false) => "Upload endpoint must start with https. It is ignored until you fix it.",
+            (false, true) => "Viewer page must start with https. It is ignored until you fix it.",
+            _ => string.Empty
+        };
+    }
+
+    /// <summary>
+    /// Mints a fresh write id, so the previous share link can no longer be used
+    /// to read this machine's usage. Deliberately confirm-free: the hint next to
+    /// the button says what it costs.
+    /// </summary>
+    [RelayCommand]
+    private void NewRemoteViewLink()
+    {
+        var retiredWriteId = _settings.RemoteViewId;
+        _settings.RemoteViewId = RemoteViewIds.MintWriteId();
+        SaveSettingsInBackground();
+        OnPropertyChanged(nameof(ShareLink));
+        RemoteViewMessage = "New link ready. The old one no longer updates.";
+
+        // Best effort: the old snapshot would expire on its own within a week.
+        _ = _remoteViewUploader?.DeleteAsync(retiredWriteId);
+
+        if (_settings.RemoteViewEnabled)
+        {
+            // Skip the upload throttle so the link a user copies right now works.
+            _remoteViewUploader?.RequestImmediateUpload();
+            _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+        }
+    }
+
+    /// <summary>Deletes the remote snapshot and reports the outcome truthfully.</summary>
+    private async Task ReportRemoteSnapshotDeleteAsync(string? writeId)
+    {
+        if (_remoteViewUploader is null || !RemoteViewIds.IsValidId(writeId))
+        {
+            return;
+        }
+
+        var deleted = await _remoteViewUploader.DeleteAsync(writeId).ConfigureAwait(true);
+
+        // The user may have toggled it back on while the request was in flight.
+        if (_settings.RemoteViewEnabled)
+        {
+            return;
+        }
+
+        RemoteViewMessage = deleted
+            ? "Uploads stopped and the shared snapshot was removed."
+            : "Uploads stopped. The shared snapshot expires within a week.";
     }
 
     [RelayCommand]
@@ -482,7 +579,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnCopilotEnabledChanged(bool value)
     {
         _settings.CopilotEnabled = value;
-        _ = SaveSettingsAsync();
+        SaveSettingsInBackground();
         _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
     }
 
@@ -522,7 +619,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         IsCopilotTokenBusy = true;
         try
         {
-            await _credentialVault.SaveAsync(CredentialKeys.CopilotToken, string.Empty, CancellationToken.None);
+            await _credentialVault.DeleteAsync(CredentialKeys.CopilotToken, CancellationToken.None);
             HasCopilotToken = false;
             CopilotTokenStatus = "Copilot token cleared.";
         }
@@ -630,9 +727,30 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
 
+    /// <summary>
+    /// Persists settings without blocking the UI thread. Failures are logged and
+    /// shown to the user instead of surfacing much later as an unobserved task
+    /// exception, and the caller never sees a faulted task it forgot to await.
+    /// </summary>
+    private void SaveSettingsInBackground()
+    {
+        Task saving = SaveSettingsAsync();
+        // SaveSettingsAsync handles its own failures, so this task can never
+        // fault and there is no unobserved-exception path left behind.
+        _ = saving;
+    }
+
     private async Task SaveSettingsAsync()
     {
-        await _settingsStore.SaveAsync(_settings, CancellationToken.None);
+        try
+        {
+            await _settingsStore.SaveAsync(_settings, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Saving settings failed");
+            AccountsRestartMessage = "Could not save settings. Check that %LOCALAPPDATA%\\costats is writable.";
+        }
     }
 
     private static bool GetStartupRegistryValue()
