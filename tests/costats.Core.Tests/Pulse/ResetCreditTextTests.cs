@@ -20,11 +20,37 @@ public sealed class ResetCreditTextTests
     }
 
     [Fact]
-    public void A_known_expiry_is_appended_as_a_short_date()
+    public void A_known_expiry_is_appended_as_a_day_countdown()
+    {
+        var today = new DateOnly(2026, 9, 15);
+
+        Assert.Equal(
+            "1 usage limit reset available, expires in 5 days",
+            UsageFormatter.ResetCreditsLine(1, new DateOnly(2026, 9, 20), today));
+        Assert.Equal(
+            "2 usage limit resets available, expires in 30 days",
+            UsageFormatter.ResetCreditsLine(2, new DateOnly(2026, 10, 15), today));
+    }
+
+    [Fact]
+    public void Today_and_tomorrow_read_in_words_and_the_singular()
+    {
+        var today = new DateOnly(2026, 9, 15);
+
+        Assert.Equal(
+            "1 usage limit reset available, expires today",
+            UsageFormatter.ResetCreditsLine(1, today, today));
+        Assert.Equal(
+            "1 usage limit reset available, expires in 1 day",
+            UsageFormatter.ResetCreditsLine(1, new DateOnly(2026, 9, 16), today));
+    }
+
+    [Fact]
+    public void An_expiry_already_in_the_past_is_left_out()
     {
         Assert.Equal(
-            "1 usage limit reset available, expires Sep 20",
-            UsageFormatter.ResetCreditsLine(1, new DateOnly(2026, 9, 20)));
+            "1 usage limit reset available",
+            UsageFormatter.ResetCreditsLine(1, new DateOnly(2026, 9, 14), new DateOnly(2026, 9, 15)));
     }
 
     [Fact]

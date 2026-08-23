@@ -387,11 +387,6 @@ h1 {
   white-space: nowrap;
 }
 
-.reset-hint {
-  color: var(--ink-3);
-  font-size: 12px;
-}
-
 /* A soft chip of the band colour behind the number: enough to carry the
    state at a glance, quiet enough not to shout on a card full of rows.
    Tint and ink only, never a border. */

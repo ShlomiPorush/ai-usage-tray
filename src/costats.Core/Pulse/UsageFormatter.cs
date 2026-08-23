@@ -131,11 +131,15 @@ public static class UsageFormatter
     }
 
     /// <summary>
-    /// The reset-credit detail line: "1 usage limit reset available", plus
-    /// ", expires Sep 20" when the provider gave an expiry date. Empty when
-    /// there is nothing to redeem.
+    /// The reset-credit detail line: "1 usage limit reset available", plus a
+    /// relative expiry such as ", expires in 5 days" when the provider gave an
+    /// expiry date. A calendar date means nothing at a glance; the number of
+    /// days left does. Empty when there is nothing to redeem.
     /// </summary>
-    public static string ResetCreditsLine(long available, DateOnly? expiresOn)
+    /// <param name="today">
+    /// The day the countdown is measured from; defaults to the local date.
+    /// </param>
+    public static string ResetCreditsLine(long available, DateOnly? expiresOn, DateOnly? today = null)
     {
         if (available <= 0)
         {
@@ -146,9 +150,23 @@ public static class UsageFormatter
             ? "1 usage limit reset available"
             : $"{available} usage limit resets available";
 
-        return expiresOn is { } day
-            ? $"{line}, expires {UsageNumberFormat.DayLabel(day)}"
-            : line;
+        if (expiresOn is not { } day)
+        {
+            return line;
+        }
+
+        var from = today ?? DateOnly.FromDateTime(DateTime.Now);
+        var daysLeft = day.DayNumber - from.DayNumber;
+
+        // A date already in the past tells the reader nothing useful, so the
+        // line simply drops the expiry instead of claiming a deadline.
+        return daysLeft switch
+        {
+            < 0 => line,
+            0 => $"{line}, expires today",
+            1 => $"{line}, expires in 1 day",
+            _ => $"{line}, expires in {daysLeft} days"
+        };
     }
 
     /// <summary>

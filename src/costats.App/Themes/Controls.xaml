@@ -55,6 +55,11 @@
     <Style TargetType="ScrollBar">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Opacity" Value="0" />
+        <!-- The WPF theme style sets MinWidth/MinHeight to the 17 px system
+             scrollbar metric, and WPF resolves MinWidth ahead of Width, so the
+             bar stayed 17 px wide until these were cleared. -->
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollBar">

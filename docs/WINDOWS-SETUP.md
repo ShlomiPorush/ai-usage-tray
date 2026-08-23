@@ -119,7 +119,7 @@ Click the tray icon or press `Ctrl+Alt+U`. The widget opens on an overview of al
 - Quota windows as reported by each provider: 5-hour and weekly for Claude and Codex.
 - Model-scoped limits reported by Claude, for example the Fable weekly limit, listed per account.
 - Plan chips: Claude plans including the Max multiplier (`Max 5x`, `Max 20x`), and Codex plans (`Plus`, `Pro Lite`, ...).
-- Redeemable Codex usage-limit reset credits, when Codex reports any, with the time they expire. Redeem them in the Codex CLI with `/usage`.
+- Redeemable Codex usage-limit reset credits, when Codex reports any, with how many days are left before they expire. Redeem them in the Codex CLI with `/usage`.
 - Daily and 30-day cost estimates where the provider supplies them.
 
 The buttons in the widget header open the usage dashboard, the remote view link (when remote view is enabled), Settings and a manual refresh.
@@ -138,12 +138,32 @@ The numbers come from the Claude Code and Codex session logs already on the mach
 ## 8. Other settings
 
 - **Start at login**: registers the app in the `Run` key and writes a Startup-folder shortcut.
-- **Show reset times in overview**: adds each window's reset countdown to the overview cards. Off by default to keep the overview compact.
+- **Show "Resets in..." times on the main page**: adds the reset countdown next to each usage bar in the account overview. Off by default to keep the overview compact.
 - **Theme**: **Follow system** (tracks the Windows apps theme), **Light** or **Dark**.
 - **Refresh interval**: how often usage is polled in the background, from 1 to 15 minutes; the default is 5.
 - **Check for updates** under **UPDATES**: checks this repository's releases, stages the update and restarts to apply it. The app also checks automatically in the background.
 
 Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (the path is kept from upstream so existing installs keep working). Logs go to `%LOCALAPPDATA%\costats\logs`.
+
+## 9. Uninstall
+
+The app registers itself under **Settings > Apps > Installed apps** (and the classic `appwiz.cpl`) as **AI Usage Tray**, so the normal Windows uninstall works. The entry is written per user under `HKCU`, is refreshed on every start so the version stays correct after an update, and never asks for administrator rights.
+
+You can also run the uninstaller directly:
+
+```powershell
+& "$env:LOCALAPPDATA\AIUsageTray\app\uninstall.ps1"
+```
+
+Either route stops the app, removes the Start Menu shortcut and the start-at-login entries, deletes the Add/remove programs registration and deletes `%LOCALAPPDATA%\AIUsageTray`.
+
+Your settings, logs and cached usage history in `%LOCALAPPDATA%\costats` are kept, so reinstalling brings your accounts back. To remove those too:
+
+```powershell
+& "$env:LOCALAPPDATA\AIUsageTray\app\uninstall.ps1" -PurgeData
+```
+
+The uninstaller lives inside the folder it deletes, so it copies itself to `%TEMP%` and finishes from there. It writes a short log to `%TEMP%\ai-usage-tray-uninstall.log`. Signing out of Claude, Codex or Z.AI is separate: those logins belong to their own CLIs and this app never stored them.
 
 ## Data and security
 

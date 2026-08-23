@@ -120,8 +120,13 @@
             <!-- Divider -->
             <Border Grid.Row="1" Height="1" Background="{DynamicResource DividerBrush}" Margin="0,0,0,16" />
 
-            <!-- Settings Content -->
-            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="640">
+            <!-- Settings Content.
+                 The app-wide slim auto-hide ScrollBar style (Themes/Controls.xaml)
+                 draws the bar; the negative right margin lets it sit out in the
+                 window's own padding, and the matching Padding keeps a gap so no
+                 text ever runs into it. -->
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="640"
+                          Margin="0,0,-14,0" Padding="0,0,14,0">
             <StackPanel>
 
                 <!-- System Section -->
@@ -132,12 +137,14 @@
                     <TextBlock Text="Start at login" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
                 </CheckBox>
                 <TextBlock Text="Automatically launch AI Usage Tray when Windows starts."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" />
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12"
+                           TextWrapping="Wrap" />
 
                 <CheckBox IsChecked="{Binding ShowOverviewResetTimes}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Show reset times in overview" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <TextBlock Text="Show &quot;Resets in...&quot; times on the main page" FontSize="12"
+                               Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
                 </CheckBox>
-                <TextBlock Text="Adds each window's reset countdown to the account cards on the widget's main screen."
+                <TextBlock Text="Adds the reset countdown next to each usage bar in the account overview."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
 
                 <DockPanel Margin="0,0,0,6">
@@ -167,7 +174,8 @@
                               DockPanel.Dock="Right" HorizontalAlignment="Right" Width="120" />
                 </DockPanel>
                 <TextBlock Text="How often AI Usage Tray polls for usage data in the background."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,0" />
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,0"
+                           TextWrapping="Wrap" />
 
                 <!-- Divider -->
                 <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,16,0,16" />

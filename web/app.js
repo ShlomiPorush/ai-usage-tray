@@ -164,9 +164,24 @@
     return isNaN(date.getTime()) ? null : date;
   }
 
-  // "Sep 20": a date far enough out that a countdown would read as noise.
-  function formatDay(date) {
-    return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  // "expires in 28 days". Deliberately not a formatted date: the browser's own
+  // locale turned that into Hebrew on an otherwise English page. A day count
+  // reads the same everywhere.
+  //
+  // Counted in calendar days, not in 24h blocks, so "today" means today
+  // whatever the hour, and a daylight-saving shift cannot move the number.
+  // Returns null once the expiry day itself is behind us; the caller then drops
+  // the clause and keeps the rest of the chip.
+  function formatDaysUntil(date, now) {
+    var days = Math.round((startOfDay(date) - startOfDay(new Date(now))) / 86400000);
+    if (days < 0) return null;
+    if (days === 0) return "expires today";
+    if (days === 1) return "expires in 1 day";
+    return "expires in " + days + " days";
+  }
+
+  function startOfDay(date) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
   }
 
   // used -> band. The number alone decides: green 0-49, yellow 50-74,
@@ -320,7 +335,7 @@
   // Codex hands out redeemable "usage limit reset" credits. They belong to the
   // account rather than to any one window, so they sit under the header as a
   // quiet line of their own. Absent from the payload when there is none.
-  function renderResetCredits(source) {
+  function renderResetCredits(source, now) {
     if (!source || typeof source !== "object") return null;
 
     var available = Math.floor(Number(source.available));
@@ -331,11 +346,13 @@
       : available + " resets available";
 
     var expiresAt = parseDate(source.expiresAt);
-    if (expiresAt) text += ", expires " + formatDay(expiresAt);
+    if (expiresAt) {
+      var expiry = formatDaysUntil(expiresAt, now);
+      if (expiry) text += ", " + expiry;
+    }
 
     var box = el("div", "resets");
     box.appendChild(el("span", "reset-chip", text));
-    box.appendChild(el("span", "reset-hint", "Redeem in the Codex CLI with /usage"));
     return box;
   }
 
@@ -370,7 +387,7 @@
       card.appendChild(el("p", "blocked-banner", "Limit reached - requests are being refused."));
     }
 
-    var resets = renderResetCredits(account.resetCredits);
+    var resets = renderResetCredits(account.resetCredits, now);
     if (resets) card.appendChild(resets);
 
     var rows = windowsOf(account);

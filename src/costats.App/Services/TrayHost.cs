@@ -1,5 +1,4 @@
 using System.Drawing;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using H.NotifyIcon;
@@ -15,9 +14,6 @@ namespace costats.App.Services
 {
     public sealed class TrayHost : IObserver<PulseState>, IDisposable
     {
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern bool DestroyIcon(IntPtr hIcon);
-
         private readonly TaskbarIcon _taskbarIcon;
         private readonly GlassWidgetWindow _widgetWindow;
         private readonly SettingsWindow _settingsWindow;
@@ -165,55 +161,11 @@ namespace costats.App.Services
             public int Y;
         }
 
-        private static Icon CreateIcon(TraySeverity severity, double? highestUsedPercent)
-        {
-            using var bitmap = new Bitmap(32, 32);
-            using var graphics = Graphics.FromImage(bitmap);
-            graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-            graphics.Clear(Color.Transparent);
-
-            // The four locked vivid band colours, identical in both themes.
-            var colour = severity switch
-            {
-                TraySeverity.Green => Color.FromArgb(16, 185, 129),   // #10B981
-                TraySeverity.Yellow => Color.FromArgb(234, 179, 8),   // #EAB308
-                TraySeverity.Orange => Color.FromArgb(249, 115, 22),  // #F97316
-                TraySeverity.Red => Color.FromArgb(239, 68, 68),      // #EF4444
-                _ => Color.FromArgb(107, 114, 128)
-            };
-
-            using var background = new SolidBrush(colour);
-            graphics.FillEllipse(background, 2, 2, 28, 28);
-
-            // Always-on numeric overlay so the tray shows the highest used
-            // percentage at a glance, like the system clock. White-on-colour
-            // text scales to fit small icon sizes. When there is no data, the
-            // circle stays blank (no number), matching the old "loading" look.
-            if (highestUsedPercent.HasValue)
-            {
-                var percentText = ((long)Math.Round(Math.Clamp(highestUsedPercent.Value, 0, 100))).ToString();
-                // Near-black ink clears 4.5:1 on all four vivid bands; white
-                // does not, and yellow is now one of them.
-                using var textBrush = new SolidBrush(Color.FromArgb(17, 24, 39)); // #111827
-                var cellStyle = new System.Drawing.StringFormat
-                {
-                    Alignment = StringAlignment.Center,
-                    LineAlignment = StringAlignment.Center
-                };
-                // Use a smaller font for 3-digit numbers so "100" still fits.
-                var fontSize = percentText.Length >= 3 ? 8 : 11;
-                using var sizedFont = new System.Drawing.Font("Segoe UI", fontSize, System.Drawing.FontStyle.Bold, GraphicsUnit.Pixel);
-                graphics.DrawString(percentText, sizedFont, textBrush,
-                    new RectangleF(2, 2, 28, 28), cellStyle);
-            }
-
-            var iconHandle = bitmap.GetHicon();
-            using var temporary = Icon.FromHandle(iconHandle);
-            var cloned = (Icon)temporary.Clone();
-            DestroyIcon(iconHandle);
-            return cloned;
-        }
+        // Always-on numeric overlay so the tray shows the highest used
+        // percentage at a glance, like the system clock. See TrayIconRenderer
+        // for why the digits are scaled to fill the plate.
+        private static Icon CreateIcon(TraySeverity severity, double? highestUsedPercent) =>
+            TrayIconRenderer.CreateIcon(severity, highestUsedPercent);
 
         private ContextMenu BuildContextMenu()
         {

@@ -112,6 +112,11 @@ namespace costats.App
                 settings.DefaultRemoteViewUploadUrl = ReadConfiguredUrl(startupConfiguration, "Costats:RemoteView:UploadUrl");
                 settings.DefaultRemoteViewPageUrl = ReadConfiguredUrl(startupConfiguration, "Costats:RemoteView:PageUrl");
 
+                // The ZIP install leaves no uninstall entry behind, so the app
+                // writes its own on every start. Idempotent, HKCU only, and it
+                // keeps DisplayVersion in step after a self-update.
+                LogFireAndForget(Task.Run(UninstallRegistration.Refresh), "UninstallRegistration");
+
                 await Dispatcher.InvokeAsync(() =>
                 {
                     ThemeService.Apply(settings.Theme);

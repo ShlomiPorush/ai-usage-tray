@@ -245,7 +245,6 @@
                                         <Border DockPanel.Dock="Right" CornerRadius="4" Padding="6,1" Margin="0,0,6,0"
                                                 VerticalAlignment="Center"
                                                 Background="{DynamicResource KindBadgeBrush}"
-                                                ToolTip="Redeem it in the Codex CLI with /usage"
                                                 Visibility="{Binding HasResetCredits, Converter={StaticResource BoolToVisibilityConverter}}">
                                             <TextBlock Text="{Binding ResetCreditsChipText}" FontSize="9.5" FontWeight="SemiBold"
                                                        Foreground="{DynamicResource TextSecondaryBrush}" />
@@ -564,7 +563,6 @@
                 <!-- Redeemable usage-limit resets. Display only: the app never
                      spends one, the Codex CLI does. -->
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,16"
-                            ToolTip="Redeem it in the Codex CLI with /usage"
                             Visibility="{Binding HasResetCredits, Converter={StaticResource BoolToVisibilityConverter}}">
                     <Ellipse Width="6" Height="6" Margin="0,0,7,0" VerticalAlignment="Center"
                              Fill="{DynamicResource AccentBrush}" />
