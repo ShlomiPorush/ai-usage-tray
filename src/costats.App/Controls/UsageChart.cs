@@ -74,6 +74,13 @@ public sealed class UsageChart : FrameworkElement
         typeof(UsageChart),
         new FrameworkPropertyMetadata(Brushes.MediumSeaGreen, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>Accent for <see cref="UsageProviderKind.Zai"/>.</summary>
+    public static readonly DependencyProperty ZaiBrushProperty = DependencyProperty.Register(
+        nameof(ZaiBrush),
+        typeof(Brush),
+        typeof(UsageChart),
+        new FrameworkPropertyMetadata(Brushes.RoyalBlue, FrameworkPropertyMetadataOptions.AffectsRender));
+
     /// <summary>Gridline colour.</summary>
     public static readonly DependencyProperty GridBrushProperty = DependencyProperty.Register(
         nameof(GridBrush),
@@ -107,6 +114,13 @@ public sealed class UsageChart : FrameworkElement
     {
         get => (Brush)GetValue(CodexBrushProperty);
         set => SetValue(CodexBrushProperty, value);
+    }
+
+    /// <inheritdoc cref="ZaiBrushProperty"/>
+    public Brush ZaiBrush
+    {
+        get => (Brush)GetValue(ZaiBrushProperty);
+        set => SetValue(ZaiBrushProperty, value);
     }
 
     /// <inheritdoc cref="GridBrushProperty"/>
@@ -228,7 +242,12 @@ public sealed class UsageChart : FrameworkElement
             points.Add(new Point(x, y));
         }
 
-        var accent = series.Provider == UsageProviderKind.Claude ? ClaudeBrush : CodexBrush;
+        var accent = series.Provider switch
+        {
+            UsageProviderKind.Claude => ClaudeBrush,
+            UsageProviderKind.Zai => ZaiBrush,
+            _ => CodexBrush
+        };
         var geometry = new StreamGeometry();
         using (var context = geometry.Open())
         {

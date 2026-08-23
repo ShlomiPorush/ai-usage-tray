@@ -153,6 +153,9 @@
                 <DataTrigger Binding="{Binding ProviderKey}" Value="codex">
                     <Setter Property="Foreground" Value="{DynamicResource CodexAccent}" />
                 </DataTrigger>
+                <DataTrigger Binding="{Binding ProviderKey}" Value="zai">
+                    <Setter Property="Foreground" Value="{DynamicResource ZaiAccent}" />
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -170,6 +173,10 @@
                 <DataTrigger Binding="{Binding ProviderKey}" Value="codex">
                     <Setter Property="Data" Value="{StaticResource CodexIconPath}" />
                     <Setter Property="Fill" Value="{DynamicResource CodexAccent}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ProviderKey}" Value="zai">
+                    <Setter Property="Data" Value="{StaticResource UsageStatsIconPath}" />
+                    <Setter Property="Fill" Value="{DynamicResource ZaiAccent}" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -189,6 +196,11 @@
                 <DataTrigger Binding="{Binding ProviderKey}" Value="codex">
                     <Setter Property="Data" Value="{StaticResource CodexIconPath}" />
                     <Setter Property="Fill" Value="{DynamicResource CodexAccent}" />
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ProviderKey}" Value="zai">
+                    <Setter Property="Data" Value="{StaticResource UsageStatsIconPath}" />
+                    <Setter Property="Fill" Value="{DynamicResource ZaiAccent}" />
                     <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
             </Style.Triggers>
@@ -425,16 +437,18 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Margin="0,0,28,0">
-                <TextBlock Text="RAW TOKEN COST" FontSize="11" FontWeight="SemiBold"
+                <TextBlock Text="{Binding HeroLabelText}" FontSize="11" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextMutedBrush}" />
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                     <TextBlock Text="{Binding TotalCostText}" FontSize="38" FontWeight="Bold"
                                Foreground="{DynamicResource TextPrimaryBrush}" />
                     <TextBlock Text="*" FontSize="38" FontWeight="Bold" Margin="1,0,0,0"
-                               Foreground="{DynamicResource TextMutedBrush}" />
+                               Foreground="{DynamicResource TextMutedBrush}"
+                               Visibility="{Binding ShowsRawCostHero, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
                 </StackPanel>
                 <TextBlock Text="* if billed at full API rate" FontSize="11" Margin="0,2,0,0"
-                           Foreground="{DynamicResource TextFaintBrush}" />
+                           Foreground="{DynamicResource TextFaintBrush}"
+                           Visibility="{Binding ShowsRawCostHero, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
                 <TextBlock Text="{Binding UnpricedNote}" FontSize="11" Margin="0,2,0,0"
                            Foreground="{DynamicResource TextFaintBrush}"
                            Visibility="{Binding UnpricedNote, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
@@ -470,6 +484,7 @@
                     <Border DockPanel.Dock="Right" Style="{StaticResource SegmentGroup}">
                         <StackPanel Orientation="Horizontal">
                             <RadioButton Style="{StaticResource Segment}" GroupName="Metric" Content="COST"
+                                         Visibility="{Binding IsCostMetricAvailable, Converter={x:Static local:BoolToVisibilityConverter.Instance}}"
                                          IsChecked="{Binding MetricIndex, Mode=TwoWay, Converter={x:Static local:IndexToBoolConverter.Instance}, ConverterParameter=0}" />
                             <RadioButton Style="{StaticResource Segment}" GroupName="Metric" Content="TOKENS"
                                          IsChecked="{Binding MetricIndex, Mode=TwoWay, Converter={x:Static local:IndexToBoolConverter.Instance}, ConverterParameter=1}" />
@@ -500,6 +515,7 @@
                                      Data="{Binding Chart}"
                                      ClaudeBrush="{DynamicResource ClaudeAccent}"
                                      CodexBrush="{DynamicResource CodexAccent}"
+                                     ZaiBrush="{DynamicResource ZaiAccent}"
                                      GridBrush="{DynamicResource DividerBrush}"
                                      LabelBrush="{DynamicResource TextFaintBrush}" />
             </Grid>

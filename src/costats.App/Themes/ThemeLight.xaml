@@ -27,6 +27,7 @@
     <!-- Provider accents (shared shape in both themes, tuned per theme) -->
     <SolidColorBrush x:Key="CodexAccent" Color="#059669" />
     <SolidColorBrush x:Key="ClaudeAccent" Color="#EA580C" />
+    <SolidColorBrush x:Key="ZaiAccent" Color="#2563EB" />
     <SolidColorBrush x:Key="CopilotAccent" Color="#334155" />
     <SolidColorBrush x:Key="SessionAccent" Color="#D97706" />
     <SolidColorBrush x:Key="WeeklyAccent" Color="#0E7490" />

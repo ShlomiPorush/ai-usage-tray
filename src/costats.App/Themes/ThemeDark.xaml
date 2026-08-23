@@ -27,6 +27,7 @@
     <!-- Provider accents (brightened for dark surfaces) -->
     <SolidColorBrush x:Key="CodexAccent" Color="#34D399" />
     <SolidColorBrush x:Key="ClaudeAccent" Color="#FB923C" />
+    <SolidColorBrush x:Key="ZaiAccent" Color="#60A5FA" />
     <SolidColorBrush x:Key="CopilotAccent" Color="#94A3B8" />
     <SolidColorBrush x:Key="SessionAccent" Color="#FBBF24" />
     <SolidColorBrush x:Key="WeeklyAccent" Color="#60A5FA" />

@@ -7,6 +7,7 @@ using costats.Application.Settings;
 using costats.Core.Analytics;
 using costats.Core.Pulse;
 using costats.Infrastructure.Analytics;
+using costats.Infrastructure.Providers;
 using Serilog;
 
 namespace costats.App.ViewModels;
@@ -68,6 +69,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     private readonly AppSettings _settings;
     private readonly IEnumerable<ISignalSource> _staticSources;
     private readonly IAccountSourceRegistry _accountSources;
+    private readonly IZaiModelUsageClient _zaiModelUsage;
     private CancellationTokenSource? _inFlight;
     private UsageReport? _report;
     private DateOnly _from;
@@ -82,18 +84,21 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         IPulseOrchestrator orchestrator,
         AppSettings settings,
         IEnumerable<ISignalSource> staticSources,
-        IAccountSourceRegistry accountSources)
+        IAccountSourceRegistry accountSources,
+        IZaiModelUsageClient zaiModelUsage)
     {
         ArgumentNullException.ThrowIfNull(analytics);
         ArgumentNullException.ThrowIfNull(orchestrator);
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(staticSources);
         ArgumentNullException.ThrowIfNull(accountSources);
+        ArgumentNullException.ThrowIfNull(zaiModelUsage);
         _analytics = analytics;
         _orchestrator = orchestrator;
         _settings = settings;
         _staticSources = staticSources;
         _accountSources = accountSources;
+        _zaiModelUsage = zaiModelUsage;
 
         var today = DateOnly.FromDateTime(DateTime.Now);
         _from = today.AddDays(-(RangeDays - 1));
@@ -137,6 +142,18 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     /// <summary>The hero figure, always exact to the cent.</summary>
     [ObservableProperty]
     private string totalCostText = "$0.00";
+
+    [ObservableProperty]
+    private string heroLabelText = "RAW TOKEN COST";
+
+    [ObservableProperty]
+    private bool showsRawCostHero = true;
+
+    [ObservableProperty]
+    private bool isCostMetricAvailable = true;
+
+    [ObservableProperty]
+    private bool isTokenOnlyHistory;
 
     /// <summary>"excludes 4 unpriced models", or empty when everything is priced.</summary>
     [ObservableProperty]
@@ -271,6 +288,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     partial void OnBreakdownIndexChanged(int value)
     {
         BreakdownColumnHeader = value == 1 ? "Day" : "Model";
+        BreakdownValueHeader = IsTokenOnlyHistory ? "Tokens" : "Cost";
         if (_report is not null)
         {
             BreakdownRows = BuildBreakdown(_report);
@@ -327,6 +345,25 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             ApplyAccounts(accountList);
             ApplyQuotaCards();
             var selected = SelectedAccount;
+
+            if (selected?.ProviderKind == "zai")
+            {
+                var history = await _zaiModelUsage.FetchModelUsageAsync(
+                    _settings.ZAiCodingApiKey,
+                    _settings.ZAiApiKey,
+                    range.From ?? today,
+                    range.To ?? today,
+                    token).ConfigureAwait(true);
+                if (token.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                _from = range.From ?? today;
+                _to = range.To ?? today;
+                ApplyZaiHistory(history);
+                return;
+            }
 
             if (selected?.ProviderId is not null && selected.AnalyticsAccountIds.Count == 0)
             {
@@ -502,11 +539,98 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         Chart = UsageChartData.Empty;
         BreakdownRows = [];
         TotalCostText = "$0.00";
+        HeroLabelText = "RAW TOKEN COST";
+        ShowsRawCostHero = true;
+        IsCostMetricAvailable = true;
+        IsTokenOnlyHistory = false;
         UnpricedNote = string.Empty;
         StatusText = selected.ProviderKind == "zai"
-            ? "GLM quota usage is shown above. Z.AI's quota endpoint provides the current limits, but no historical token or raw-cost data to graph."
+            ? "GLM quota usage is shown above. No GLM model usage was returned for this range."
             : $"{selected.DisplayName} quota usage is shown above. No local token history is available for this provider.";
     }
+
+    private void ApplyZaiHistory(ZaiModelUsageSnapshot? snapshot)
+    {
+        if (snapshot is null || snapshot.TotalTokens <= 0)
+        {
+            ApplyQuotaOnly(SelectedAccount!);
+            return;
+        }
+
+        Apply(BuildZaiReport(snapshot));
+    }
+
+    private static UsageReport BuildZaiReport(ZaiModelUsageSnapshot snapshot)
+    {
+        var models = snapshot.Models.Count > 0
+            ? snapshot.Models
+            : [new ZaiModelUsageSeries("GLM", snapshot.TokensByDay, snapshot.TotalTokens)];
+
+        var daily = new List<DailyUsage>();
+        for (var index = 0; index < snapshot.Days.Count; index++)
+        {
+            var tokens = index < snapshot.TokensByDay.Count ? snapshot.TokensByDay[index] : 0;
+            var calls = index < snapshot.CallsByDay.Count ? snapshot.CallsByDay[index] : 0;
+            if (tokens > 0 || calls > 0)
+            {
+                daily.Add(new DailyUsage(snapshot.Days[index], ZaiTotals(tokens, calls)));
+            }
+        }
+
+        var dailyByModel = new List<DailyModelUsage>();
+        foreach (var model in models)
+        {
+            for (var index = 0; index < snapshot.Days.Count && index < model.TokensByDay.Count; index++)
+            {
+                var tokens = model.TokensByDay[index];
+                if (tokens > 0)
+                {
+                    dailyByModel.Add(new DailyModelUsage(
+                        snapshot.Days[index],
+                        UsageProviderKind.Zai,
+                        model.ModelName,
+                        ZaiTotals(tokens, 0)));
+                }
+            }
+        }
+
+        var modelRows = models
+            .Where(model => model.TotalTokens > 0)
+            .OrderByDescending(model => model.TotalTokens)
+            .Select(model => new ModelUsage(
+                model.ModelName,
+                UsageProviderKind.Zai,
+                IsPriced: false,
+                ZaiTotals(model.TotalTokens, 0)))
+            .ToList();
+        var totals = ZaiTotals(snapshot.TotalTokens, snapshot.TotalCalls);
+
+        return new UsageReport
+        {
+            Range = snapshot.Days.Count == 0
+                ? UsageDateRange.All
+                : new UsageDateRange(snapshot.Days[0], snapshot.Days[^1]),
+            TimeZoneId = TimeZoneInfo.Local.Id,
+            AccountFilter = ["zai"],
+            FirstDay = daily.FirstOrDefault()?.Day,
+            LastDay = daily.LastOrDefault()?.Day,
+            Daily = daily,
+            DailyByModel = dailyByModel,
+            ByModel = modelRows,
+            ByProvider = [new ProviderUsage(UsageProviderKind.Zai, totals)],
+            ByAccount = [new AccountUsage("zai", UsageProviderKind.Zai, totals)],
+            Totals = totals,
+            UnpricedModels = modelRows.Select(model => model.Model).ToList(),
+            GeneratedAt = DateTimeOffset.UtcNow
+        };
+    }
+
+    private static UsageTotals ZaiTotals(long tokens, long calls) => new()
+    {
+        Tokens = new UsageTokens { UncachedInputTokens = Math.Max(0, tokens) },
+        RequestCount = Math.Max(0, calls),
+        UnpricedTokens = Math.Max(0, tokens)
+    };
 
     private void Apply(UsageReport report)
     {
@@ -518,16 +642,31 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             : string.Empty;
 
         var totals = report.Totals;
-        TotalCostText = UsageNumberFormat.Money(totals.CostUsd);
+        var tokenOnly = report.ByProvider.Count == 1 && report.ByProvider[0].Provider == UsageProviderKind.Zai;
+        IsTokenOnlyHistory = tokenOnly;
+        IsCostMetricAvailable = !tokenOnly;
+        ShowsRawCostHero = !tokenOnly;
+        HeroLabelText = tokenOnly ? "MODEL TOKENS" : "RAW TOKEN COST";
+        if (tokenOnly && MetricIndex != 1)
+        {
+            MetricIndex = 1;
+        }
+
+        TotalCostText = tokenOnly
+            ? UsageNumberFormat.Tokens(totals.Tokens.ProcessedTokens)
+            : UsageNumberFormat.Money(totals.CostUsd);
 
         // Unpriced tokens are counted but not costed, so the hero figure is a
         // floor, not the truth. Say so instead of implying those models are free.
-        UnpricedNote = totals.UnpricedTokens > 0 && report.UnpricedModels.Count > 0
+        UnpricedNote = tokenOnly
+            ? "Z.AI reports aggregate model tokens, not an input/output split or raw API cost."
+            : totals.UnpricedTokens > 0 && report.UnpricedModels.Count > 0
             ? $"excludes {report.UnpricedModels.Count} unpriced model{(report.UnpricedModels.Count == 1 ? string.Empty : "s")}"
             : string.Empty;
 
         ProviderRows = BuildProviderRows(report);
-        Tiles = BuildTiles(report);
+        Tiles = tokenOnly ? BuildZaiTiles(report) : BuildTiles(report);
+        BreakdownValueHeader = tokenOnly ? "Tokens" : "Cost";
         Chart = BuildChart(report);
         BreakdownRows = BuildBreakdown(report);
     }
@@ -554,7 +693,9 @@ public sealed partial class UsageWindowViewModel : ObservableObject
                 return new UsageProviderRow(
                     DisplayName(provider.Provider),
                     Key(provider.Provider),
-                    Cost(provider.Totals),
+                    provider.Provider == UsageProviderKind.Zai
+                        ? UsageNumberFormat.Tokens(tokens)
+                        : Cost(provider.Totals),
                     share,
                     caption);
             })
@@ -589,6 +730,27 @@ public sealed partial class UsageWindowViewModel : ObservableObject
                 "Cache savings",
                 UsageNumberFormat.Money(report.Totals.CacheSavingsUsd),
                 $"{UsageNumberFormat.Multiplier(report.Totals.CacheSavingsUsd, report.Totals.CostUsd)} the raw token cost")
+        ];
+    }
+
+    private static IReadOnlyList<UsageStatTile> BuildZaiTiles(UsageReport report)
+    {
+        var tokens = report.Totals.Tokens.ProcessedTokens;
+        var calls = report.Totals.RequestCount;
+        var activeDays = Math.Max(1, report.Daily.Count(day => day.Totals.Tokens.ProcessedTokens > 0));
+        var perCall = calls > 0 ? tokens / calls : 0;
+
+        return
+        [
+            new UsageStatTile("Processed tokens", UsageNumberFormat.Tokens(tokens),
+                $"{UsageNumberFormat.Tokens(tokens / activeDays)} per active day"),
+            new UsageStatTile("Model calls", calls.ToString("N0"),
+                $"{UsageNumberFormat.Tokens(perCall)} tokens per call"),
+            new UsageStatTile("Active days", activeDays.ToString("N0"),
+                $"of {report.Daily.Count} days returned"),
+            new UsageStatTile("Models", report.ByModel.Count.ToString("N0"),
+                report.ByModel.FirstOrDefault()?.Model ?? string.Empty),
+            new UsageStatTile("Source", "Z.AI", "official model-usage endpoint")
         ];
     }
 
@@ -649,6 +811,8 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     private IReadOnlyList<UsageBreakdownRow> BuildBreakdown(UsageReport report)
     {
         var totalCost = report.Totals.CostUsd;
+        var totalTokens = report.Totals.Tokens.ProcessedTokens;
+        var tokenOnly = report.ByProvider.Count == 1 && report.ByProvider[0].Provider == UsageProviderKind.Zai;
 
         if (BreakdownIndex == 1)
         {
@@ -657,8 +821,10 @@ public sealed partial class UsageWindowViewModel : ObservableObject
                 .Select(day => new UsageBreakdownRow(
                     UsageNumberFormat.LongDayLabel(day.Day),
                     string.Empty,
-                    Cost(day.Totals),
-                    UsageNumberFormat.Percent(day.Totals.CostUsd, totalCost),
+                    tokenOnly ? UsageNumberFormat.Tokens(day.Totals.Tokens.ProcessedTokens) : Cost(day.Totals),
+                    tokenOnly
+                        ? UsageNumberFormat.Percent(day.Totals.Tokens.ProcessedTokens, totalTokens)
+                        : UsageNumberFormat.Percent(day.Totals.CostUsd, totalCost),
                     UsageNumberFormat.Tokens(day.Totals.Tokens.ProcessedTokens)))
                 .ToList();
         }
@@ -667,8 +833,12 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             .Select(model => new UsageBreakdownRow(
                 model.Model,
                 Key(model.Provider),
-                model.IsPriced ? UsageNumberFormat.Money(model.Totals.CostUsd) : "unpriced",
-                UsageNumberFormat.Percent(model.Totals.CostUsd, totalCost),
+                tokenOnly
+                    ? UsageNumberFormat.Tokens(model.Totals.Tokens.ProcessedTokens)
+                    : model.IsPriced ? UsageNumberFormat.Money(model.Totals.CostUsd) : "unpriced",
+                tokenOnly
+                    ? UsageNumberFormat.Percent(model.Totals.Tokens.ProcessedTokens, totalTokens)
+                    : UsageNumberFormat.Percent(model.Totals.CostUsd, totalCost),
                 UsageNumberFormat.Tokens(model.Totals.Tokens.ProcessedTokens)))
             .ToList();
     }
@@ -681,9 +851,17 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     private static string Cost(UsageTotals totals) =>
         UsageNumberFormat.CostOrUnpriced(totals.CostUsd, totals.UnpricedTokens);
 
-    private static string DisplayName(UsageProviderKind provider) =>
-        provider == UsageProviderKind.Claude ? "Claude Code" : "Codex (all accounts)";
+    private static string DisplayName(UsageProviderKind provider) => provider switch
+    {
+        UsageProviderKind.Claude => "Claude Code",
+        UsageProviderKind.Zai => "GLM",
+        _ => "Codex (all accounts)"
+    };
 
-    private static string Key(UsageProviderKind provider) =>
-        provider == UsageProviderKind.Claude ? "claude" : "codex";
+    private static string Key(UsageProviderKind provider) => provider switch
+    {
+        UsageProviderKind.Claude => "claude",
+        UsageProviderKind.Zai => "zai",
+        _ => "codex"
+    };
 }

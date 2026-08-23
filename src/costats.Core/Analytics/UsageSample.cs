@@ -1,8 +1,8 @@
 namespace costats.Core.Analytics;
 
 /// <summary>
-/// Which local agent produced a usage sample. Quota providers (Z.AI, Copilot)
-/// have no local token log and never appear here.
+/// Which provider produced an analytics bucket. Claude and Codex come from
+/// local logs; Z.AI comes from its official remote model-usage endpoint.
 /// </summary>
 public enum UsageProviderKind
 {
@@ -10,7 +10,10 @@ public enum UsageProviderKind
     Claude,
 
     /// <summary>OpenAI Codex, read from the shared <c>sessions/**/rollout-*.jsonl</c>.</summary>
-    Codex
+    Codex,
+
+    /// <summary>Z.AI / GLM, read from the official remote model-usage endpoint.</summary>
+    Zai
 }
 
 /// <summary>

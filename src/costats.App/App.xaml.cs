@@ -411,7 +411,9 @@ namespace costats.App
                         new MulticcDiscoveryService(tempReader, settings.MulticcConfigPath));
 
                     // Z.AI / GLM coding-plan monitor (Bearer-token auth).
-                    services.AddSingleton<IZaiUsageClient>(_ => new ZaiUsageFetcher());
+                    services.AddSingleton<ZaiUsageFetcher>();
+                    services.AddSingleton<IZaiUsageClient>(sp => sp.GetRequiredService<ZaiUsageFetcher>());
+                    services.AddSingleton<IZaiModelUsageClient>(sp => sp.GetRequiredService<ZaiUsageFetcher>());
                     services.AddSingleton<ISignalSource>(sp => new ZaiUsageSource(
                         sp.GetRequiredService<IZaiUsageClient>(),
                         () => settings.ZAiCodingApiKey,
