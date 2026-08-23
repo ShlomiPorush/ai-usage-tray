@@ -762,6 +762,7 @@ public sealed class StartupUpdateCoordinator
         }
 
         var text = markdown.Replace("\r\n", "\n", StringComparison.Ordinal).Trim();
+        text = ExtractWhatsChangedSection(text);
         text = Regex.Replace(text, @"(?m)^#{1,6}\s*", string.Empty);
         text = Regex.Replace(text, @"(?m)^\s*[-*]\s+", "• ");
         text = Regex.Replace(text, @"\[([^\]]+)\]\([^\)]+\)", "$1");
@@ -772,6 +773,22 @@ public sealed class StartupUpdateCoordinator
         text = Regex.Replace(text, @"\n{3,}", "\n\n").Trim();
 
         return string.IsNullOrWhiteSpace(text) ? "No release notes were provided." : text;
+    }
+
+    private static string ExtractWhatsChangedSection(string markdown)
+    {
+        var heading = Regex.Match(
+            markdown,
+            @"(?im)^(?<marks>#{1,6})[ \t]+What's Changed[ \t]*#*[ \t]*$");
+        if (!heading.Success)
+        {
+            return markdown;
+        }
+
+        var section = markdown[(heading.Index + heading.Length)..].TrimStart('\n');
+        var headingLevel = heading.Groups["marks"].Length;
+        var nextHeading = Regex.Match(section, $@"(?m)^#{{1,{headingLevel}}}[ \t]+");
+        return (nextHeading.Success ? section[..nextHeading.Index] : section).Trim();
     }
 
     internal static string? ExtractChecksum(string checksumText, string packageName)
