@@ -280,6 +280,74 @@ public sealed class AppSettings
             }
         ];
     }
+
+    /// <summary>
+    /// Accounts whose local session logs should contribute to Usage stats.
+    /// Monitoring profiles can intentionally point at credential-only folders,
+    /// while Claude Code and Codex still write conversations under their
+    /// standard profile. Include both sets and let the log-root resolver
+    /// deduplicate any identical directories.
+    /// </summary>
+    public IReadOnlyList<MonitoredAccountSettings> GetLocalUsageAccounts(string? userProfile = null)
+    {
+        var accounts = GetEffectiveAccounts().ToList();
+        var home = string.IsNullOrWhiteSpace(userProfile)
+            ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+            : userProfile;
+
+        AddStandardProfile(
+            accounts,
+            MonitoredAccountSettings.ClaudeType,
+            "claude-default",
+            "Claude (default)",
+            Path.Combine(home, ".claude"));
+        AddStandardProfile(
+            accounts,
+            MonitoredAccountSettings.CodexType,
+            "codex-default",
+            "Codex",
+            Path.Combine(home, ".codex"));
+
+        return accounts;
+    }
+
+    private static void AddStandardProfile(
+        List<MonitoredAccountSettings> accounts,
+        string type,
+        string id,
+        string displayName,
+        string configDir)
+    {
+        if (accounts.Any(account =>
+            string.Equals(account.Type, type, StringComparison.OrdinalIgnoreCase) &&
+            SameDirectory(account.ConfigDir, configDir)))
+        {
+            return;
+        }
+
+        accounts.Add(new MonitoredAccountSettings
+        {
+            Id = id,
+            Type = type,
+            DisplayName = displayName,
+            ConfigDir = configDir
+        });
+    }
+
+    private static bool SameDirectory(string left, string right)
+    {
+        try
+        {
+            return string.Equals(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(left)),
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(right)),
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException)
+        {
+            return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+        }
+    }
 }
 
 /// <summary>

@@ -399,6 +399,25 @@ public sealed class UsageLogParserTests : IDisposable
     }
 
     [Fact]
+    public void Standard_codex_logs_are_discovered_when_monitored_profiles_are_credential_only()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, ".codex", "sessions"));
+        var settings = new AppSettings
+        {
+            Accounts =
+            [
+                Codex("codex-isolated", Path.Combine(_root, ".codex-isolated"))
+            ]
+        };
+
+        var roots = UsageLogRootResolver.Resolve(settings.GetLocalUsageAccounts(_root));
+
+        var root = Assert.Single(roots);
+        Assert.Equal(Path.Combine(_root, ".codex", "sessions"), root.Path);
+        Assert.Equal(UsageAccounts.MergedCodexId, root.AccountId);
+    }
+
+    [Fact]
     public void Claude_accounts_keep_their_own_identity()
     {
         Directory.CreateDirectory(Path.Combine(_root, "c1", "projects"));

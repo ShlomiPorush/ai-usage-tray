@@ -80,4 +80,60 @@ public sealed class MonitoredAccountsTests
         var account = Assert.Single(accounts);
         Assert.Equal("ok", account.Id);
     }
+
+    [Fact]
+    public void Local_usage_also_scans_standard_profiles_when_monitoring_uses_isolated_profiles()
+    {
+        var settings = new AppSettings
+        {
+            Accounts =
+            [
+                new MonitoredAccountSettings
+                {
+                    Id = "claude-isolated",
+                    Type = "claude",
+                    DisplayName = "Claude",
+                    ConfigDir = Path.Combine("C:", "profiles", "claude-isolated")
+                },
+                new MonitoredAccountSettings
+                {
+                    Id = "codex-isolated",
+                    Type = "codex",
+                    DisplayName = "PA",
+                    ConfigDir = Path.Combine("C:", "profiles", "codex-isolated")
+                }
+            ]
+        };
+
+        var accounts = settings.GetLocalUsageAccounts(Path.Combine("C:", "Users", "tester"));
+
+        Assert.Equal(4, accounts.Count);
+        Assert.Contains(accounts, account => account.ConfigDir.EndsWith(Path.Combine(".claude")));
+        Assert.Contains(accounts, account => account.ConfigDir.EndsWith(Path.Combine(".codex")));
+    }
+
+    [Fact]
+    public void Local_usage_does_not_duplicate_a_standard_profile_already_monitored()
+    {
+        var home = Path.Combine("C:", "Users", "tester");
+        var settings = new AppSettings
+        {
+            Accounts =
+            [
+                new MonitoredAccountSettings
+                {
+                    Id = "codex-1",
+                    Type = "codex",
+                    DisplayName = "Codex",
+                    ConfigDir = Path.Combine(home, ".codex") + Path.DirectorySeparatorChar
+                }
+            ]
+        };
+
+        var accounts = settings.GetLocalUsageAccounts(home);
+
+        Assert.Equal(2, accounts.Count);
+        Assert.Single(accounts, account => account.IsCodex);
+        Assert.Single(accounts, account => account.IsClaude);
+    }
 }

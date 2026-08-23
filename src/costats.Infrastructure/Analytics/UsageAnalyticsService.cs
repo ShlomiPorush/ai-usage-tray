@@ -78,7 +78,7 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         AppSettings settings,
         ILogger<UsageAnalyticsService>? logger = null)
         : this(
-            new UsageLogCollector(() => (settings ?? throw new ArgumentNullException(nameof(settings))).GetEffectiveAccounts()),
+            new UsageLogCollector(() => (settings ?? throw new ArgumentNullException(nameof(settings))).GetLocalUsageAccounts()),
             new Lazy<ModelPricingTable>(() => ModelPricingLoader.Load()),
             DefaultScanFreshness,
             logger)
