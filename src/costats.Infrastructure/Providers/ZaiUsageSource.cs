@@ -5,8 +5,8 @@ namespace costats.Infrastructure.Providers;
 
 /// <summary>
 /// Z.AI / GLM coding-plan monitor. Reads the 5-hour and weekly windows
-/// from the official Z.AI API using a user-supplied API key. The coding
-/// plan and the standard pay-as-you-go endpoint are both supported.
+/// from Z.AI's quota endpoint using a user-supplied API key. The legacy
+/// standard-key setting is accepted as a fallback for existing users.
 /// </summary>
 public sealed class ZaiUsageSource : ISignalSource
 {
