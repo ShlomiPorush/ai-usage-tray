@@ -51,6 +51,12 @@ public sealed class AppSettings
     public bool ShowOverviewResetTimes { get; set; } = false;
 
     /// <summary>
+    /// When true, quota numbers are shown as the percentage left instead of
+    /// the percentage used. Colours and warning bands remain usage-based.
+    /// </summary>
+    public bool ShowPercentageLeft { get; set; } = false;
+
+    /// <summary>
     /// UI theme: "system" (follow Windows apps theme), "light" or "dark".
     /// </summary>
     public string Theme { get; set; } = "system";

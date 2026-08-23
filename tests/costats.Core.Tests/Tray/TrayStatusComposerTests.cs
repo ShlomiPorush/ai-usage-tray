@@ -25,6 +25,23 @@ public sealed class TrayStatusComposerTests
             status.PanelText);
     }
 
+    [Fact]
+    public void Compose_can_show_percent_left_without_changing_risk_severity()
+    {
+        var now = DateTimeOffset.Parse("2026-08-23T12:00:00Z");
+        var account = new AccountUsageStatus(
+            "PA", 67, now.AddHours(1), 94, now.AddDays(6));
+
+        var status = TrayStatusComposer.Compose([account], now, showPercentageLeft: true);
+
+        Assert.Equal(33, status.HighestUsedPercent);
+        Assert.Equal(67, status.DisplayPercent);
+        Assert.Equal(TraySeverity.Green, status.Severity);
+        Assert.Equal("PA: W 94%-6.0d <> S 67%-1h00m", status.PanelText);
+        Assert.Contains("Session 67%", status.FullTooltip, StringComparison.Ordinal);
+        Assert.Contains("Weekly 94%", status.FullTooltip, StringComparison.Ordinal);
+    }
+
     private static readonly DateTimeOffset Now = new(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
 
     [Fact]

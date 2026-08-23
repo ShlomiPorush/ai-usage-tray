@@ -155,6 +155,13 @@
                 <TextBlock Text="Adds the reset countdown next to each usage bar in the account overview."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
 
+                <CheckBox IsChecked="{Binding ShowPercentageLeft}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                    <TextBlock Text="Show percentage left instead of used" FontSize="12"
+                               Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                </CheckBox>
+                <TextBlock Text="Changes quota numbers everywhere; progress colours still reflect how much is used."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
+
                 <DockPanel Margin="0,0,0,6">
                     <TextBlock Text="Theme" FontSize="12"
                                Foreground="{DynamicResource TextPrimaryBrush}" DockPanel.Dock="Left"

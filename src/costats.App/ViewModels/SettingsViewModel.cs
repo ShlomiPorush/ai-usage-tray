@@ -71,6 +71,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         copilotEnabled = settings.CopilotEnabled;
         showOverviewResetTimes = settings.ShowOverviewResetTimes;
+        showPercentageLeft = settings.ShowPercentageLeft;
 
         remoteViewEnabled = settings.RemoteViewEnabled;
         remoteViewUploadUrl = settings.RemoteViewUploadUrl ?? string.Empty;
@@ -89,6 +90,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool showClockPanel;
+
+    [ObservableProperty]
+    private bool showPercentageLeft;
 
     /// <summary>One row per monitored provider: Claude/Codex accounts plus Z.AI and Copilot when configured.</summary>
     public System.Collections.ObjectModel.ObservableCollection<ProviderRowViewModel> ProviderRows { get; } = new();
@@ -481,6 +485,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         _settings.ShowOverviewResetTimes = value;
         SaveSettingsInBackground();
         // Push a refresh so the widget picks the flag up immediately.
+        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+    }
+
+    partial void OnShowPercentageLeftChanged(bool value)
+    {
+        _settings.ShowPercentageLeft = value;
+        SaveSettingsInBackground();
         _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
     }
 

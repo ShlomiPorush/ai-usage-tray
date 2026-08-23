@@ -72,13 +72,19 @@ public sealed record TrayStatus(
     /// present, then fills any remaining slots in account order.
     /// </summary>
     public string PanelText { get; init; } = string.Empty;
+
+    /// <summary>The number drawn on the tray icon in the selected display mode.</summary>
+    public double? DisplayPercent { get; init; }
 }
 
 public static class TrayStatusComposer
 {
     public const int MaximumTooltipLength = 127;
 
-    public static TrayStatus Compose(IEnumerable<AccountUsageStatus> accounts, DateTimeOffset now)
+    public static TrayStatus Compose(
+        IEnumerable<AccountUsageStatus> accounts,
+        DateTimeOffset now,
+        bool showPercentageLeft = false)
     {
         ArgumentNullException.ThrowIfNull(accounts);
 
@@ -90,7 +96,8 @@ public static class TrayStatusComposer
         var highest = usedValues.Length == 0 ? (double?)null : usedValues.Max();
         var severity = ComposeSeverity(materialized);
 
-        var fullTooltip = string.Join('\n', materialized.Select(account => FormatAccount(account, now)));
+        var fullTooltip = string.Join('\n', materialized.Select(account =>
+            FormatAccount(account, now, showPercentageLeft)));
         var tooltip = fullTooltip.Length > MaximumTooltipLength
             ? fullTooltip[..MaximumTooltipLength]
             : fullTooltip;
@@ -98,11 +105,17 @@ public static class TrayStatusComposer
         return new TrayStatus(highest, severity, tooltip)
         {
             FullTooltip = fullTooltip,
-            PanelText = BuildPanelText(materialized, now)
+            PanelText = BuildPanelText(materialized, now, showPercentageLeft),
+            DisplayPercent = highest.HasValue
+                ? UsagePercentageDisplay.Value(highest.Value, showPercentageLeft)
+                : null
         };
     }
 
-    private static string BuildPanelText(IReadOnlyList<AccountUsageStatus> accounts, DateTimeOffset now)
+    private static string BuildPanelText(
+        IReadOnlyList<AccountUsageStatus> accounts,
+        DateTimeOffset now,
+        bool showPercentageLeft)
     {
         var remaining = accounts.ToList();
         var ordered = new List<AccountUsageStatus>(Math.Min(accounts.Count, 4));
@@ -125,21 +138,25 @@ public static class TrayStatusComposer
         return string.Join('\n', ordered
             .Take(4)
             .Chunk(2)
-            .Select(pair => string.Join(" | ", pair.Select(account => FormatPanelAccount(account, now)))));
+            .Select(pair => string.Join(" | ", pair.Select(account =>
+                FormatPanelAccount(account, now, showPercentageLeft)))));
     }
 
-    private static string FormatPanelAccount(AccountUsageStatus account, DateTimeOffset now)
+    private static string FormatPanelAccount(
+        AccountUsageStatus account,
+        DateTimeOffset now,
+        bool showPercentageLeft)
     {
         var windows = new List<string>(2);
         if (account.WeeklyRemainingPercent is { } weeklyRemaining)
         {
             windows.Add(FormatPanelWindow(
-                "W", 100 - weeklyRemaining, account.WeeklyResetsAt, now, weekly: true));
+                "W", 100 - weeklyRemaining, account.WeeklyResetsAt, now, weekly: true, showPercentageLeft));
         }
         if (account.SessionRemainingPercent is { } sessionRemaining)
         {
             windows.Add(FormatPanelWindow(
-                "S", 100 - sessionRemaining, account.SessionResetsAt, now, weekly: false));
+                "S", 100 - sessionRemaining, account.SessionResetsAt, now, weekly: false, showPercentageLeft));
         }
 
         return windows.Count == 0
@@ -152,9 +169,10 @@ public static class TrayStatusComposer
         double usedPercent,
         DateTimeOffset? resetsAt,
         DateTimeOffset now,
-        bool weekly)
+        bool weekly,
+        bool showPercentageLeft)
     {
-        var percent = Math.Clamp(usedPercent, 0, 100)
+        var percent = UsagePercentageDisplay.Value(usedPercent, showPercentageLeft)
             .ToString("0", CultureInfo.InvariantCulture);
         if (!resetsAt.HasValue)
         {
@@ -180,12 +198,15 @@ public static class TrayStatusComposer
     /// One display row per account for rich (non-shell) tooltips: label, the
     /// formatted windows text, and the worst (highest) used percentage for colouring.
     /// </summary>
-    public static IReadOnlyList<TrayAccountRow> ComposeRows(IEnumerable<AccountUsageStatus> accounts, DateTimeOffset now)
+    public static IReadOnlyList<TrayAccountRow> ComposeRows(
+        IEnumerable<AccountUsageStatus> accounts,
+        DateTimeOffset now,
+        bool showPercentageLeft = false)
     {
         ArgumentNullException.ThrowIfNull(accounts);
         return accounts.Select(account =>
         {
-            var windows = BuildWindowTexts(account, now);
+            var windows = BuildWindowTexts(account, now, showPercentageLeft);
             var used = UsedPercents(account).ToArray();
 
             return new TrayAccountRow(
@@ -274,7 +295,10 @@ public static class TrayStatusComposer
             .Concat((account.ScopedQuotas ?? []).Select(q => (double)Math.Clamp(q.UsedPercent, 0, 100)));
     }
 
-    private static List<string> BuildWindowTexts(AccountUsageStatus account, DateTimeOffset now)
+    private static List<string> BuildWindowTexts(
+        AccountUsageStatus account,
+        DateTimeOffset now,
+        bool showPercentageLeft)
     {
         var windows = new List<string>(3);
         if (account.IsBlocked)
@@ -284,26 +308,29 @@ public static class TrayStatusComposer
         }
         if (account.SessionRemainingPercent.HasValue && account.SessionResetsAt.HasValue)
         {
-            windows.Add(FormatWindow("Session", 100 - account.SessionRemainingPercent.Value, account.SessionResetsAt.Value, now, weekly: false));
+            windows.Add(FormatWindow("Session", 100 - account.SessionRemainingPercent.Value, account.SessionResetsAt.Value, now, weekly: false, showPercentageLeft));
         }
         if (account.WeeklyRemainingPercent.HasValue && account.WeeklyResetsAt.HasValue)
         {
-            windows.Add(FormatWindow("Weekly", 100 - account.WeeklyRemainingPercent.Value, account.WeeklyResetsAt.Value, now, weekly: true));
+            windows.Add(FormatWindow("Weekly", 100 - account.WeeklyRemainingPercent.Value, account.WeeklyResetsAt.Value, now, weekly: true, showPercentageLeft));
         }
         foreach (var scoped in account.ScopedQuotas ?? [])
         {
             var used = Math.Clamp(scoped.UsedPercent, 0, 100);
             windows.Add(scoped.ResetsAt.HasValue
-                ? FormatWindow(scoped.Label, used, scoped.ResetsAt.Value, now, weekly: scoped.Group.Contains("week", StringComparison.OrdinalIgnoreCase))
-                : $"{scoped.Label} {used}%");
+                ? FormatWindow(scoped.Label, used, scoped.ResetsAt.Value, now, weekly: scoped.Group.Contains("week", StringComparison.OrdinalIgnoreCase), showPercentageLeft)
+                : $"{scoped.Label} {UsagePercentageDisplay.Compact(used, showPercentageLeft)}");
         }
 
         return windows;
     }
 
-    private static string FormatAccount(AccountUsageStatus account, DateTimeOffset now)
+    private static string FormatAccount(
+        AccountUsageStatus account,
+        DateTimeOffset now,
+        bool showPercentageLeft)
     {
-        var windows = BuildWindowTexts(account, now);
+        var windows = BuildWindowTexts(account, now, showPercentageLeft);
         return windows.Count == 0
             ? $"{account.Label} unavailable"
             : $"{account.Label} {string.Join(" | ", windows)}";
@@ -318,7 +345,8 @@ public static class TrayStatusComposer
         double usedPercent,
         DateTimeOffset resetsAt,
         DateTimeOffset now,
-        bool weekly)
+        bool weekly,
+        bool showPercentageLeft)
     {
         var remaining = resetsAt - now;
         if (remaining < TimeSpan.Zero)
@@ -326,7 +354,7 @@ public static class TrayStatusComposer
             remaining = TimeSpan.Zero;
         }
 
-        var percent = Math.Clamp(usedPercent, 0, 100)
+        var percent = UsagePercentageDisplay.Value(usedPercent, showPercentageLeft)
             .ToString("0", CultureInfo.InvariantCulture);
 
         if (weekly)

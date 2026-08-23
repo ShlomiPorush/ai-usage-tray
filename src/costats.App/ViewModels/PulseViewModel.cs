@@ -383,7 +383,10 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                 foreach (var (providerId, reading) in value.Providers)
                 {
                     var displayName = displayNames.TryGetValue(providerId, out var name) ? name : providerId;
-                    var vm = ProviderPulseViewModel.FromReading(reading, displayName);
+                    var vm = ProviderPulseViewModel.FromReading(
+                        reading,
+                        displayName,
+                        _settings.ShowPercentageLeft);
 
                     if (providerId.Equals("copilot", StringComparison.OrdinalIgnoreCase) && !IsCopilotEnabled)
                     {

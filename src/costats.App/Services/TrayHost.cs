@@ -332,7 +332,10 @@ namespace costats.App.Services
                 .ThenBy(account => account.Label, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            var status = TrayStatusComposer.Compose(accounts, DateTimeOffset.UtcNow);
+            var status = TrayStatusComposer.Compose(
+                accounts,
+                DateTimeOffset.UtcNow,
+                _settings.ShowPercentageLeft);
             var orderedAccounts = accounts;
 
             // When a primary account is configured, its status drives the icon
@@ -344,18 +347,29 @@ namespace costats.App.Services
                 var primaryAccount = primaryReading.Usage is { } primaryUsage
                     ? AccountUsageStatus.FromUsagePulse(label, primaryUsage)
                     : new AccountUsageStatus(label, null, null, null, null);
-                var primaryStatus = TrayStatusComposer.Compose([primaryAccount], DateTimeOffset.UtcNow);
+                var primaryStatus = TrayStatusComposer.Compose(
+                    [primaryAccount],
+                    DateTimeOffset.UtcNow,
+                    _settings.ShowPercentageLeft);
                 orderedAccounts = accounts
                     .OrderBy(a => a.Label.Equals(label, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                     .ToArray();
-                var ordered = TrayStatusComposer.Compose(orderedAccounts, DateTimeOffset.UtcNow);
+                var ordered = TrayStatusComposer.Compose(
+                    orderedAccounts,
+                    DateTimeOffset.UtcNow,
+                    _settings.ShowPercentageLeft);
                 status = new TrayStatus(primaryStatus.HighestUsedPercent, primaryStatus.Severity, ordered.Tooltip)
                 {
-                    FullTooltip = ordered.FullTooltip
+                    FullTooltip = ordered.FullTooltip,
+                    PanelText = ordered.PanelText,
+                    DisplayPercent = primaryStatus.DisplayPercent
                 };
             }
 
-            var rows = TrayStatusComposer.ComposeRows(orderedAccounts, DateTimeOffset.UtcNow);
+            var rows = TrayStatusComposer.ComposeRows(
+                orderedAccounts,
+                DateTimeOffset.UtcNow,
+                _settings.ShowPercentageLeft);
             var dispatcher = System.Windows.Application.Current?.Dispatcher;
             if (dispatcher is null)
             {
@@ -441,10 +455,10 @@ namespace costats.App.Services
             // so the tray isn't constantly invalidated every refresh.
             var severityChanged = _lastAppliedStatus is null
                 || _lastAppliedStatus.Severity != status.Severity
-                || Math.Abs((_lastAppliedStatus.HighestUsedPercent ?? -1) - (status.HighestUsedPercent ?? -1)) >= 1;
+                || Math.Abs((_lastAppliedStatus.DisplayPercent ?? -1) - (status.DisplayPercent ?? -1)) >= 1;
             if (severityChanged)
             {
-                var replacement = CreateIcon(status.Severity, status.HighestUsedPercent);
+                var replacement = CreateIcon(status.Severity, status.DisplayPercent);
                 var previous = _currentIcon;
                 _currentIcon = replacement;
                 _taskbarIcon.Icon = replacement;
