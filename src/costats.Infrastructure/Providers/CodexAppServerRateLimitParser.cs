@@ -36,6 +36,9 @@ public sealed record CodexAppServerRateLimitSnapshot(
     /// it. Null when the list is absent, truncated, or carries no expiry.
     /// </summary>
     public DateTimeOffset? ResetCreditExpiresAt { get; init; }
+
+    /// <summary>Account email returned by <c>account/read</c>, when available.</summary>
+    public string? Email { get; init; }
 }
 
 public static class CodexAppServerRateLimitParser
@@ -101,6 +104,49 @@ public static class CodexAppServerRateLimitParser
         catch (JsonException)
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Parses the response to <c>account/read</c>. A matching error or a
+    /// non-ChatGPT account still counts as a completed response with no email.
+    /// </summary>
+    public static bool TryParseAccountEmail(string json, long expectedId, out string? email)
+    {
+        email = null;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("id", out var id) ||
+                id.ValueKind != JsonValueKind.Number ||
+                id.GetInt64() != expectedId)
+            {
+                return false;
+            }
+
+            if (root.TryGetProperty("error", out _))
+            {
+                return true;
+            }
+
+            if (root.TryGetProperty("result", out var result) &&
+                result.TryGetProperty("account", out var account) &&
+                account.ValueKind == JsonValueKind.Object)
+            {
+                email = ReadString(account, "email")?.Trim();
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 

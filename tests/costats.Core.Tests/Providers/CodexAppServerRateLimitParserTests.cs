@@ -275,4 +275,43 @@ public sealed class CodexAppServerRateLimitParserTests
         Assert.Empty(result!.ScopedQuotas);
         Assert.False(result.IsBlocked);
     }
+
+    [Fact]
+    public void TryParseAccountEmail_reads_the_chatgpt_account_email()
+    {
+        const string json = """
+        {"id":3,"result":{"account":{"type":"chatgpt","email":" person@example.com ","planType":"plus"},"requiresOpenaiAuth":false}}
+        """;
+
+        var matched = CodexAppServerRateLimitParser.TryParseAccountEmail(json, expectedId: 3, out var email);
+
+        Assert.True(matched);
+        Assert.Equal("person@example.com", email);
+    }
+
+    [Fact]
+    public void TryParseAccountEmail_ignores_other_responses()
+    {
+        const string json = """
+        {"id":2,"result":{"account":{"type":"chatgpt","email":"person@example.com","planType":"plus"}}}
+        """;
+
+        var matched = CodexAppServerRateLimitParser.TryParseAccountEmail(json, expectedId: 3, out var email);
+
+        Assert.False(matched);
+        Assert.Null(email);
+    }
+
+    [Fact]
+    public void TryParseAccountEmail_completes_without_email_for_an_error_response()
+    {
+        const string json = """
+        {"id":3,"error":{"code":-32601,"message":"Method not found"}}
+        """;
+
+        var matched = CodexAppServerRateLimitParser.TryParseAccountEmail(json, expectedId: 3, out var email);
+
+        Assert.True(matched);
+        Assert.Null(email);
+    }
 }

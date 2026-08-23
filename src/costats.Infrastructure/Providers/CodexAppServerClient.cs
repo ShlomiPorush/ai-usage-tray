@@ -64,6 +64,7 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, IDisposable
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_timeout);
+        CodexAppServerRateLimitSnapshot? rateLimitSnapshot = null;
 
         try
         {
@@ -83,8 +84,12 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, IDisposable
                 "{\"method\":\"initialized\",\"params\":{}}");
             await process.StandardInput.WriteLineAsync(
                 "{\"method\":\"account/rateLimits/read\",\"id\":2}");
+            await process.StandardInput.WriteLineAsync(
+                "{\"method\":\"account/read\",\"id\":3,\"params\":{\"refreshToken\":false}}");
             await process.StandardInput.FlushAsync(timeout.Token);
 
+            var accountReadCompleted = false;
+            string? email = null;
             while (!timeout.IsCancellationRequested && !process.HasExited)
             {
                 var line = await process.StandardOutput.ReadLineAsync(timeout.Token);
@@ -93,22 +98,29 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, IDisposable
                     break;
                 }
 
-                var parsed = CodexAppServerRateLimitParser.Parse(line, expectedId: 2);
-                if (parsed is not null)
+                rateLimitSnapshot ??= CodexAppServerRateLimitParser.Parse(line, expectedId: 2);
+                if (!accountReadCompleted &&
+                    CodexAppServerRateLimitParser.TryParseAccountEmail(line, expectedId: 3, out var parsedEmail))
                 {
-                    return parsed;
+                    accountReadCompleted = true;
+                    email = parsedEmail;
+                }
+
+                if (rateLimitSnapshot is not null && accountReadCompleted)
+                {
+                    return rateLimitSnapshot with { Email = email };
                 }
             }
 
-            return null;
+            return rateLimitSnapshot;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            return null;
+            return rateLimitSnapshot;
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {
-            return null;
+            return rateLimitSnapshot;
         }
         finally
         {

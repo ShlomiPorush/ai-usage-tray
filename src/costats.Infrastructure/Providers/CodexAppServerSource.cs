@@ -86,7 +86,7 @@ public sealed class CodexAppServerSource : ISignalSource
 
         return new ProviderReading(
             usage,
-            new IdentityCard(Profile.ProviderId, Profile.DisplayName, null, null, FormatPlan(snapshot.PlanType), "Codex app-server"),
+            new IdentityCard(Profile.ProviderId, Profile.DisplayName, snapshot.Email, null, FormatPlan(snapshot.PlanType), "Codex app-server"),
             "Updated from official Codex app-server",
             now,
             ReadingConfidence.High,

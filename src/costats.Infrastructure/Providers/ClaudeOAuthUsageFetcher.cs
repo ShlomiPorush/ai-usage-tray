@@ -18,6 +18,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
 {
     private const string BaseUrl = "https://api.anthropic.com";
     private const string UsagePath = "/api/oauth/usage";
+    private const string ProfilePath = "/api/oauth/profile";
     private const string BetaHeader = "oauth-2025-04-20";
 
     private static readonly TimeSpan BackoffBase = TimeSpan.FromMinutes(5);
@@ -130,10 +131,50 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             if (response.IsSuccessStatusCode)
             {
                 var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                return ParseResponse(content, credentials.SubscriptionType, credentials.RateLimitTier);
+                var usage = ParseResponse(content, credentials.SubscriptionType, credentials.RateLimitTier);
+                if (usage is null)
+                {
+                    return null;
+                }
+
+                var email = await TryFetchProfileEmailAsync(credentials.AccessToken, cancellationToken)
+                    .ConfigureAwait(false);
+                return usage with { Email = email };
             }
 
             return null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves the identity owned by the same OAuth token that supplied the
+    /// usage reading. Profile failure never hides otherwise valid quota data.
+    /// </summary>
+    private async Task<string?> TryFetchProfileEmailAsync(
+        string accessToken,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, ProfilePath);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return ClaudeOAuthProfileParser.ParseEmail(content);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -706,4 +747,5 @@ public sealed record ClaudeOAuthUsageResult(
     DateTimeOffset FetchedAt,
     IReadOnlyList<costats.Core.Pulse.ScopedQuota>? ScopedLimits = null,
     QuotaSeverity? FiveHourSeverity = null,
-    QuotaSeverity? SevenDaySeverity = null);
+    QuotaSeverity? SevenDaySeverity = null,
+    string? Email = null);

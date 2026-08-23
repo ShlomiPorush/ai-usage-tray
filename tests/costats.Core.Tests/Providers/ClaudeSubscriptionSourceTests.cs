@@ -21,7 +21,8 @@ public sealed class ClaudeSubscriptionSourceTests
             null,
             "pro",
             null,
-            DateTimeOffset.Parse("2026-08-02T14:00:00Z")));
+            DateTimeOffset.Parse("2026-08-02T14:00:00Z"),
+            Email: "person@example.com"));
 
         var source = new ClaudeSubscriptionSource(new ClaudeAccountProfile("claude-1", "Claude", "/tmp/claude"), client);
         var reading = await source.ReadAsync(CancellationToken.None);
@@ -35,6 +36,7 @@ public sealed class ClaudeSubscriptionSourceTests
         Assert.Equal(sessionReset, reading.Usage.SessionWindow!.ResetsAt);
         Assert.Equal(weeklyReset, reading.Usage.WeekWindow!.ResetsAt);
         Assert.Equal("Pro", reading.Identity!.Plan);
+        Assert.Equal("person@example.com", reading.Identity.Email);
     }
 
     [Fact]

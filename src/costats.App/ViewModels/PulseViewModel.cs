@@ -136,6 +136,8 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
             return;
         }
 
+        SelectedAccount.HideEmail();
+        account.HideEmail();
         SelectedAccount = account;
         IsOverview = false;
         BeginCostLoad(account);
@@ -146,6 +148,7 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     {
         // Nothing is watching the answer once the overview is back.
         _costLoad?.Cancel();
+        SelectedAccount.HideEmail();
         IsOverview = true;
     }
 
@@ -221,6 +224,7 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     public void ResetToOverview()
     {
         ApplySettings();
+        SelectedAccount.HideEmail();
         IsOverview = true;
     }
 

@@ -20,6 +20,8 @@ public sealed class CodexAppServerClientTests
             read initialize
             read initialized
             read limits
+            read account
+            printf '%s\n' '{"id":3,"result":{"account":{"type":"chatgpt","email":"person@example.com","planType":"plus"},"requiresOpenaiAuth":false}}'
             printf '%s\n' '{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":66,"windowDurationMins":300,"resetsAt":1785674040},"secondary":{"usedPercent":40,"windowDurationMins":10080,"resetsAt":1785945600}}}}'
             """);
         File.SetUnixFileMode(fakeCodex,
@@ -34,6 +36,7 @@ public sealed class CodexAppServerClientTests
             Assert.NotNull(result);
             Assert.Equal(34, result.SessionRemainingPercent);
             Assert.Equal(60, result.WeeklyRemainingPercent);
+            Assert.Equal("person@example.com", result.Email);
         }
         finally
         {

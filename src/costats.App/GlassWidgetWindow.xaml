@@ -397,6 +397,41 @@
                     <StackPanel DockPanel.Dock="Left">
                         <TextBlock Text="{Binding DisplayName}" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
                         <TextBlock Text="{Binding StatusSummary}" FontSize="12" Foreground="{DynamicResource TextMutedBrush}" Margin="0,3,0,0" />
+                        <StackPanel Orientation="Horizontal" Margin="0,5,0,0"
+                                    Visibility="{Binding HasEmail, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <TextBlock Text="{Binding EmailDisplayText}" FontSize="11"
+                                       Foreground="{DynamicResource TextMutedBrush}"
+                                       VerticalAlignment="Center" />
+                            <Button Width="24" Height="22" Margin="5,0,0,0" Padding="3"
+                                    Command="{Binding ToggleEmailVisibilityCommand}"
+                                    ToolTip="{Binding EmailToggleLabel}"
+                                    AutomationProperties.Name="{Binding EmailToggleLabel}"
+                                    Background="Transparent" BorderThickness="0" Cursor="Hand">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="EmailToggleBorder" Background="{TemplateBinding Background}"
+                                                CornerRadius="5" Padding="{TemplateBinding Padding}">
+                                            <Grid Width="15" Height="15">
+                                                <Path Data="M1,7.5 C3.4,3.5 6,2 8,2 C10,2 12.6,3.5 15,7.5 C12.6,11.5 10,13 8,13 C6,13 3.4,11.5 1,7.5 M8,5 A2.5,2.5 0 1 0 8,10 A2.5,2.5 0 1 0 8,5"
+                                                      Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.4"
+                                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                                                <Path Data="M2,2 L14,14" Stroke="{DynamicResource TextMutedBrush}"
+                                                      StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                                      Visibility="{Binding IsEmailRevealed, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                            </Grid>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="EmailToggleBorder" Property="Background" Value="{DynamicResource ButtonHoverBrush}" />
+                                            </Trigger>
+                                            <Trigger Property="IsPressed" Value="True">
+                                                <Setter TargetName="EmailToggleBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+                        </StackPanel>
                     </StackPanel>
                     <!-- Plan chip badge (only visible when PlanText is not empty) -->
                     <Border x:Name="PlanChip" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Top"

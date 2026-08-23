@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using costats.App.Services;
 using costats.Core.Analytics;
 using costats.Core.Pulse;
@@ -34,6 +35,36 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
 
     [ObservableProperty]
     private string planText = string.Empty;
+
+    [ObservableProperty]
+    private string email = string.Empty;
+
+    [ObservableProperty]
+    private bool isEmailRevealed;
+
+    public bool HasEmail => !string.IsNullOrWhiteSpace(Email);
+
+    public string EmailDisplayText => IsEmailRevealed ? Email : EmailPrivacy.Mask(Email);
+
+    public string EmailToggleLabel => IsEmailRevealed ? "Hide email" : "Show email";
+
+    partial void OnEmailChanged(string value)
+    {
+        IsEmailRevealed = false;
+        OnPropertyChanged(nameof(HasEmail));
+        OnPropertyChanged(nameof(EmailDisplayText));
+    }
+
+    partial void OnIsEmailRevealedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(EmailDisplayText));
+        OnPropertyChanged(nameof(EmailToggleLabel));
+    }
+
+    [RelayCommand]
+    private void ToggleEmailVisibility() => IsEmailRevealed = !IsEmailRevealed;
+
+    public void HideEmail() => IsEmailRevealed = false;
 
     // Session metrics
     [ObservableProperty]
@@ -198,7 +229,8 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
             ProviderId = reading.Usage?.ProviderId ?? displayNameFallback,
             DisplayName = displayNameFallback,
             StatusSummary = FormatStatusSummary(reading),
-            PlanText = reading.Identity?.Plan ?? string.Empty
+            PlanText = reading.Identity?.Plan ?? string.Empty,
+            Email = reading.Identity?.Email?.Trim() ?? string.Empty
         };
 
         PopulateSessionMetrics(vm, reading);

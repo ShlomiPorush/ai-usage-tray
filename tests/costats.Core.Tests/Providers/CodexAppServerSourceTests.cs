@@ -12,7 +12,10 @@ public sealed class CodexAppServerSourceTests
         var resetsAt = new DateTimeOffset(2026, 8, 2, 14, 34, 0, TimeSpan.Zero);
         var client = new StubClient(new CodexAppServerRateLimitSnapshot(
             34, TimeSpan.FromHours(5), resetsAt,
-            60, TimeSpan.FromDays(7), resetsAt.AddDays(3)));
+            60, TimeSpan.FromDays(7), resetsAt.AddDays(3))
+        {
+            Email = "person@example.com"
+        });
         var source = new CodexAppServerSource(
             new CodexAccountProfile("openai-1", "OpenAI 1", "C:/profiles/openai-1"), client);
 
@@ -25,6 +28,7 @@ public sealed class CodexAppServerSourceTests
         Assert.Equal(40, reading.Usage?.WeekUsed);
         Assert.Equal(100, reading.Usage?.WeekLimit);
         Assert.Equal(resetsAt, reading.Usage?.SessionWindow?.ResetsAt);
+        Assert.Equal("person@example.com", reading.Identity?.Email);
         Assert.Equal("C:/profiles/openai-1", client.LastCodexHome);
     }
 

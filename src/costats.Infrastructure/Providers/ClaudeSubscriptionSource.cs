@@ -84,7 +84,7 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
             new IdentityCard(
                 Profile.ProviderId,
                 Profile.DisplayName,
-                null,
+                result.Email,
                 null,
                 FormatPlan(result.SubscriptionType, result.RateLimitTier),
                 "Claude subscription OAuth"),
