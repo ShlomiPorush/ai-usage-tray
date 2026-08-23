@@ -149,8 +149,8 @@ public sealed class AppSettings
         !string.IsNullOrWhiteSpace(ZAiCodingApiKey) || !string.IsNullOrWhiteSpace(ZAiApiKey);
 
     /// <summary>
-    /// Bearer token for the Z.AI / GLM coding-plan usage endpoint
-    /// (<c>https://api.z.ai/api/coding/paas/v4/usage</c>). When empty, the
+    /// API key for the Z.AI / GLM coding-plan quota endpoint
+    /// (<c>https://api.z.ai/api/monitor/usage/quota/limit</c>). When empty, the
     /// coding-plan path is skipped. Get the key from
     /// <c>https://z.ai/manage-apikey</c>.
     /// Never serialized: the secret lives in Windows Credential Manager and is

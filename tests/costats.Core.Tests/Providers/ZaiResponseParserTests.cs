@@ -143,4 +143,69 @@ public sealed class ZaiResponseParserTests
         Assert.NotNull(snapshot);
         Assert.Equal(TimeSpan.FromSeconds(18000), snapshot!.SessionWindow);
     }
+
+    [Fact]
+    public void Parse_reads_current_credit_limit_response_with_hourly_and_weekly_windows()
+    {
+        const string body = """
+        {
+          "code": 200,
+          "msg": "success",
+          "success": true,
+          "data": {
+            "level": "lite",
+            "limits": [
+              {
+                "type": "CREDIT_LIMIT",
+                "unit": 3,
+                "number": 5,
+                "usage": 2000,
+                "currentValue": 0,
+                "remaining": 2000,
+                "percentage": 0
+              },
+              {
+                "type": "CREDIT_LIMIT",
+                "unit": 6,
+                "number": 1,
+                "usage": 10000,
+                "currentValue": 112,
+                "remaining": 9887,
+                "percentage": 1,
+                "nextResetTime": 1787927085998
+              }
+            ]
+          }
+        }
+        """;
+
+        var snapshot = ZaiResponseParser.Parse(body);
+
+        Assert.NotNull(snapshot);
+        Assert.Equal(100, snapshot!.SessionRemainingPercent);
+        Assert.Equal(99, snapshot.WeeklyRemainingPercent);
+        Assert.Equal(TimeSpan.FromHours(5), snapshot.SessionWindow);
+        Assert.Equal(TimeSpan.FromDays(7), snapshot.WeeklyWindow);
+        Assert.Equal(DateTimeOffset.FromUnixTimeMilliseconds(1787927085998), snapshot.WeeklyResetsAt);
+        Assert.Equal("lite", snapshot.PlanName);
+    }
+
+    [Fact]
+    public void Parse_derives_remaining_percentage_when_credit_response_omits_percentage()
+    {
+        const string body = """
+        {
+          "data": {
+            "limits": [
+              { "type": "CREDIT_LIMIT", "unit": 3, "number": 5, "usage": 2000, "remaining": 1500 }
+            ]
+          }
+        }
+        """;
+
+        var snapshot = ZaiResponseParser.Parse(body);
+
+        Assert.NotNull(snapshot);
+        Assert.Equal(75, snapshot!.SessionRemainingPercent);
+    }
 }

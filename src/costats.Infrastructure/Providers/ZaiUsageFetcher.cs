@@ -5,35 +5,35 @@ using System.Text.Json;
 namespace costats.Infrastructure.Providers;
 
 /// <summary>
-/// Reads Z.AI / GLM coding-plan usage from the official
-/// <c>https://api.z.ai/api/coding/paas/v4/usage</c> endpoint, authenticated
-/// with a user-supplied Bearer token. The endpoint is documented in the
-/// Z.AI API reference and returns 401 without an <c>Authorization</c>
-/// header. The pay-as-you-go variant is read from
-/// <c>/api/paas/v4/usage</c> when the coding plan returns no usage.
+/// Reads Z.AI / GLM coding-plan usage from the same quota endpoint used by
+/// Z.AI's official <c>glm-plan-usage</c> plugin:
+/// <c>https://api.z.ai/api/monitor/usage/quota/limit</c>.
 ///
 /// <para>
-/// Both keys are user-supplied through <c>appsettings.json</c> under
-/// <c>ZAiApiKey</c> and <c>ZAiCodingApiKey</c>. The keys never leave the
-/// local machine: they are used only to make outbound HTTPS calls to
-/// <c>api.z.ai</c>.
+/// Both keys are user-supplied in Settings and persisted in Windows Credential
+/// Manager. They are sent only to <c>api.z.ai</c> to read the account's quota.
 /// </para>
 /// </summary>
 public sealed class ZaiUsageFetcher : IZaiUsageClient, IDisposable
 {
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(20);
-    private const string CodingUsagePath = "/api/coding/paas/v4/usage";
-    private const string StandardUsagePath = "/api/paas/v4/usage";
+    private const string QuotaUsagePath = "/api/monitor/usage/quota/limit";
 
     private readonly HttpClient _httpClient;
 
-    public ZaiUsageFetcher()
+    public ZaiUsageFetcher() : this(new HttpClient())
     {
-        _httpClient = new HttpClient
-        {
-            BaseAddress = new Uri("https://api.z.ai/"),
-            Timeout = RequestTimeout
-        };
+    }
+
+    internal ZaiUsageFetcher(HttpMessageHandler handler) : this(new HttpClient(handler))
+    {
+    }
+
+    private ZaiUsageFetcher(HttpClient httpClient)
+    {
+        _httpClient = httpClient;
+        _httpClient.BaseAddress ??= new Uri("https://api.z.ai/");
+        _httpClient.Timeout = RequestTimeout;
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         _httpClient.DefaultRequestHeaders.AcceptLanguage.ParseAdd("en-US,en;q=0.9");
     }
@@ -43,16 +43,21 @@ public sealed class ZaiUsageFetcher : IZaiUsageClient, IDisposable
         string? standardApiKey,
         CancellationToken cancellationToken)
     {
-        var coding = await TryFetchAsync(CodingUsagePath, codingApiKey, cancellationToken).ConfigureAwait(false);
+        var coding = await TryFetchAsync(QuotaUsagePath, codingApiKey, cancellationToken).ConfigureAwait(false);
         if (coding is not null)
         {
             return coding;
         }
 
-        // No coding-plan subscription, or the key wasn't accepted. Fall back
-        // to the standard paas endpoint (pay-as-you-go balance), if a key is
-        // available.
-        return await TryFetchAsync(StandardUsagePath, standardApiKey, cancellationToken).ConfigureAwait(false);
+        // Keep supporting the legacy standard-key setting. The monitor endpoint
+        // accepts the account key and reports a coding-plan quota when one is
+        // attached to that account.
+        if (string.Equals(codingApiKey?.Trim(), standardApiKey?.Trim(), StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return await TryFetchAsync(QuotaUsagePath, standardApiKey, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<ZaiUsageSnapshot?> TryFetchAsync(
@@ -68,7 +73,10 @@ public sealed class ZaiUsageFetcher : IZaiUsageClient, IDisposable
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, relativePath);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
+            // Z.AI's official usage-query plugin sends the API key as the raw
+            // Authorization value. TryAddWithoutValidation is required because
+            // an API key is not an RFC authentication scheme.
+            request.Headers.TryAddWithoutValidation("Authorization", apiKey.Trim());
             using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
             if (!response.IsSuccessStatusCode)
@@ -115,10 +123,9 @@ public sealed record ZaiUsageSnapshot(
     DateTimeOffset FetchedAt);
 
 /// <summary>
-/// Parses the JSON returned by Z.AI's usage endpoints. The exact shape is
-/// not yet published as a stable schema; this parser accepts the two most
-/// plausible shapes and returns <c>null</c> for anything else so the tray
-/// app shows "Z.AI: no data" rather than a fabricated value.
+/// Parses the JSON returned by Z.AI's quota endpoint. It supports the current
+/// <c>data.limits</c> shape and legacy shapes, and returns <c>null</c> for
+/// anything else rather than fabricating a value.
 /// </summary>
 internal static class ZaiResponseParser
 {
@@ -149,7 +156,24 @@ internal static class ZaiResponseParser
                 return null;
             }
 
-            var plan = TryReadString(container, "plan", "planName", "plan_name", "tier");
+            var plan = TryReadString(container, "plan", "planName", "plan_name", "tier", "level");
+
+            // Current coding-plan responses use data.limits with one CREDIT_LIMIT
+            // for the 5-hour window (unit=3) and one for the weekly window
+            // (unit=6). The percentage field is used, not remaining.
+            var quotaLimits = TryReadQuotaLimits(container);
+            if (quotaLimits.Session is not null || quotaLimits.Weekly is not null)
+            {
+                return new ZaiUsageSnapshot(
+                    SessionRemainingPercent: quotaLimits.Session?.RemainingPercent,
+                    SessionResetsAt: quotaLimits.Session?.ResetsAt,
+                    SessionWindow: quotaLimits.Session?.Window,
+                    WeeklyRemainingPercent: quotaLimits.Weekly?.RemainingPercent,
+                    WeeklyResetsAt: quotaLimits.Weekly?.ResetsAt,
+                    WeeklyWindow: quotaLimits.Weekly?.Window,
+                    PlanName: plan,
+                    FetchedAt: DateTimeOffset.UtcNow);
+            }
 
             // Window A: 5-hour / session window.
             var session = TryReadWindow(container, "five_hour", "fiveHour", "session", "hourly");
@@ -197,6 +221,92 @@ internal static class ZaiResponseParser
         double? RemainingPercent,
         DateTimeOffset? ResetsAt,
         TimeSpan? Window);
+
+    private sealed record ZaiQuotaLimits(ZaiWindow? Session, ZaiWindow? Weekly);
+
+    private static ZaiQuotaLimits TryReadQuotaLimits(JsonElement container)
+    {
+        if (!container.TryGetProperty("limits", out var limits) || limits.ValueKind != JsonValueKind.Array)
+        {
+            return new ZaiQuotaLimits(null, null);
+        }
+
+        ZaiWindow? session = null;
+        ZaiWindow? weekly = null;
+
+        foreach (var limit in limits.EnumerateArray())
+        {
+            if (limit.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var usedPercent = TryReadDouble(limit, "percentage", "used_percent");
+            var remainingPercent = usedPercent.HasValue
+                ? 100 - Math.Clamp(usedPercent.Value, 0, 100)
+                : TryReadRemainingPercent(limit);
+            var resetsAt = TryReadDateTime(limit, "nextResetTime", "next_reset_time", "reset_at", "resets_at");
+            var unit = TryReadInt32(limit, "unit");
+            var number = TryReadDouble(limit, "number") ?? 1;
+
+            if (unit == 3)
+            {
+                session = new ZaiWindow(remainingPercent, resetsAt, TimeSpan.FromHours(number));
+            }
+            else if (unit == 6)
+            {
+                weekly = new ZaiWindow(remainingPercent, resetsAt, TimeSpan.FromDays(7 * number));
+            }
+            else if (string.Equals(TryReadString(limit, "type"), "TOKENS_LIMIT", StringComparison.OrdinalIgnoreCase))
+            {
+                session = new ZaiWindow(remainingPercent, resetsAt, TimeSpan.FromHours(5));
+            }
+        }
+
+        return new ZaiQuotaLimits(session, weekly);
+    }
+
+    private static double? TryReadRemainingPercent(JsonElement limit)
+    {
+        var explicitPercent = TryReadDouble(limit, "remaining_percent", "percent_remaining");
+        if (explicitPercent.HasValue)
+        {
+            return Math.Clamp(explicitPercent.Value, 0, 100);
+        }
+
+        var remaining = TryReadDouble(limit, "remaining");
+        var total = TryReadDouble(limit, "usage", "total", "limit", "quota");
+        if (remaining.HasValue && total.HasValue && total.Value > 0)
+        {
+            return Math.Clamp(remaining.Value / total.Value * 100, 0, 100);
+        }
+
+        var current = TryReadDouble(limit, "currentValue", "current_value", "used");
+        if (current.HasValue && total.HasValue && total.Value > 0)
+        {
+            return 100 - Math.Clamp(current.Value / total.Value * 100, 0, 100);
+        }
+
+        return null;
+    }
+
+    private static int? TryReadInt32(JsonElement parent, string name)
+    {
+        if (!parent.TryGetProperty(name, out var value))
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+        {
+            return number;
+        }
+
+        return value.ValueKind == JsonValueKind.String &&
+               int.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
 
     private static ZaiWindow? TryReadWindow(JsonElement parent, params string[] names)
     {
@@ -280,7 +390,11 @@ internal static class ZaiResponseParser
             }
             if (v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var unix))
             {
-                return DateTimeOffset.FromUnixTimeSeconds(unix);
+                // Z.AI's quota endpoint currently returns nextResetTime in Unix
+                // milliseconds; legacy responses used seconds.
+                return Math.Abs(unix) >= 10_000_000_000
+                    ? DateTimeOffset.FromUnixTimeMilliseconds(unix)
+                    : DateTimeOffset.FromUnixTimeSeconds(unix);
             }
         }
         return null;
