@@ -137,6 +137,20 @@ public sealed class JsonSettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Load_removes_the_unused_legacy_pulse_snapshot()
+    {
+        var snapshot = Path.Combine(_root, "costats", "snapshots", "pulse.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(snapshot)!);
+        File.WriteAllText(snapshot, "{\"email\":\"local@example.com\"}");
+
+        await new JsonSettingsStore(new FakeCredentialVault(), _root)
+            .LoadAsync(CancellationToken.None);
+
+        Assert.False(File.Exists(snapshot));
+        Assert.False(Directory.Exists(Path.GetDirectoryName(snapshot)));
+    }
+
+    [Fact]
     public async Task Empty_settings_file_is_backed_up_and_reset()
     {
         // What a crash during the old truncate-in-place save left behind.
@@ -192,6 +206,34 @@ public sealed class JsonSettingsStoreTests : IDisposable
         // Everything else survives the rewrite.
         Assert.Equal(10, loaded.RefreshMinutes);
         Assert.Contains("\"refreshMinutes\": 10", rewritten, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Legacy_accounts_are_migrated_once_and_removed_from_json()
+    {
+        WriteSettingsFile("""
+            {
+              "refreshMinutes": 5,
+              "claudeConfigDir": "/home/u/.claude-custom",
+              "openAiAccounts": [
+                { "id": "openai-1", "displayName": "PA", "codexHome": "/home/u/.codex-pa" }
+              ]
+            }
+            """);
+
+        var loaded = await new JsonSettingsStore(new FakeCredentialVault(), _root)
+            .LoadAsync(CancellationToken.None);
+
+        var accounts = loaded.GetEffectiveAccounts();
+        Assert.Equal(2, accounts.Count);
+        Assert.Equal("/home/u/.claude-custom", accounts[0].ConfigDir);
+        Assert.Equal("PA", accounts[1].DisplayName);
+        Assert.Equal("/home/u/.codex-pa", accounts[1].ConfigDir);
+
+        var rewritten = File.ReadAllText(SettingsPath);
+        Assert.DoesNotContain("claudeConfigDir", rewritten, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("openAiAccounts", rewritten, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("\"accounts\"", rewritten, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

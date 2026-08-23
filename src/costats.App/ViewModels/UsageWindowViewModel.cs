@@ -129,9 +129,9 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     [ObservableProperty]
     private UsageChartData chart = UsageChartData.Empty;
 
-    /// <summary>"Daily cost" or "Daily tokens".</summary>
+    /// <summary>"Daily API value" or "Daily tokens".</summary>
     [ObservableProperty]
-    private string chartTitle = "Daily cost";
+    private string chartTitle = "Daily API value";
 
     /// <summary>Header of the breakdown table's first column.</summary>
     [ObservableProperty]
@@ -139,7 +139,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
     /// <summary>Header of the breakdown table's value column.</summary>
     [ObservableProperty]
-    private string breakdownValueHeader = "Cost";
+    private string breakdownValueHeader = "API value";
 
     /// <summary>A single line explaining an empty or failed report.</summary>
     [ObservableProperty]
@@ -218,7 +218,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
     partial void OnMetricIndexChanged(int value)
     {
-        ChartTitle = value == 1 ? "Daily tokens" : "Daily cost";
+        ChartTitle = value == 1 ? "Daily tokens" : "Daily API value";
         if (_report is not null)
         {
             Chart = BuildChart(_report);
@@ -396,7 +396,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
                     : (totalTokens > 0 ? (double)tokens / totalTokens : 0d);
 
                 var caption = totalCost > 0m
-                    ? $"{UsageNumberFormat.Percent(provider.Totals.CostUsd, totalCost)} of cost · {UsageNumberFormat.Tokens(tokens)} tokens"
+                    ? $"{UsageNumberFormat.Percent(provider.Totals.CostUsd, totalCost)} of estimate · {UsageNumberFormat.Tokens(tokens)} tokens"
                     : $"{UsageNumberFormat.Percent(tokens, totalTokens)} of tokens · {UsageNumberFormat.Tokens(tokens)} tokens";
 
                 return new UsageProviderRow(
@@ -436,7 +436,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             new UsageStatTile(
                 "Cache savings",
                 UsageNumberFormat.Money(report.Totals.CacheSavingsUsd),
-                $"{UsageNumberFormat.Multiplier(report.Totals.CacheSavingsUsd, report.Totals.CostUsd)} the raw token cost")
+                $"{UsageNumberFormat.Multiplier(report.Totals.CacheSavingsUsd, report.Totals.CostUsd)} the API list-price estimate")
         ];
     }
 

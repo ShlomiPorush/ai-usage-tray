@@ -11,7 +11,6 @@ using costats.Application.Settings;
 using costats.Application.Shell;
 using costats.Infrastructure.Analytics;
 using costats.Infrastructure.Providers;
-using costats.Infrastructure.Pulse;
 using costats.Infrastructure.Security;
 using costats.Infrastructure.Settings;
 using costats.Infrastructure.Time;
@@ -149,7 +148,7 @@ namespace costats.App
                 {
                     _updateLoopCts = new CancellationTokenSource();
                     LogFireAndForget(
-                        RunBackgroundUpdateChecksAsync(tray, _updateLoopCts.Token),
+                        RunBackgroundUpdateChecksAsync(tray, settings, _updateLoopCts.Token),
                         "UpdateCheck");
                 }
 
@@ -166,7 +165,10 @@ namespace costats.App
             }
         }
 
-        private async Task RunBackgroundUpdateChecksAsync(TrayHost tray, CancellationToken cancellationToken)
+        private async Task RunBackgroundUpdateChecksAsync(
+            TrayHost tray,
+            AppSettings settings,
+            CancellationToken cancellationToken)
         {
             if (_updateCoordinator is null)
             {
@@ -175,22 +177,34 @@ namespace costats.App
 
             try
             {
+                var nextCheck = DateTimeOffset.UtcNow;
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(60));
-
-                    try
+                    if (!settings.AutomaticUpdateChecksEnabled)
                     {
-                        var result = await _updateCoordinator.CheckForUpdateAsync(timeoutCts.Token).ConfigureAwait(false);
-                        await Dispatcher.InvokeAsync(() => tray.HandleBackgroundUpdateResult(result));
+                        // Enabling the toggle should schedule a check promptly,
+                        // not after the old six-hour deadline.
+                        nextCheck = DateTimeOffset.UtcNow;
                     }
-                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    else if (DateTimeOffset.UtcNow >= nextCheck)
                     {
-                        Log.Warning("Background update check timed out");
+                        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                        timeoutCts.CancelAfter(TimeSpan.FromSeconds(60));
+
+                        try
+                        {
+                            var result = await _updateCoordinator.CheckForUpdateAsync(timeoutCts.Token).ConfigureAwait(false);
+                            await Dispatcher.InvokeAsync(() => tray.HandleBackgroundUpdateResult(result));
+                        }
+                        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                        {
+                            Log.Warning("Background update check timed out");
+                        }
+
+                        nextCheck = DateTimeOffset.UtcNow + _updateCoordinator.CheckInterval;
                     }
 
-                    await Task.Delay(_updateCoordinator.CheckInterval, cancellationToken).ConfigureAwait(false);
+                    await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -403,13 +417,6 @@ namespace costats.App
                     services.AddSingleton<IAccountSourceRegistry, AccountSourceRegistry>();
 
                     services.AddSingleton<ISignalSource, CopilotPersonalSource>();
-                    // Keep multicc discovery available for legacy settings compatibility.
-                    services.AddSingleton<MulticcConfigReader>();
-                    var tempReader = new MulticcConfigReader(
-                        Microsoft.Extensions.Logging.Abstractions.NullLogger<MulticcConfigReader>.Instance);
-                    services.AddSingleton<IMulticcDiscovery>(
-                        new MulticcDiscoveryService(tempReader, settings.MulticcConfigPath));
-
                     // Z.AI / GLM coding-plan monitor (Bearer-token auth).
                     services.AddSingleton<IZaiUsageClient>(_ => new ZaiUsageFetcher());
                     services.AddSingleton<ISignalSource>(sp => new ZaiUsageSource(
@@ -417,7 +424,6 @@ namespace costats.App
                         () => settings.ZAiCodingApiKey,
                         () => settings.ZAiApiKey,
                         () => settings.ZAiDisplayName));
-                    services.AddSingleton<IPulseSnapshotWriter, JsonPulseSnapshotWriter>();
                     services.AddSingleton<IPulseOrchestrator, PulseOrchestrator>();
                     services.AddHostedService(sp => (PulseOrchestrator)sp.GetRequiredService<IPulseOrchestrator>());
 
@@ -437,7 +443,6 @@ namespace costats.App
                     services.AddSingleton<GlassWidgetWindow>();
                     services.AddSingleton<SettingsWindow>();
                     services.AddSingleton<UsageWindow>();
-                    services.AddSingleton<TrayStatusPanelWindow>();
                     services.AddSingleton<TaskbarPositionService>();
                     services.AddSingleton<TrayHost>();
                     services.AddSingleton<HotkeyService>();
@@ -450,7 +455,9 @@ namespace costats.App
             var lifetime = _host.Services.GetRequiredService<IHostApplicationLifetime>();
             lifetime.ApplicationStopping.Register(() => Log.Warning("Host is stopping"));
 
-            _ = _host.Services.GetRequiredService<HotkeyService>();
+            var hotkey = _host.Services.GetRequiredService<HotkeyService>();
+            hotkey.ToggleRequested += (_, _) =>
+                _host.Services.GetRequiredService<TrayHost>().ToggleWidget();
             // Resolved eagerly: it subscribes to the pulse stream in its constructor.
             _ = _host.Services.GetRequiredService<RemoteViewUploader>();
             return _host.Services.GetRequiredService<TrayHost>();

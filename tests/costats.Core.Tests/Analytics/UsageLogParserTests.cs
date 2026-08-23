@@ -468,6 +468,23 @@ public sealed class UsageLogParserTests : IDisposable
     }
 
     [Fact]
+    public void Cache_info_and_clear_cover_the_files_written_by_the_parser()
+    {
+        var cache = new UsageFileCache(Path.Combine(_root, "cache"));
+        var path = WriteFile("a.jsonl", ClaudeLine("msg_1", "req_1", "2026-08-21T13:28:42Z"));
+        var file = new FileInfo(path);
+
+        cache.Write(file, UsageProviderKind.Claude, UsageLogParser.ParseClaudeFile(path));
+
+        var before = cache.Inspect();
+        Assert.Equal(1, before.FileCount);
+        Assert.True(before.Bytes > 0);
+
+        cache.Clear();
+        Assert.Equal(UsageCacheInfo.Empty, cache.Inspect());
+    }
+
+    [Fact]
     public async Task A_second_scan_reads_the_cache_and_returns_the_same_numbers()
     {
         WriteFile(Path.Combine("c1", "projects", "p", "s.jsonl"),

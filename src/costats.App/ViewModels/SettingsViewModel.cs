@@ -11,6 +11,7 @@ using costats.Application.Security;
 using costats.Application.Settings;
 using costats.Core.Pulse;
 using costats.Core.RemoteView;
+using costats.Infrastructure.Analytics;
 using costats.Infrastructure.Providers;
 using Microsoft.Win32;
 using Serilog;
@@ -25,11 +26,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IPulseOrchestrator _pulseOrchestrator;
     private readonly ICredentialVault _credentialVault;
     private readonly CopilotUsageFetcher _copilotFetcher;
+    private readonly HotkeyService _hotkeyService;
+    private readonly IUsageAnalyticsService _analytics;
     private readonly StartupUpdateCoordinator? _updateCoordinator;
     private AvailableUpdate? _availableUpdate;
-    private readonly IMulticcDiscovery? _multiccDiscovery;
     private readonly IAccountSourceRegistry? _accountSources;
     private readonly RemoteViewUploader? _remoteViewUploader;
+    private bool _suppressHotkeyChange;
     private const string StartupRegistryKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
     // Renamed from "costats" so the entry does not collide with upstream builds.
     private const string AppName = "AiUsageTray";
@@ -41,9 +44,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         IPulseOrchestrator pulseOrchestrator,
         ICredentialVault credentialVault,
         CopilotUsageFetcher copilotFetcher,
+        HotkeyService hotkeyService,
+        IUsageAnalyticsService analytics,
         IAccountSourceRegistry? accountSources = null,
         StartupUpdateCoordinator? updateCoordinator = null,
-        IMulticcDiscovery? multiccDiscovery = null,
         RemoteViewUploader? remoteViewUploader = null)
     {
         _settingsStore = settingsStore;
@@ -52,21 +56,19 @@ public sealed partial class SettingsViewModel : ObservableObject
         _accountSources = accountSources;
         _credentialVault = credentialVault;
         _copilotFetcher = copilotFetcher;
+        _hotkeyService = hotkeyService;
+        _analytics = analytics;
         _updateCoordinator = updateCoordinator;
-        _multiccDiscovery = multiccDiscovery;
         _remoteViewUploader = remoteViewUploader;
 
         refreshMinutes = settings.RefreshMinutes;
         startAtLogin = GetStartupRegistryValue();
+        hotkeyEnabled = settings.HotkeyEnabled;
+        hotkey = settings.Hotkey;
+        automaticUpdateChecksEnabled = settings.AutomaticUpdateChecksEnabled;
 
         _settings.Accounts = settings.GetEffectiveAccounts().ToList();
         RebuildProviderRows();
-
-        multiccDetected = _multiccDiscovery?.IsDetected ?? false;
-        multiccEnabled = settings.MulticcEnabled;
-        multiccSelectedProfile = settings.MulticcSelectedProfile;
-        multiccProfileNames = _multiccDiscovery?.Profiles.Select(p => p.Name).ToList() ?? [];
-        multiccProfileCount = multiccProfileNames.Count;
 
         copilotEnabled = settings.CopilotEnabled;
         showOverviewResetTimes = settings.ShowOverviewResetTimes;
@@ -77,6 +79,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         remoteViewMessage = DescribeRemoteViewUrlProblems();
 
         _ = LoadCopilotTokenStatusAsync();
+        RefreshUsageCacheInfo();
         RefreshUpdateAvailability();
     }
 
@@ -85,6 +88,24 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool startAtLogin;
+
+    [ObservableProperty]
+    private bool hotkeyEnabled;
+
+    [ObservableProperty]
+    private string hotkey = "Ctrl+Alt+U";
+
+    [ObservableProperty]
+    private string hotkeyStatus = string.Empty;
+
+    [ObservableProperty]
+    private bool automaticUpdateChecksEnabled;
+
+    [ObservableProperty]
+    private string usageCacheSummary = string.Empty;
+
+    [ObservableProperty]
+    private bool isClearingUsageCache;
 
     /// <summary>One row per monitored provider: Claude/Codex accounts plus Z.AI and Copilot when configured.</summary>
     public System.Collections.ObjectModel.ObservableCollection<ProviderRowViewModel> ProviderRows { get; } = new();
@@ -124,24 +145,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnIsCheckingForUpdatesChanged(bool value) => OnPropertyChanged(nameof(IsUpdateBusy));
 
     partial void OnIsInstallingUpdateChanged(bool value) => OnPropertyChanged(nameof(IsUpdateBusy));
-
-    [ObservableProperty]
-    private bool multiccDetected;
-
-    [ObservableProperty]
-    private bool multiccEnabled;
-
-    [ObservableProperty]
-    private string? multiccSelectedProfile;
-
-    [ObservableProperty]
-    private IReadOnlyList<string> multiccProfileNames = [];
-
-    [ObservableProperty]
-    private int multiccProfileCount;
-
-    [ObservableProperty]
-    private string multiccRestartMessage = string.Empty;
 
     [ObservableProperty]
     private bool copilotEnabled;
@@ -207,8 +210,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             _settings.Theme = value.Value;
             SaveSettingsInBackground();
             Services.ThemeService.Apply(value.Value);
-            // Refresh so view-model-computed colours (percent text) match the new theme.
-            _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+            _pulseOrchestrator.RepublishLastState();
             OnPropertyChanged();
         }
     }
@@ -221,8 +223,6 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool isCopilotTokenBusy;
-
-    public bool IsMulticcAllProfiles => MulticcSelectedProfile is null;
 
     public string Version { get; } =
         (Assembly.GetEntryAssembly()?
@@ -265,6 +265,70 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         _settings.StartAtLogin = value;
         SetStartupRegistryValue(value);
+        SaveSettingsInBackground();
+    }
+
+    partial void OnHotkeyEnabledChanged(bool value)
+    {
+        if (_suppressHotkeyChange)
+        {
+            return;
+        }
+
+        var result = _hotkeyService.Apply(value, Hotkey);
+        if (!result.IsSuccess)
+        {
+            HotkeyStatus = result.Error;
+            _suppressHotkeyChange = true;
+            HotkeyEnabled = _settings.HotkeyEnabled;
+            _suppressHotkeyChange = false;
+            return;
+        }
+
+        _settings.HotkeyEnabled = value;
+        HotkeyStatus = value ? $"Active: {result.NormalizedHotkey}" : "Global shortcut is off.";
+        SaveSettingsInBackground();
+    }
+
+    partial void OnHotkeyChanged(string value)
+    {
+        if (_suppressHotkeyChange)
+        {
+            return;
+        }
+
+        if (!HotkeyEnabled)
+        {
+            _settings.Hotkey = value.Trim();
+            HotkeyStatus = "Shortcut will be validated when enabled.";
+            SaveSettingsInBackground();
+            return;
+        }
+
+        var result = _hotkeyService.Apply(true, value);
+        if (!result.IsSuccess)
+        {
+            HotkeyStatus = result.Error;
+            _suppressHotkeyChange = true;
+            Hotkey = _settings.Hotkey;
+            _suppressHotkeyChange = false;
+            return;
+        }
+
+        _settings.Hotkey = result.NormalizedHotkey;
+        if (!string.Equals(Hotkey, result.NormalizedHotkey, StringComparison.Ordinal))
+        {
+            _suppressHotkeyChange = true;
+            Hotkey = result.NormalizedHotkey;
+            _suppressHotkeyChange = false;
+        }
+        HotkeyStatus = $"Active: {result.NormalizedHotkey}";
+        SaveSettingsInBackground();
+    }
+
+    partial void OnAutomaticUpdateChecksEnabledChanged(bool value)
+    {
+        _settings.AutomaticUpdateChecksEnabled = value;
         SaveSettingsInBackground();
     }
 
@@ -312,7 +376,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         SaveSettingsInBackground();
         RebuildProviderRows();
         AccountsRestartMessage = row.IsPrimary ? "Primary account cleared." : $"{row.Name} set as primary.";
-        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+        _pulseOrchestrator.RepublishLastState();
     }
 
     /// <summary>Persists account changes and applies them live (no restart needed).</summary>
@@ -320,6 +384,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         SaveSettingsInBackground();
         _accountSources?.Reload();
+        _analytics.Invalidate();
         RebuildProviderRows();
         AccountsRestartMessage = message;
         _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
@@ -450,27 +515,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         System.Windows.Application.Current.Shutdown(0);
     }
 
-    partial void OnMulticcEnabledChanged(bool value)
-    {
-        _settings.MulticcEnabled = value;
-        MulticcRestartMessage = "Restart required to apply changes.";
-        SaveSettingsInBackground();
-    }
-
-    partial void OnMulticcSelectedProfileChanged(string? value)
-    {
-        _settings.MulticcSelectedProfile = value;
-        MulticcRestartMessage = "Restart required to apply changes.";
-        OnPropertyChanged(nameof(IsMulticcAllProfiles));
-        SaveSettingsInBackground();
-    }
-
     partial void OnShowOverviewResetTimesChanged(bool value)
     {
         _settings.ShowOverviewResetTimes = value;
         SaveSettingsInBackground();
-        // Push a refresh so the widget picks the flag up immediately.
-        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+        _pulseOrchestrator.RepublishLastState();
     }
 
     partial void OnRemoteViewEnabledChanged(bool value)
@@ -499,8 +548,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         SaveSettingsInBackground();
         OnPropertyChanged(nameof(ShareLink));
-        // Push a refresh so the widget shows or hides its remote view button immediately.
-        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+        _pulseOrchestrator.RepublishLastState();
     }
 
     partial void OnRemoteViewUploadUrlChanged(string value)
@@ -560,8 +608,52 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             // Skip the upload throttle so the link a user copies right now works.
             _remoteViewUploader?.RequestImmediateUpload();
-            _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+            _pulseOrchestrator.RepublishLastState();
         }
+    }
+
+    public void RefreshUsageCacheInfo()
+    {
+        UsageCacheSummary = FormatCacheInfo(_analytics.GetCacheInfo());
+    }
+
+    [RelayCommand]
+    private async Task ClearUsageCacheAsync()
+    {
+        if (IsClearingUsageCache)
+        {
+            return;
+        }
+
+        IsClearingUsageCache = true;
+        UsageCacheSummary = "Clearing local usage cache...";
+        try
+        {
+            var info = await Task.Run(() => _analytics.ClearCacheAsync(CancellationToken.None)).ConfigureAwait(true);
+            UsageCacheSummary = info.FileCount == 0
+                ? "Usage cache cleared. The next usage report will perform a full scan."
+                : FormatCacheInfo(info);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Could not clear usage cache");
+            UsageCacheSummary = "Could not clear the usage cache.";
+        }
+        finally
+        {
+            IsClearingUsageCache = false;
+        }
+    }
+
+    private static string FormatCacheInfo(UsageCacheInfo info)
+    {
+        var size = info.Bytes switch
+        {
+            >= 1024L * 1024L => $"{info.Bytes / (1024d * 1024d):0.##} MB",
+            >= 1024L => $"{info.Bytes / 1024d:0.##} KB",
+            _ => $"{info.Bytes} bytes"
+        };
+        return $"{info.FileCount:N0} cached files, {size}.";
     }
 
     /// <summary>Deletes the remote snapshot and reports the outcome truthfully.</summary>

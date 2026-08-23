@@ -130,16 +130,6 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     [ObservableProperty]
     private bool weekPaceOnTop;
 
-    // Extra usage / Credits
-    [ObservableProperty]
-    private string extraUsageLabel = "--";
-
-    [ObservableProperty]
-    private double extraUsageProgress;
-
-    [ObservableProperty]
-    private bool hasExtraUsage;
-
     // Cost tracking, filled in asynchronously from the local usage analytics
     // engine when the account's detail view is opened.
     [ObservableProperty]
@@ -198,29 +188,12 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     [ObservableProperty]
     private string weekPercentPillColor = "#2E10B981";
 
-    // Compact cost line for multicc stacked cards (e.g. "$4.20 today · $82.50 / 30d")
-    [ObservableProperty]
-    private string compactCostText = string.Empty;
-
-    [ObservableProperty]
-    private bool hasCompactCost;
-
     // Token tracking
     [ObservableProperty]
     private string todayTokensText = "--";
 
     [ObservableProperty]
     private string monthTokensText = "--";
-
-    // Legacy properties for compatibility
-    [ObservableProperty]
-    private string sessionText = "--";
-
-    [ObservableProperty]
-    private string weekText = "--";
-
-    [ObservableProperty]
-    private string creditsText = "--";
 
     public static ProviderPulseViewModel FromReading(ProviderReading reading, string displayNameFallback)
     {
@@ -237,7 +210,6 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         PopulateWeekMetrics(vm, reading);
         PopulateScopedLimits(vm, reading);
         PopulateResetCredits(vm, reading);
-        PopulateExtraUsage(vm, reading);
 
         // Set overall status based on the higher of session or week utilization
         var sessionPercent = vm.SessionProgress * 100.0;
@@ -254,11 +226,6 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
             vm.OverallStatusText = "Blocked";
             vm.StatusSummary = "Limit reached - requests are being refused";
         }
-
-        // Legacy fields
-        vm.SessionText = FormatUsageRatio(reading.Usage?.SessionUsed, reading.Usage?.SessionLimit);
-        vm.WeekText = FormatUsageRatio(reading.Usage?.WeekUsed, reading.Usage?.WeekLimit);
-        vm.CreditsText = reading.Usage?.SpendingBucket?.Available.ToString("0.##") ?? "--";
 
         return vm;
     }
@@ -401,34 +368,6 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     private static string GroupLabelFor(string group) =>
         group.Contains("week", StringComparison.OrdinalIgnoreCase) ? "Weekly" : "Session";
 
-    private static void PopulateExtraUsage(ProviderPulseViewModel vm, ProviderReading reading)
-    {
-        var bucket = reading.Usage?.SpendingBucket;
-        if (bucket is null)
-        {
-            vm.HasExtraUsage = false;
-            vm.ExtraUsageLabel = "--";
-            return;
-        }
-
-        vm.HasExtraUsage = true;
-
-        switch (bucket.Kind)
-        {
-            case BucketKind.OverageSpend:
-                // Claude-style: show spent / ceiling
-                vm.ExtraUsageLabel = $"Overage: {bucket.CurrencySymbol}{bucket.Consumed:F2} / {bucket.CurrencySymbol}{bucket.Ceiling:F2}";
-                vm.ExtraUsageProgress = bucket.FillRatio;
-                break;
-
-            case BucketKind.PrepaidBalance:
-                // Codex-style: show remaining balance
-                vm.ExtraUsageLabel = $"Balance: {bucket.CurrencySymbol}{bucket.Available:F2} remaining";
-                vm.ExtraUsageProgress = 0; // No progress bar for prepaid
-                break;
-        }
-    }
-
     /// <summary>
     /// Fills the detail view's Cost section from an analytics report. Tokens
     /// with no known price are never dressed up as free: such a bucket says
@@ -505,21 +444,6 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         }
 
         return $"{(int)Math.Round(usedPercent)}% used";
-    }
-
-    private static string FormatUsageRatio(long? used, long? limit)
-    {
-        if (used is null && limit is null)
-        {
-            return "--";
-        }
-
-        if (limit is null)
-        {
-            return used?.ToString() ?? "--";
-        }
-
-        return $"{used ?? 0}/{limit.Value}";
     }
 
     private static string FormatStatusSummary(ProviderReading reading)

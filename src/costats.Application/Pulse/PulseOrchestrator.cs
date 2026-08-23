@@ -13,7 +13,6 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
     private readonly ISourceSelector _selector;
     private readonly IClock _clock;
     private readonly PulseBroadcaster _broadcaster;
-    private readonly IPulseSnapshotWriter _snapshotWriter;
     private readonly ILogger<PulseOrchestrator> _logger;
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly object _intervalLock = new();
@@ -22,6 +21,7 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
     private CancellationTokenSource? _timerCts;
     private PulseState? _lastState;
     private bool _hasSuccessfulLoad;
+    private long _lastFullRefreshUtcTicks;
 
     public PulseOrchestrator(
         IEnumerable<ISignalSource> sources,
@@ -29,7 +29,6 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
         ISourceSelector selector,
         IClock clock,
         PulseBroadcaster broadcaster,
-        IPulseSnapshotWriter snapshotWriter,
         IOptions<PulseOptions> options,
         ILogger<PulseOrchestrator> logger)
     {
@@ -38,7 +37,6 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
         _selector = selector;
         _clock = clock;
         _broadcaster = broadcaster;
-        _snapshotWriter = snapshotWriter;
         _refreshInterval = options.Value.RefreshInterval;
         _logger = logger;
     }
@@ -60,73 +58,55 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
         _logger.LogInformation("Refresh interval updated to {Interval}", interval);
     }
 
+    public bool IsFullRefreshStale(TimeSpan maxAge)
+    {
+        if (maxAge <= TimeSpan.Zero)
+        {
+            return true;
+        }
+
+        var ticks = Interlocked.Read(ref _lastFullRefreshUtcTicks);
+        return ticks == 0 || _clock.UtcNow.UtcTicks - ticks >= maxAge.Ticks;
+    }
+
+    public void RepublishLastState()
+    {
+        var state = _lastState;
+        if (state is not null)
+        {
+            _broadcaster.Publish(state with { Trigger = RefreshTrigger.Silent });
+        }
+    }
+
     public async Task RefreshOnceAsync(RefreshTrigger trigger, CancellationToken cancellationToken)
     {
         await _refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (ShouldShowShimmer(trigger))
-            {
-                PublishRefreshing(trigger);
-            }
-
-            var byProvider = AllSources()
-                .GroupBy(source => source.Profile.ProviderId)
-                .ToDictionary(group => group.Key, group => (IReadOnlyList<ISignalSource>)group.ToList());
-
-            var errors = new List<string>();
-
-            // Keep provider reads sequential to avoid overlapping heavy file scans.
-            var providerReads = new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (providerId, providerSources) in byProvider)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var reading = await _selector.SelectAsync(providerId, providerSources, cancellationToken).ConfigureAwait(false);
-                providerReads[providerId] = reading;
-            }
-
-            // Nothing below this line may run for a refresh that was cancelled:
-            // the reads would be incomplete and would overwrite the last good state.
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var state = new PulseState(providerReads, _clock.UtcNow, errors, false, trigger);
-            _lastState = state;
-            _hasSuccessfulLoad = true;
-            _broadcaster.Publish(state);
-            await _snapshotWriter.WriteAsync(state, cancellationToken).ConfigureAwait(false);
+            await RefreshCoreAsync(trigger, cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        finally
         {
-            // Cancellation is a normal outcome (shutdown, interval change). Keep the
-            // last good state and publish nothing.
-            _logger.LogDebug("Pulse refresh cancelled ({Trigger})", trigger);
-            throw;
+            _refreshGate.Release();
         }
-        catch (Exception ex)
+    }
+
+    public async Task RefreshIfStaleAsync(TimeSpan maxAge, CancellationToken cancellationToken)
+    {
+        if (!IsFullRefreshStale(maxAge)
+            || !await _refreshGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
         {
-            _logger.LogError(ex, "Pulse refresh failed");
-            var keepRefreshing = trigger == RefreshTrigger.Initial && !_hasSuccessfulLoad;
-            var baseState = _lastState ?? new PulseState(
-                new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase),
-                _clock.UtcNow,
-                Array.Empty<string>(),
-                keepRefreshing,
-                trigger);
+            return;
+        }
 
-            var state = baseState with
+        try
+        {
+            // A refresh may have completed between the first check and acquiring
+            // the gate, so verify the age again before reading any provider.
+            if (IsFullRefreshStale(maxAge))
             {
-                LastRefresh = _clock.UtcNow,
-                Errors = new List<string> { ex.Message },
-                IsRefreshing = keepRefreshing,
-                Trigger = trigger
-            };
-
-            if (!keepRefreshing)
-            {
-                _lastState ??= state;
+                await RefreshCoreAsync(RefreshTrigger.Silent, cancellationToken).ConfigureAwait(false);
             }
-
-            _broadcaster.Publish(state);
         }
         finally
         {
@@ -236,6 +216,68 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
     private bool ShouldShowShimmer(RefreshTrigger trigger)
     {
         return trigger == RefreshTrigger.Manual || (trigger == RefreshTrigger.Initial && !_hasSuccessfulLoad);
+    }
+
+    private async Task RefreshCoreAsync(RefreshTrigger trigger, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (ShouldShowShimmer(trigger))
+            {
+                PublishRefreshing(trigger);
+            }
+
+            var byProvider = AllSources()
+                .GroupBy(source => source.Profile.ProviderId)
+                .ToDictionary(group => group.Key, group => (IReadOnlyList<ISignalSource>)group.ToList());
+
+            var providerReads = new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (providerId, providerSources) in byProvider)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var reading = await _selector.SelectAsync(providerId, providerSources, cancellationToken).ConfigureAwait(false);
+                providerReads[providerId] = reading;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var state = new PulseState(providerReads, _clock.UtcNow, Array.Empty<string>(), false, trigger);
+            _lastState = state;
+            _hasSuccessfulLoad = true;
+            Interlocked.Exchange(ref _lastFullRefreshUtcTicks, state.LastRefresh.UtcTicks);
+            _broadcaster.Publish(state);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogDebug("Pulse refresh cancelled ({Trigger})", trigger);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Pulse refresh failed");
+            var keepRefreshing = trigger == RefreshTrigger.Initial && !_hasSuccessfulLoad;
+            var baseState = _lastState ?? new PulseState(
+                new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase),
+                _clock.UtcNow,
+                Array.Empty<string>(),
+                keepRefreshing,
+                trigger);
+
+            var state = baseState with
+            {
+                LastRefresh = _clock.UtcNow,
+                Errors = new List<string> { ex.Message },
+                IsRefreshing = keepRefreshing,
+                Trigger = trigger
+            };
+
+            if (!keepRefreshing)
+            {
+                _lastState ??= state;
+            }
+
+            _broadcaster.Publish(state);
+        }
     }
 
     private void PublishRefreshing(RefreshTrigger trigger)

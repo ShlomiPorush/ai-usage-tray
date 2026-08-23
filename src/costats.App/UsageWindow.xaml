@@ -232,7 +232,7 @@
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="14,0,0,0">
                 <Path Data="{StaticResource UsageStatsIconPath}" Fill="{DynamicResource TextSecondaryBrush}"
                       Stretch="Uniform" Width="13" Height="13" VerticalAlignment="Center" />
-                <TextBlock Text="Usage" FontSize="12.5" FontWeight="SemiBold" Margin="10,0,0,0"
+                <TextBlock Text="Usage and estimated API value" FontSize="12.5" FontWeight="SemiBold" Margin="10,0,0,0"
                            Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
             </StackPanel>
             <!-- Buttons have to opt out of the caption drag area, or the chrome
@@ -334,7 +334,7 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Margin="0,0,28,0">
-                <TextBlock Text="RAW TOKEN COST" FontSize="11" FontWeight="SemiBold"
+                <TextBlock Text="ESTIMATED API VALUE" FontSize="11" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextMutedBrush}" />
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                     <TextBlock Text="{Binding TotalCostText}" FontSize="38" FontWeight="Bold"
@@ -342,8 +342,8 @@
                     <TextBlock Text="*" FontSize="38" FontWeight="Bold" Margin="1,0,0,0"
                                Foreground="{DynamicResource TextMutedBrush}" />
                 </StackPanel>
-                <TextBlock Text="* if billed at full API rate" FontSize="11" Margin="0,2,0,0"
-                           Foreground="{DynamicResource TextFaintBrush}" />
+                <TextBlock Text="* API list-price estimate, not your subscription bill" FontSize="11" Margin="0,2,0,0"
+                           Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding UnpricedNote}" FontSize="11" Margin="0,2,0,0"
                            Foreground="{DynamicResource TextFaintBrush}"
                            Visibility="{Binding UnpricedNote, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
@@ -378,7 +378,7 @@
                 <DockPanel Grid.Row="0" Margin="0,0,0,10">
                     <Border DockPanel.Dock="Right" Style="{StaticResource SegmentGroup}">
                         <StackPanel Orientation="Horizontal">
-                            <RadioButton Style="{StaticResource Segment}" GroupName="Metric" Content="COST"
+                            <RadioButton Style="{StaticResource Segment}" GroupName="Metric" Content="API VALUE"
                                          IsChecked="{Binding MetricIndex, Mode=TwoWay, Converter={x:Static local:IndexToBoolConverter.Instance}, ConverterParameter=0}" />
                             <RadioButton Style="{StaticResource Segment}" GroupName="Metric" Content="TOKENS"
                                          IsChecked="{Binding MetricIndex, Mode=TwoWay, Converter={x:Static local:IndexToBoolConverter.Instance}, ConverterParameter=1}" />

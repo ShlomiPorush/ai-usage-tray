@@ -20,7 +20,6 @@ namespace costats.App.Services
         private readonly GlassWidgetWindow _widgetWindow;
         private readonly SettingsWindow _settingsWindow;
         private readonly UsageWindow _usageWindow;
-        private readonly TrayStatusPanelWindow _trayPanel;
         private readonly IPulseOrchestrator _pulseOrchestrator;
         private readonly PulseViewModel _viewModel;
         private readonly TaskbarPositionService _taskbarPosition;
@@ -39,7 +38,6 @@ namespace costats.App.Services
             GlassWidgetWindow widgetWindow,
             SettingsWindow settingsWindow,
             UsageWindow usageWindow,
-            TrayStatusPanelWindow trayPanel,
             IPulseOrchestrator pulseOrchestrator,
             TaskbarPositionService taskbarPosition,
             IEnumerable<ISignalSource> sources,
@@ -50,7 +48,6 @@ namespace costats.App.Services
             _widgetWindow = widgetWindow;
             _settingsWindow = settingsWindow;
             _usageWindow = usageWindow;
-            _trayPanel = trayPanel;
             _pulseOrchestrator = pulseOrchestrator;
             _taskbarPosition = taskbarPosition;
             _settings = settings;
@@ -261,18 +258,16 @@ namespace costats.App.Services
 
             _widgetWindow.Activate();
 
-            // Silent refresh for the currently selected provider when panel opens
+            // Opening the widget is usually just a local UI action. Refresh all
+            // providers only when the last scheduled/manual refresh is stale.
             if (!wasVisible)
             {
-                _ = RefreshSelectedProviderAsync().ContinueWith(
-                    t => Log.Warning(t.Exception!.GetBaseException(), "Silent provider refresh failed"),
+                _ = _pulseOrchestrator.RefreshIfStaleAsync(
+                    TimeSpan.FromMinutes(Math.Max(1, _settings.RefreshMinutes)),
+                    CancellationToken.None).ContinueWith(
+                    t => Log.Warning(t.Exception!.GetBaseException(), "Stale widget refresh failed"),
                     TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
             }
-        }
-
-        private Task RefreshSelectedProviderAsync()
-        {
-            return _viewModel.RefreshSelectedProviderSilentlyAsync();
         }
 
         public void HideWidget()
@@ -442,21 +437,6 @@ namespace costats.App.Services
             }
             _lastAppliedStatus = status;
 
-            // Always-on top panel next to the clock. Sized first, then positioned
-            // so its right edge sits flush against the tray area. Gated by
-            // AppSettings.ShowClockPanel, off by default.
-            var panelText = status.Tooltip;
-            if (string.IsNullOrWhiteSpace(panelText) || !_settings.ShowClockPanel)
-            {
-                _trayPanel.HidePanel();
-            }
-            else
-            {
-                _trayPanel.UpdateMeasure();
-                var size = _trayPanel.GetDesiredSize();
-                var pos = _taskbarPosition.GetTrayPanelPosition(size.Width, size.Height);
-                _trayPanel.Update(panelText, pos.X, pos.Y);
-            }
         }
 
         public void Dispose()
@@ -472,7 +452,6 @@ namespace costats.App.Services
             _widgetWindow.Close();
             _settingsWindow.Close();
             _usageWindow.ForceClose();
-            _trayPanel.Close();
         }
 
         private void OnWidgetSizeChanged(object sender, SizeChangedEventArgs e)

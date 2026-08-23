@@ -65,8 +65,7 @@ namespace costats.App
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName is nameof(PulseViewModel.IsMulticcActive) or
-                nameof(PulseViewModel.SelectedTabIndex))
+            if (e.PropertyName == nameof(PulseViewModel.IsOverview))
             {
                 UpdateWindowHeight();
             }

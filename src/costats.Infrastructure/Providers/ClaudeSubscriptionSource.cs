@@ -69,8 +69,6 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
             sessionUsed.HasValue ? 100 : null,
             weeklyUsed,
             weeklyUsed.HasValue ? 100 : null,
-            null,
-            null,
             CreateWindow(SessionDuration, result.FiveHourResetsAt, sessionUsed.HasValue),
             CreateWindow(WeekDuration, result.SevenDayResetsAt, weeklyUsed.HasValue))
         {

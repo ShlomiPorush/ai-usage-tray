@@ -78,8 +78,6 @@ public sealed class ZaiUsageSource : ISignalSource
             SessionLimit: sessionUsed.HasValue ? 100 : null,
             WeekUsed: weeklyUsed,
             WeekLimit: weeklyUsed.HasValue ? 100 : null,
-            SpendingBucket: null,
-            Consumption: null,
             SessionWindow: (sessionWindow.HasValue || snapshot.SessionResetsAt.HasValue)
                 ? new QuotaWindow(sessionWindow ?? TimeSpan.Zero, snapshot.SessionResetsAt)
                 : null,

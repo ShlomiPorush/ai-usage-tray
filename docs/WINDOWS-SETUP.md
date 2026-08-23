@@ -157,7 +157,7 @@ You can also run the uninstaller directly:
 
 Either route stops the app, removes the Start Menu shortcut and the start-at-login entries, deletes the Add/remove programs registration and deletes `%LOCALAPPDATA%\AIUsageTray`.
 
-Your settings, logs and cached usage history in `%LOCALAPPDATA%\costats` are kept, so reinstalling brings your accounts back. To remove those too:
+Interactive uninstall asks whether to keep or remove settings, logs and cached usage history in `%LOCALAPPDATA%\costats`. Quiet uninstall keeps them unless `-PurgeData` is supplied. To request removal directly:
 
 ```powershell
 & "$env:LOCALAPPDATA\AIUsageTray\app\uninstall.ps1" -PurgeData

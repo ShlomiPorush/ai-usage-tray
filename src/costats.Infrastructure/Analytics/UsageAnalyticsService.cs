@@ -42,6 +42,12 @@ public interface IUsageAnalyticsService
     /// </summary>
     Task<IReadOnlyList<UsageAccountInfo>> GetAccountsAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Returns the current on-disk parse cache size.</summary>
+    UsageCacheInfo GetCacheInfo();
+
+    /// <summary>Clears memory and disk caches. The next report performs a cold scan.</summary>
+    Task<UsageCacheInfo> ClearCacheAsync(CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Drops the in-memory scan so the next call re-reads the logs. The on-disk
     /// per-file cache is kept, so this is cheap.
@@ -146,6 +152,23 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         try
         {
             _scan = null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public UsageCacheInfo GetCacheInfo() => _collector.GetCacheInfo();
+
+    public async Task<UsageCacheInfo> ClearCacheAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _scan = null;
+            _collector.ClearCache();
+            return _collector.GetCacheInfo();
         }
         finally
         {

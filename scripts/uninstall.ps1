@@ -7,8 +7,9 @@
     Add/remove programs registration and deletes the installed files under
     %LOCALAPPDATA%\AIUsageTray.
 
-    Your settings, logs and snapshots in %LOCALAPPDATA%\costats are kept unless
-    you pass -PurgeData.
+    Interactive uninstall asks whether to remove settings, logs and caches in
+    %LOCALAPPDATA%\costats. Quiet uninstall keeps them unless you pass
+    -PurgeData.
 
     This script ships inside the app folder it deletes, so it copies itself to
     %TEMP% and re-runs from there.
@@ -168,8 +169,28 @@ if (-not $Relaunched) {
     if ($PurgeData) { $arguments += "-PurgeData" }
     if ($Silent) { $arguments += "-Silent" }
 
-    Start-Process -FilePath $powershell -ArgumentList $arguments -WindowStyle Hidden
+    if ($Silent) {
+        Start-Process -FilePath $powershell -ArgumentList $arguments -WindowStyle Hidden
+    } else {
+        Start-Process -FilePath $powershell -ArgumentList $arguments
+    }
     exit 0
+}
+
+$purgeUserData = $PurgeData.IsPresent
+if (-not $Silent -and -not $purgeUserData) {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        $answer = [System.Windows.Forms.MessageBox]::Show(
+            "Also delete saved accounts, settings, logs and the local usage cache?`n`nChoose No to keep them for a future reinstall.",
+            "Uninstall AI Usage Tray",
+            [System.Windows.Forms.MessageBoxButtons]::YesNo,
+            [System.Windows.Forms.MessageBoxIcon]::Question,
+            [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
+        $purgeUserData = ($answer -eq [System.Windows.Forms.DialogResult]::Yes)
+    } catch {
+        Write-Step "Could not show the data-removal choice. User data will be kept." "Yellow"
+    }
 }
 
 Write-Step "Uninstalling AI Usage Tray from $AppDir" "Cyan"
@@ -235,9 +256,10 @@ if ($installRoot -and (Split-Path -Leaf $installRoot) -eq "AIUsageTray" -and (Te
     }
 }
 
-# 6. User data is kept by default: reinstalling should not lose the accounts.
+# 6. Interactive uninstall follows the user's choice. Quiet uninstall keeps
+# data unless the caller explicitly passed -PurgeData.
 $dataDir = Join-Path $env:LOCALAPPDATA "costats"
-if ($PurgeData) {
+if ($purgeUserData) {
     if (Remove-Tree -Path $dataDir) {
         Write-Step "Deleted settings and logs in $dataDir"
     }

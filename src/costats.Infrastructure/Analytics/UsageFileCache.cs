@@ -6,6 +6,11 @@ using costats.Core.Analytics;
 
 namespace costats.Infrastructure.Analytics;
 
+public sealed record UsageCacheInfo(int FileCount, long Bytes)
+{
+    public static readonly UsageCacheInfo Empty = new(0, 0);
+}
+
 /// <summary>
 /// Per-file parse cache for the usage scanner.
 /// </summary>
@@ -61,6 +66,38 @@ public sealed class UsageFileCache
 
     /// <summary>Where entries are written, or null when caching is off.</summary>
     public string? Directory => _directory;
+
+    public UsageCacheInfo Inspect()
+    {
+        if (_directory is null || !System.IO.Directory.Exists(_directory))
+        {
+            return UsageCacheInfo.Empty;
+        }
+
+        try
+        {
+            var files = 0;
+            long bytes = 0;
+            foreach (var path in System.IO.Directory.EnumerateFiles(_directory, "*", SearchOption.AllDirectories))
+            {
+                try
+                {
+                    bytes += new FileInfo(path).Length;
+                    files++;
+                }
+                catch (Exception exception) when (IsRecoverable(exception))
+                {
+                    // A file that changes during inspection is omitted.
+                }
+            }
+
+            return new UsageCacheInfo(files, bytes);
+        }
+        catch (Exception exception) when (IsRecoverable(exception))
+        {
+            return UsageCacheInfo.Empty;
+        }
+    }
 
     /// <summary>The default cache location.</summary>
     public static string DefaultDirectory() => Path.Combine(

@@ -59,6 +59,10 @@ public sealed class UsageLogCollector
         _maxParallelism = Math.Max(1, maxParallelism ?? Math.Min(8, Environment.ProcessorCount));
     }
 
+    public UsageCacheInfo GetCacheInfo() => _cache.Inspect();
+
+    public void ClearCache() => _cache.Clear();
+
     /// <summary>
     /// Scans every root and returns the deduplicated samples.
     /// <para>

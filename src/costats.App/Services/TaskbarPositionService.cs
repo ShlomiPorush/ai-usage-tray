@@ -26,34 +26,6 @@ public sealed class TaskbarPositionService
         return new Point(fallback.Right - width - margin, fallback.Bottom - height - margin);
     }
 
-    /// <summary>
-    /// Returns the position for the always-on-top tray status panel. The panel
-    /// sits flush against the bottom-right corner of the taskbar, just to the
-    /// left of the system clock, so it visually reads as part of the tray
-    /// notification area. Falls back to the bottom-right corner when the
-    /// taskbar cannot be located.
-    /// </summary>
-    public Point GetTrayPanelPosition(double width, double height)
-    {
-        // Place the panel along the bottom edge, hugging the right side of the
-        // work area (where the tray clock lives). This works for the default
-        // Windows taskbar. Other taskbar orientations (top, left, right) are
-        // rare in this scenario; we still place the panel somewhere sensible.
-        var workArea = SystemParameters.WorkArea;
-        if (TryGetTaskbarEdge(out var edge, out var ba))
-        {
-            workArea = ba;
-        }
-
-        return edge switch
-        {
-            TaskbarEdge.Top => new Point(workArea.Right - width, workArea.Top - height),
-            TaskbarEdge.Left => new Point(workArea.Left - width, workArea.Bottom - height),
-            TaskbarEdge.Right => new Point(workArea.Right, workArea.Bottom - height),
-            _ => new Point(workArea.Right - width, workArea.Bottom - height)
-        };
-    }
-
     private static bool TryGetTaskbarEdge(out TaskbarEdge edge, out Rect workArea)
     {
         edge = TaskbarEdge.Bottom;

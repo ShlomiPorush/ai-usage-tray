@@ -7,8 +7,6 @@ public sealed record UsagePulse(
     long? SessionLimit,
     long? WeekUsed,
     long? WeekLimit,
-    MonetaryBucket? SpendingBucket,
-    ConsumptionDigest? Consumption,
     QuotaWindow? SessionWindow,
     QuotaWindow? WeekWindow)
 {

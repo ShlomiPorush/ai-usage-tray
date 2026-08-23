@@ -40,6 +40,7 @@ namespace costats.App
             if (DataContext is SettingsViewModel viewModel)
             {
                 viewModel.RefreshUpdateAvailability();
+                viewModel.RefreshUsageCacheInfo();
             }
 
             var workArea = SystemParameters.WorkArea;

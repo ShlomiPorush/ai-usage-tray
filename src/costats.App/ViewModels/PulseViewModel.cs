@@ -33,7 +33,6 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     {
         _orchestrator = orchestrator;
         _settings = settings;
-        isCopilotEnabled = settings.CopilotEnabled;
         remoteViewLink = settings.RemoteViewShareLink;
         _staticSources = sources;
         _accountSources = accountSources;
@@ -56,19 +55,7 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     private string lastUpdated = "Never";
 
     [ObservableProperty]
-    private ProviderPulseViewModel claude = new();
-
-    [ObservableProperty]
-    private ProviderPulseViewModel codex = new();
-
-    [ObservableProperty]
-    private ProviderPulseViewModel copilot = new();
-
-    [ObservableProperty]
     private string updatedLabel = "Updated never";
-
-    [ObservableProperty]
-    private int selectedTabIndex;
 
     /// <summary>True while the widget shows the all-accounts overview; false in single-account detail.</summary>
     [ObservableProperty]
@@ -97,7 +84,6 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     /// </summary>
     private void ApplySettings()
     {
-        IsCopilotEnabled = _settings.CopilotEnabled;
         ShowResetTimes = _settings.ShowOverviewResetTimes;
         RemoteViewLink = _settings.RemoteViewShareLink;
     }
@@ -231,101 +217,6 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     [ObservableProperty]
     private bool isRefreshing = true; // Start true to show spinner on initial load
 
-    [ObservableProperty]
-    private bool isMulticcActive;
-
-    [ObservableProperty]
-    private bool isCopilotEnabled;
-
-    [ObservableProperty]
-    private string multiccSummary = string.Empty;
-
-    // Aggregate cost/token totals across all multicc profiles
-    [ObservableProperty]
-    private string multiccTotalTodayCost = "--";
-
-    [ObservableProperty]
-    private string multiccTotalTodayTokens = "--";
-
-    [ObservableProperty]
-    private string multiccTotalWeekCost = "--";
-
-    [ObservableProperty]
-    private string multiccTotalWeekTokens = "--";
-
-    [ObservableProperty]
-    private bool hasMulticcTotals;
-
-    public ObservableCollection<ProviderPulseViewModel> ClaudeProfiles { get; } = new();
-    public ObservableCollection<ProviderPulseViewModel> CodexProfiles { get; } = new();
-
-    /// <summary>
-    /// Returns the currently selected provider based on tab index.
-    /// </summary>
-    public ProviderPulseViewModel SelectedProvider => SelectedTabIndex switch
-    {
-        0 => Codex,
-        1 => Claude,
-        _ => IsCopilotEnabled ? Copilot : Codex
-    };
-
-    /// <summary>
-    /// Returns the provider ID for the currently selected tab.
-    /// </summary>
-    public string SelectedProviderId
-    {
-        get
-        {
-            if (SelectedTabIndex == 0)
-                return string.IsNullOrWhiteSpace(Codex.ProviderId) ? "codex:openai-1" : Codex.ProviderId;
-
-            if (SelectedTabIndex == 1)
-            {
-                // For multiple Claude accounts, return the first (worst-case) profile's ID for targeted refresh
-                if (IsMulticcActive && ClaudeProfiles.Count > 0)
-                    return ClaudeProfiles[0].ProviderId;
-
-                return string.IsNullOrWhiteSpace(Claude.ProviderId) ? "claude" : Claude.ProviderId;
-            }
-
-            return IsCopilotEnabled ? "copilot" : "codex";
-        }
-    }
-
-    partial void OnCodexChanged(ProviderPulseViewModel value)
-    {
-        OnPropertyChanged(nameof(SelectedProvider));
-        OnPropertyChanged(nameof(SelectedProviderId));
-    }
-
-    partial void OnSelectedTabIndexChanged(int value)
-    {
-        OnPropertyChanged(nameof(SelectedProvider));
-        OnPropertyChanged(nameof(SelectedProviderId));
-    }
-
-    /// <summary>
-    /// Silently refresh the currently selected provider (no loading indicator).
-    /// </summary>
-    public async Task RefreshSelectedProviderSilentlyAsync()
-    {
-        try
-        {
-            if (IsOverview)
-            {
-                await _orchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
-            }
-            else
-            {
-                await _orchestrator.RefreshProviderAsync(SelectedAccount.ProviderId, CancellationToken.None);
-            }
-        }
-        catch
-        {
-            // Silent refresh failures are non-blocking
-        }
-    }
-
     [RelayCommand]
     private async Task RefreshAsync()
     {
@@ -354,11 +245,6 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
             ApplySettings();
-            if (!IsCopilotEnabled && SelectedTabIndex > 1)
-            {
-                SelectedTabIndex = 0;
-            }
-
             IsRefreshing = value.IsRefreshing;
 
             // Only update provider data if we have providers (keep last state during refresh)
@@ -366,26 +252,14 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
             {
                 // ── Build all data in local variables first (no UI mutations yet) ──
                 var newProviders = new List<ProviderPulseViewModel>();
-                var codexProfileList = new List<ProviderPulseViewModel>();
-                var claudeProfileList = new List<ProviderPulseViewModel>();
-                ProviderPulseViewModel? newClaude = null;
-                ProviderPulseViewModel? newCopilot = null;
-
-                // Aggregate cost/token totals across multicc profiles
-                decimal totalTodayCost = 0;
-                long totalTodayTokens = 0;
-                decimal totalWeekCost = 0;
-                long totalWeekTokens = 0;
                 var displayNames = CurrentDisplayNames();
-                var today = DateOnly.FromDateTime(DateTime.Now);
-                var weekStart = today.AddDays(-((int)today.DayOfWeek == 0 ? 6 : (int)today.DayOfWeek - 1)); // Monday
 
                 foreach (var (providerId, reading) in value.Providers)
                 {
                     var displayName = displayNames.TryGetValue(providerId, out var name) ? name : providerId;
                     var vm = ProviderPulseViewModel.FromReading(reading, displayName);
 
-                    if (providerId.Equals("copilot", StringComparison.OrdinalIgnoreCase) && !IsCopilotEnabled)
+                    if (providerId.Equals("copilot", StringComparison.OrdinalIgnoreCase) && !_settings.CopilotEnabled)
                     {
                         continue;
                     }
@@ -397,103 +271,7 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                     }
 
                     newProviders.Add(vm);
-
-                    if (providerId.StartsWith("codex:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        codexProfileList.Add(vm);
-                    }
-                    else if (providerId.Equals("claude", StringComparison.OrdinalIgnoreCase))
-                    {
-                        newClaude = vm;
-                    }
-                    else if (providerId.Equals("copilot", StringComparison.OrdinalIgnoreCase))
-                    {
-                        newCopilot = vm;
-                    }
-                    else if (providerId.StartsWith("claude:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        claudeProfileList.Add(vm);
-
-                        // Accumulate totals from raw reading data
-                        if (reading.Usage?.Consumption is { } c)
-                        {
-                            totalTodayCost += c.TodayCostUsd;
-                            totalTodayTokens += c.TodayTokens.TotalConsumed;
-
-                            // Compute this week from daily breakdown (Mon-Sun)
-                            foreach (var slice in c.DailyBreakdown)
-                            {
-                                if (slice.Period >= weekStart && slice.Period <= today)
-                                {
-                                    totalWeekCost += slice.ComputedCostUsd;
-                                    totalWeekTokens += slice.Tokens.TotalConsumed;
-                                }
-                            }
-                        }
-                    }
                 }
-
-                codexProfileList.Sort((a, b) => string.Compare(a.DisplayName, b.DisplayName, StringComparison.OrdinalIgnoreCase));
-
-                // Sort claude profiles by session utilization descending (worst-first)
-                claudeProfileList.Sort((a, b) => b.SessionProgress.CompareTo(a.SessionProgress));
-
-                // Single Claude account renders in the normal single-provider view;
-                // the stacked multi panel only appears for two or more accounts.
-                if (claudeProfileList.Count > 0)
-                {
-                    newClaude = claudeProfileList[0]; // worst-case for backward compat
-                }
-                var isMulticc = claudeProfileList.Count > 1;
-
-                // Build summary text
-                var summaryText = string.Empty;
-                if (isMulticc)
-                {
-                    var total = claudeProfileList.Count;
-                    var critical = claudeProfileList.Count(p => p.SessionProgress >= 0.95);
-                    var warning = claudeProfileList.Count(p => p.SessionProgress >= 0.80 && p.SessionProgress < 0.95);
-
-                    if (critical > 0)
-                        summaryText = $"{total} profiles  ·  {critical} at limit, {warning} warning";
-                    else if (warning > 0)
-                        summaryText = $"{total} profiles  ·  {warning} near limit";
-                    else
-                        summaryText = $"{total} profiles  ·  All healthy";
-                }
-
-                // ── Apply to observable state (batched, single render frame) ──
-
-                // Set scalar properties before collection changes to prevent layout thrash.
-                // IsMulticcActive controls panel visibility, so setting it first ensures the
-                // correct panel stays visible while collections are swapped.
-                var selectedCodexId = Codex.ProviderId;
-                var selectedCodex = codexProfileList.FirstOrDefault(profile =>
-                                        profile.ProviderId.Equals(selectedCodexId, StringComparison.OrdinalIgnoreCase))
-                                    ?? codexProfileList.FirstOrDefault();
-                if (selectedCodex is not null) Codex = selectedCodex;
-                if (newClaude is not null) Claude = newClaude;
-                if (newCopilot is not null) Copilot = newCopilot;
-                IsMulticcActive = isMulticc;
-                MulticcSummary = summaryText;
-
-                // Multicc aggregate totals
-                if (isMulticc && (totalTodayTokens > 0 || totalWeekTokens > 0))
-                {
-                    MulticcTotalTodayCost = UsageFormatter.FormatCurrency(totalTodayCost);
-                    MulticcTotalTodayTokens = UsageFormatter.FormatTokenCount(totalTodayTokens);
-                    MulticcTotalWeekCost = UsageFormatter.FormatCurrency(totalWeekCost);
-                    MulticcTotalWeekTokens = UsageFormatter.FormatTokenCount(totalWeekTokens);
-                    HasMulticcTotals = true;
-                }
-                else
-                {
-                    HasMulticcTotals = false;
-                }
-
-                // Swap collection contents (single clear + add, no double-clear)
-                CodexProfiles.Clear();
-                foreach (var profile in codexProfileList) CodexProfiles.Add(profile);
 
                 // Overview order: Claude accounts, Codex accounts, then the rest.
                 static int KindRank(ProviderPulseViewModel vm) => vm.ProviderKind switch
@@ -539,13 +317,7 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                         IsOverview = true; // account was removed in Settings
                     }
                 }
-
-                ClaudeProfiles.Clear();
-                foreach (var p in claudeProfileList) ClaudeProfiles.Add(p);
             }
-
-            // Only notify SelectedProvider if the reference actually changed
-            OnPropertyChanged(nameof(SelectedProvider));
 
             LastUpdated = value.LastRefresh.ToLocalTime().ToString("g");
             UpdatedLabel = $"Updated {value.LastRefresh.ToLocalTime():t}";

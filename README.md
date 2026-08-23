@@ -60,23 +60,24 @@ Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from up
 | Setting | Default | Meaning |
 |---|---|---|
 | `RefreshMinutes` | `5` | Background polling interval |
+| `HotkeyEnabled` | `true` | Register the global widget shortcut |
 | `Hotkey` | `Ctrl+Alt+U` | Toggle the widget |
+| `AutomaticUpdateChecksEnabled` | `true` | Check GitHub for updates in the background |
 | `StartAtLogin` | `false` | Registers `AiUsageTray` in the Run key |
 | `Accounts[]` | one Claude (`~/.claude`) + one Codex (`~/.codex`) | Any mix of accounts: `Id`, `Type` (`claude`/`codex`), `DisplayName`, `ConfigDir`. Editable in Settings (add/remove). Legacy `OpenAiAccounts`/`ClaudeConfigDir` settings are migrated automatically. |
 | Z.AI keys | empty | Coding-plan / pay-as-you-go keys. Set them in Settings → Accounts; they are stored in Windows Credential Manager, never in `settings.json`. |
-| `ShowClockPanel` | `false` | Always-on-top status text next to the clock |
 | `CopilotEnabled` | `false` | Enable the Copilot provider |
 | `Theme` | `system` | `system` / `light` / `dark` |
 | `PrimaryAccountId` | empty | Provider id whose status drives the tray icon |
 | `ShowOverviewResetTimes` | `false` | Reset countdowns on overview cards |
 | `RemoteViewEnabled` + `RemoteViewUploadUrl` / `RemoteViewPageUrl` | `false` / empty | Remote view (see below) |
 
-`appsettings.json` (`Costats:Update`) controls the self-updater: enabled, checking this repository's releases every 6 hours, verifying the published SHA-256 before staging.
+`appsettings.json` (`Costats:Update`) controls updater infrastructure and release verification. Automatic checks can be switched off in Settings; manual checks remain available.
 
 ## Usage dashboard
 Quota tells you how much of the subscription is gone; the usage dashboard tells you what you actually spent it on. Open it from the tray menu (**Usage stats**) or the chart button in the widget.
 
-It reads the Claude Code and Codex session logs already on the machine (`~/.claude/projects`, `~/.codex/sessions` and any extra profile folders you configured), counts input, cached, cache-write and output tokens per model, and prices them at the published API list rates. The headline number is what those tokens would cost if they were billed at the full API rate, which is normally far more than a subscription costs. Nothing is uploaded and no provider API is called: this is a local read of local files, cached incrementally so repeat opens are fast.
+It reads the Claude Code and Codex session logs already on the machine (`~/.claude/projects`, `~/.codex/sessions` and any extra profile folders you configured), counts input, cached, cache-write and output tokens per model, and prices them at the published API list rates. The headline number is an estimated API value, not your subscription bill, and is normally far more than a subscription costs. Nothing is uploaded and no provider API is called: this is a local read of local files, cached incrementally so repeat opens are fast. Settings shows the current cache size and provides a clear-cache action; the next report after clearing performs a slower full scan.
 
 Pick a range (7, 30 or 90 days), filter by account, and read the per-provider split, the chart and a breakdown table you can switch between model and day. Models the built-in table cannot price are counted in tokens and called out instead of being silently treated as free; you can price them yourself with `%LOCALAPPDATA%\costats\pricing.json`, a flat map of model id to USD per million tokens:
 
@@ -112,8 +113,6 @@ Compared with `fmdz387/costats` v1.4.6 (the fork point):
 | Settings | Fixed sections per provider | Providers table with add/edit dialogs; account changes apply live (`AccountSourceRegistry`) without a restart |
 | Self-update | from `fmdz387/costats` | from this fork; updater/installer expect `AIUsageTray.exe` and `ai-usage-tray-win-*` assets |
 | Branding | `costats.App.exe`, product "costats" | `AIUsageTray.exe`, product "AI Usage Tray", own version line |
-
-Upstream code paths that are no longer wired up (e.g. `CodexLogSource`, `CodexOAuthUsageFetcher`, `MulticcClaudeLogSource`) are kept in the tree to ease merging future upstream changes.
 
 ## Build
 Requires a .NET SDK that supports `net10.0-windows`. Version is centralised in `src/Directory.Build.props` (`VersionPrefix`).

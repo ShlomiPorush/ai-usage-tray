@@ -4,7 +4,7 @@ using Xunit;
 
 namespace costats.Core.Tests.Settings;
 
-public sealed class OpenAiAccountSettingsTests
+public sealed class MonitoredAccountSettingsTests
 {
     [Theory]
     [InlineData(" PA ", "OpenAI 1", "PA")]
@@ -15,7 +15,7 @@ public sealed class OpenAiAccountSettingsTests
         string fallback,
         string expected)
     {
-        Assert.Equal(expected, OpenAiAccountSettings.NormalizeDisplayName(value, fallback));
+        Assert.Equal(expected, MonitoredAccountSettings.NormalizeDisplayName(value, fallback));
     }
 
     [Fact]
@@ -42,32 +42,9 @@ public sealed class OpenAiAccountSettingsTests
     }
 
     [Fact]
-    public void Legacy_settings_json_still_deserializes()
-    {
-        const string legacyJson = """
-        {
-            "RefreshMinutes": 5,
-            "ClaudeConfigDir": "/home/u/.claude-ai-usage-tray",
-            "OpenAiAccounts": [
-                { "Id": "openai-1", "DisplayName": "PA", "CodexHome": "/home/u/.codex-openai-1" }
-            ]
-        }
-        """;
-
-        var restored = JsonSerializer.Deserialize<AppSettings>(legacyJson)!;
-        var accounts = restored.GetEffectiveAccounts();
-
-        Assert.Equal(2, accounts.Count);
-        Assert.True(accounts[0].IsClaude);
-        Assert.Equal("/home/u/.claude-ai-usage-tray", accounts[0].ConfigDir);
-        Assert.True(accounts[1].IsCodex);
-        Assert.Equal("/home/u/.codex-openai-1", accounts[1].ConfigDir);
-    }
-
-    [Fact]
     public void NormalizeDisplayName_limits_names_to_24_characters()
     {
-        var result = OpenAiAccountSettings.NormalizeDisplayName(new string('A', 30), "OpenAI");
+        var result = MonitoredAccountSettings.NormalizeDisplayName(new string('A', 30), "OpenAI");
 
         Assert.Equal(24, result.Length);
     }

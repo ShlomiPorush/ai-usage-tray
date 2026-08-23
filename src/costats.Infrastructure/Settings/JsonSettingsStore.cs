@@ -26,6 +26,8 @@ public sealed class JsonSettingsStore : ISettingsStore
     /// </summary>
     private const string LegacyCodingKeyProperty = "zAiCodingApiKey";
     private const string LegacyApiKeyProperty = "zAiApiKey";
+    private const string LegacyClaudeConfigDirProperty = "claudeConfigDir";
+    private const string LegacyOpenAiAccountsProperty = "openAiAccounts";
 
     private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -146,6 +148,7 @@ public sealed class JsonSettingsStore : ISettingsStore
         var legacyCodingKey = ReadLegacyKey(rawJson, LegacyCodingKeyProperty);
         var legacyApiKey = ReadLegacyKey(rawJson, LegacyApiKeyProperty);
         var hasLegacyKeys = legacyCodingKey is not null || legacyApiKey is not null;
+        var hasLegacyAccountFields = MigrateLegacyAccounts(settings, rawJson);
 
         await HydrateSecretsAsync(settings, cancellationToken).ConfigureAwait(false);
 
@@ -154,9 +157,12 @@ public sealed class JsonSettingsStore : ISettingsStore
         settings.ZAiCodingApiKey = legacyCodingKey ?? settings.ZAiCodingApiKey;
         settings.ZAiApiKey = legacyApiKey ?? settings.ZAiApiKey;
 
-        if (hasLegacyKeys && _credentialVault is not null)
+        var canRewriteSecrets = !hasLegacyKeys || _credentialVault is not null;
+        if ((hasLegacyKeys && _credentialVault is not null) ||
+            (hasLegacyAccountFields && canRewriteSecrets))
         {
-            // Move the secrets into the vault and rewrite the file without them.
+            // Move plaintext secrets into the vault and rewrite the file in the
+            // current account shape. The rewrite removes every legacy field.
             try
             {
                 await SaveAsync(settings, cancellationToken).ConfigureAwait(false);
@@ -168,7 +174,141 @@ public sealed class JsonSettingsStore : ISettingsStore
         }
 
         RedactBackupSecrets();
+        DeleteLegacyPulseSnapshot();
         return settings;
+    }
+
+    private void DeleteLegacyPulseSnapshot()
+    {
+        try
+        {
+            var root = Path.GetDirectoryName(_settingsPath);
+            if (string.IsNullOrEmpty(root))
+            {
+                return;
+            }
+
+            var snapshots = Path.Combine(root, "snapshots");
+            var pulse = Path.Combine(snapshots, "pulse.json");
+            TryDelete(pulse);
+            if (Directory.Exists(snapshots) && !Directory.EnumerateFileSystemEntries(snapshots).Any())
+            {
+                Directory.Delete(snapshots);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Cleanup retries on the next load.
+        }
+    }
+
+    /// <summary>
+    /// Imports the pre-Accounts Claude folder and Codex list once. Returning
+    /// true also asks the caller to rewrite the file, even when current
+    /// Accounts already exist, so ignored legacy fields disappear permanently.
+    /// </summary>
+    private static bool MigrateLegacyAccounts(AppSettings settings, string? rawJson)
+    {
+        if (string.IsNullOrWhiteSpace(rawJson))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(rawJson);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var root = document.RootElement;
+            var hasClaude = TryGetProperty(root, LegacyClaudeConfigDirProperty, out var claudeElement);
+            var hasCodex = TryGetProperty(root, LegacyOpenAiAccountsProperty, out var codexElement);
+            if (!hasClaude && !hasCodex)
+            {
+                return false;
+            }
+
+            if (settings.Accounts is { Count: > 0 })
+            {
+                return true;
+            }
+
+            var accounts = new List<MonitoredAccountSettings>();
+            var claudeDir = hasClaude && claudeElement.ValueKind == JsonValueKind.String
+                ? NullIfBlank(claudeElement.GetString())
+                : null;
+            if (claudeDir is not null)
+            {
+                accounts.Add(new MonitoredAccountSettings
+                {
+                    Id = "claude-1",
+                    Type = MonitoredAccountSettings.ClaudeType,
+                    DisplayName = "Claude",
+                    ConfigDir = claudeDir
+                });
+            }
+
+            if (hasCodex && codexElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in codexElement.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object ||
+                        !TryGetProperty(item, "id", out var idElement) ||
+                        !TryGetProperty(item, "codexHome", out var homeElement))
+                    {
+                        continue;
+                    }
+
+                    var id = idElement.ValueKind == JsonValueKind.String ? NullIfBlank(idElement.GetString()) : null;
+                    var home = homeElement.ValueKind == JsonValueKind.String ? NullIfBlank(homeElement.GetString()) : null;
+                    if (id is null || home is null)
+                    {
+                        continue;
+                    }
+
+                    var displayName = TryGetProperty(item, "displayName", out var nameElement) &&
+                                      nameElement.ValueKind == JsonValueKind.String
+                        ? nameElement.GetString()
+                        : null;
+                    accounts.Add(new MonitoredAccountSettings
+                    {
+                        Id = id,
+                        Type = MonitoredAccountSettings.CodexType,
+                        DisplayName = MonitoredAccountSettings.NormalizeDisplayName(displayName, id),
+                        ConfigDir = home
+                    });
+                }
+            }
+
+            if (accounts.Count > 0)
+            {
+                settings.Accounts = accounts;
+            }
+
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (property.NameEquals(name) ||
+                string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = property.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
     }
 
     private async Task HydrateSecretsAsync(AppSettings settings, CancellationToken cancellationToken)

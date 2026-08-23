@@ -70,8 +70,6 @@ public sealed class CodexAppServerSource : ISignalSource
             sessionUsed.HasValue ? 100 : null,
             weeklyUsed,
             weeklyUsed.HasValue ? 100 : null,
-            null,
-            null,
             CreateWindow(snapshot.SessionWindowDuration, snapshot.SessionResetsAt),
             CreateWindow(snapshot.WeeklyWindowDuration, snapshot.WeeklyResetsAt))
         {

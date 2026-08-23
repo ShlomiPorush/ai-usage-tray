@@ -675,7 +675,7 @@
                         </Style>
                     </StackPanel.Style>
                     <DockPanel Margin="0,0,0,10">
-                        <TextBlock Text="Usage" FontSize="14" FontWeight="SemiBold"
+                        <TextBlock Text="Estimated API value" FontSize="14" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextPrimaryBrush}"
                                    DockPanel.Dock="Left" VerticalAlignment="Center" />
                         <!-- Opens the usage window already filtered to this account -->
@@ -690,6 +690,9 @@
                                    TextTrimming="CharacterEllipsis"
                                    Visibility="{Binding CostScopeNote, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
                     </DockPanel>
+                    <TextBlock Text="Published API list-price equivalent, not your subscription bill."
+                               FontSize="10.5" Foreground="{DynamicResource TextFaintBrush}"
+                               TextWrapping="Wrap" Margin="0,-3,0,8" />
                     <DockPanel Margin="0,0,0,6">
                         <TextBlock FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}" DockPanel.Dock="Left">
                             <Run Text="Today:" />

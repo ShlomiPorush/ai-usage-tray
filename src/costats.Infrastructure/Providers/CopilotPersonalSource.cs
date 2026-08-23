@@ -121,8 +121,6 @@ public sealed class CopilotPersonalSource : ISignalSource
                 SessionLimit: sessionLimit,
                 WeekUsed: weekUsed,
                 WeekLimit: weekLimit,
-                SpendingBucket: null,
-                Consumption: null,
                 SessionWindow: sessionWindow,
                 WeekWindow: weekWindow);
 

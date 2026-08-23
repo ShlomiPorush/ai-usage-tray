@@ -20,7 +20,7 @@ public sealed class RemoteSnapshotComposerTests
         long resetCreditsAvailable = 0,
         DateTimeOffset? resetCreditExpiresAt = null) =>
         new(
-            "claude", Now, sessionUsed, 100, weekUsed, 100, null, null,
+            "claude", Now, sessionUsed, 100, weekUsed, 100,
             sessionResetsAt is null ? null : new QuotaWindow(TimeSpan.FromHours(5), sessionResetsAt),
             weekResetsAt is null ? null : new QuotaWindow(TimeSpan.FromDays(7), weekResetsAt))
         {

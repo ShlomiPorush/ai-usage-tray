@@ -177,6 +177,23 @@
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,0"
                            TextWrapping="Wrap" />
 
+                <CheckBox IsChecked="{Binding HotkeyEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,14,0,6">
+                    <TextBlock Text="Enable global shortcut" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                </CheckBox>
+                <DockPanel Margin="30,0,0,4" IsEnabled="{Binding HotkeyEnabled}">
+                    <TextBlock Text="Shortcut" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                               DockPanel.Dock="Left" VerticalAlignment="Center" />
+                    <TextBox Text="{Binding Hotkey, UpdateSourceTrigger=LostFocus}"
+                             Style="{StaticResource SettingsTextBox}" Width="145"
+                             DockPanel.Dock="Right" HorizontalAlignment="Right" />
+                </DockPanel>
+                <TextBlock Text="Use a modifier and one key, for example Ctrl+Alt+U."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,3"
+                           TextWrapping="Wrap" />
+                <TextBlock Text="{Binding HotkeyStatus}" FontSize="11" Foreground="#F97316" Margin="30,0,0,0"
+                           TextWrapping="Wrap"
+                           Visibility="{Binding HotkeyStatus, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+
                 <!-- Divider -->
                 <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,16,0,16" />
 
@@ -288,6 +305,14 @@
                 <TextBlock Text="UPDATES" FontSize="10" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,12" />
 
+                <CheckBox IsChecked="{Binding AutomaticUpdateChecksEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                    <TextBlock Text="Check for updates automatically" FontSize="12"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                </CheckBox>
+                <TextBlock Text="Runs a background GitHub check every six hours. Manual checks always remain available."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12"
+                           TextWrapping="Wrap" />
+
                 <DockPanel Margin="0,0,0,8">
                     <Button Content="Check for updates"
                             Command="{Binding CheckForUpdatesCommand}"
@@ -330,6 +355,26 @@
                                 HorizontalAlignment="Right" />
                     </StackPanel>
                 </Border>
+
+                <!-- Divider -->
+                <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,16,0,16" />
+
+                <!-- Local usage cache -->
+                <TextBlock Text="LOCAL USAGE DATA" FontSize="10" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,12" />
+                <TextBlock Text="Usage reports read local Claude and Codex logs and estimate their API list-price value. This is not your subscription bill. Parsed files are cached locally to make later reports fast."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                <DockPanel>
+                    <Button Content="Clear cache" Command="{Binding ClearUsageCacheCommand}"
+                            IsEnabled="{Binding IsClearingUsageCache, Converter={x:Static local:BoolNegationConverter.Instance}}"
+                            Style="{StaticResource SettingsButton}" DockPanel.Dock="Right" HorizontalAlignment="Right" />
+                    <TextBlock Text="{Binding UsageCacheSummary}" FontSize="11"
+                               Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
+                               TextWrapping="Wrap" Margin="0,0,10,0" />
+                </DockPanel>
+                <TextBlock Text="After clearing, the next usage report performs a slower full scan."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,6,0,0"
+                           TextWrapping="Wrap" />
 
             </StackPanel>
             </ScrollViewer>

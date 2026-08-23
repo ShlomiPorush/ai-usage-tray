@@ -27,7 +27,6 @@ public sealed class PulseOrchestratorCancellationTests
         await harness.Orchestrator.RefreshOnceAsync(RefreshTrigger.Manual, CancellationToken.None);
 
         var publishedAfterGoodRefresh = harness.Observer.States.Count;
-        var snapshotsAfterGoodRefresh = harness.SnapshotWriter.Writes;
 
         // Cancellation lands while the last provider group is being read.
         selector.Next = (_, _) =>
@@ -40,7 +39,6 @@ public sealed class PulseOrchestratorCancellationTests
             () => harness.Orchestrator.RefreshOnceAsync(RefreshTrigger.Scheduled, cts.Token));
 
         Assert.Equal(publishedAfterGoodRefresh, harness.Observer.States.Count);
-        Assert.Equal(snapshotsAfterGoodRefresh, harness.SnapshotWriter.Writes);
         Assert.Equal("good", harness.Observer.States[^1].Providers["claude:work"].StatusSummary);
 
         // A manual refresh replays the retained state, proving it was never poisoned.
@@ -114,6 +112,66 @@ public sealed class PulseOrchestratorCancellationTests
         Assert.Equal("good", harness.Observer.States[^1].Providers["claude:work"].StatusSummary);
     }
 
+    [Fact]
+    public async Task Full_refresh_is_stale_only_after_the_requested_age()
+    {
+        var selector = new ScriptedSelector();
+        using var harness = new Harness(selector);
+
+        Assert.True(harness.Orchestrator.IsFullRefreshStale(TimeSpan.FromMinutes(5)));
+        selector.Next = (_, _) => Task.FromResult(Reading("good"));
+        await harness.Orchestrator.RefreshOnceAsync(RefreshTrigger.Manual, CancellationToken.None);
+
+        Assert.False(harness.Orchestrator.IsFullRefreshStale(TimeSpan.FromMinutes(5)));
+        harness.Clock.UtcNow = harness.Clock.UtcNow.AddMinutes(5);
+        Assert.True(harness.Orchestrator.IsFullRefreshStale(TimeSpan.FromMinutes(5)));
+    }
+
+    [Fact]
+    public async Task Stale_refresh_is_skipped_while_another_refresh_is_in_progress()
+    {
+        var selector = new ScriptedSelector();
+        using var harness = new Harness(selector);
+        var readStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = 0;
+
+        selector.Next = async (_, _) =>
+        {
+            Interlocked.Increment(ref reads);
+            readStarted.SetResult();
+            await releaseRead.Task;
+            return Reading("good");
+        };
+
+        var activeRefresh = harness.Orchestrator.RefreshOnceAsync(RefreshTrigger.Scheduled, CancellationToken.None);
+        await readStarted.Task;
+        await harness.Orchestrator.RefreshIfStaleAsync(TimeSpan.FromMinutes(5), CancellationToken.None);
+        releaseRead.SetResult();
+        await activeRefresh;
+
+        Assert.Equal(1, reads);
+    }
+
+    [Fact]
+    public async Task Stale_refresh_reads_all_providers_when_no_refresh_is_active()
+    {
+        var selector = new ScriptedSelector();
+        using var harness = new Harness(selector);
+        var reads = 0;
+        selector.Next = (_, _) =>
+        {
+            Interlocked.Increment(ref reads);
+            return Task.FromResult(Reading("good"));
+        };
+
+        await harness.Orchestrator.RefreshIfStaleAsync(TimeSpan.FromMinutes(5), CancellationToken.None);
+        await harness.Orchestrator.RefreshIfStaleAsync(TimeSpan.FromMinutes(5), CancellationToken.None);
+
+        Assert.Equal(1, reads);
+        Assert.Equal(RefreshTrigger.Silent, Assert.Single(harness.Observer.States).Trigger);
+    }
+
     private static ProviderReading Reading(string summary) => new(
         Usage: null,
         Identity: null,
@@ -131,15 +189,14 @@ public sealed class PulseOrchestratorCancellationTests
             var broadcaster = new PulseBroadcaster();
             Observer = new RecordingObserver();
             _subscription = broadcaster.Subscribe(Observer);
-            SnapshotWriter = new CountingSnapshotWriter();
+            Clock = new MutableClock();
 
             Orchestrator = new PulseOrchestrator(
                 [new StubSource()],
                 new EmptyRegistry(),
                 selector,
-                new FixedClock(),
+                Clock,
                 broadcaster,
-                SnapshotWriter,
                 Options.Create(new PulseOptions()),
                 NullLogger<PulseOrchestrator>.Instance);
         }
@@ -148,7 +205,7 @@ public sealed class PulseOrchestratorCancellationTests
 
         public RecordingObserver Observer { get; }
 
-        public CountingSnapshotWriter SnapshotWriter { get; }
+        public MutableClock Clock { get; }
 
         public void Dispose()
         {
@@ -186,20 +243,9 @@ public sealed class PulseOrchestratorCancellationTests
         }
     }
 
-    private sealed class FixedClock : IClock
+    public sealed class MutableClock : IClock
     {
-        public DateTimeOffset UtcNow => new(2026, 8, 23, 12, 0, 0, TimeSpan.Zero);
-    }
-
-    private sealed class CountingSnapshotWriter : IPulseSnapshotWriter
-    {
-        public int Writes { get; private set; }
-
-        public Task WriteAsync(PulseState state, CancellationToken cancellationToken)
-        {
-            Writes++;
-            return Task.CompletedTask;
-        }
+        public DateTimeOffset UtcNow { get; set; } = new(2026, 8, 23, 12, 0, 0, TimeSpan.Zero);
     }
 
     private sealed class RecordingObserver : IObserver<PulseState>

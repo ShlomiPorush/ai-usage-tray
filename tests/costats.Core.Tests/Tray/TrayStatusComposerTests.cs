@@ -60,7 +60,7 @@ public sealed class TrayStatusComposerTests
     public void FromUsagePulse_converts_used_percentages_to_remaining_percentages()
     {
         var usage = new costats.Core.Pulse.UsagePulse(
-            "claude", Now, 66, 100, 40, 100, null, null,
+            "claude", Now, 66, 100, 40, 100,
             new costats.Core.Pulse.QuotaWindow(TimeSpan.FromHours(5), Now.AddHours(2)),
             new costats.Core.Pulse.QuotaWindow(TimeSpan.FromDays(7), Now.AddDays(3)));
 
