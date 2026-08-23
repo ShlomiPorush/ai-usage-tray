@@ -288,17 +288,48 @@
                 <TextBlock Text="UPDATES" FontSize="10" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,12" />
 
-                <DockPanel>
+                <DockPanel Margin="0,0,0,8">
                     <Button Content="Check for updates"
                             Command="{Binding CheckForUpdatesCommand}"
-                            IsEnabled="{Binding IsCheckingForUpdates, Converter={x:Static local:BoolNegationConverter.Instance}}"
+                            IsEnabled="{Binding IsUpdateBusy, Converter={x:Static local:BoolNegationConverter.Instance}}"
                             Style="{StaticResource SettingsButton}"
                             DockPanel.Dock="Right" HorizontalAlignment="Right" />
                     <TextBlock Text="{Binding UpdateStatusText}"
-                               FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
-                               VerticalAlignment="Center"
-                               Visibility="{Binding UpdateStatusText, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                                FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
+                                VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0"
+                                Visibility="{Binding UpdateStatusText, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
                 </DockPanel>
+
+                <ProgressBar Height="5" Minimum="0" Maximum="100"
+                             Value="{Binding UpdateProgressPercent}"
+                             IsIndeterminate="{Binding IsUpdateProgressIndeterminate}"
+                             Foreground="{DynamicResource AccentBrush}"
+                             Background="{DynamicResource InputBgBrush}"
+                             BorderThickness="0" Margin="0,0,0,10"
+                             Visibility="{Binding IsUpdateProgressVisible, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
+
+                <Border CornerRadius="8" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
+                        Background="{DynamicResource InputBgBrush}" Padding="12"
+                        Visibility="{Binding HasAvailableUpdate, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <StackPanel>
+                        <TextBlock Text="{Binding AvailableUpdateVersion, StringFormat='Version {0} available'}"
+                                   FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,10" />
+                        <TextBlock Text="WHAT'S NEW" FontSize="9" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,5" />
+                        <TextBox Text="{Binding AvailableUpdateNotes, Mode=OneWay}"
+                                 IsReadOnly="True" IsReadOnlyCaretVisible="True"
+                                 Background="Transparent" BorderThickness="0" Padding="0"
+                                 Foreground="{DynamicResource TextSecondaryBrush}"
+                                 FontSize="11" TextWrapping="Wrap" MaxHeight="180"
+                                 VerticalScrollBarVisibility="Auto" Margin="0,0,0,12" />
+                        <Button Content="Update now"
+                                Command="{Binding InstallUpdateCommand}"
+                                IsEnabled="{Binding IsUpdateBusy, Converter={x:Static local:BoolNegationConverter.Instance}}"
+                                Style="{StaticResource SettingsButton}"
+                                HorizontalAlignment="Right" />
+                    </StackPanel>
+                </Border>
 
             </StackPanel>
             </ScrollViewer>

@@ -26,6 +26,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ICredentialVault _credentialVault;
     private readonly CopilotUsageFetcher _copilotFetcher;
     private readonly StartupUpdateCoordinator? _updateCoordinator;
+    private AvailableUpdate? _availableUpdate;
     private readonly IMulticcDiscovery? _multiccDiscovery;
     private readonly IAccountSourceRegistry? _accountSources;
     private readonly RemoteViewUploader? _remoteViewUploader;
@@ -76,6 +77,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         remoteViewMessage = DescribeRemoteViewUrlProblems();
 
         _ = LoadCopilotTokenStatusAsync();
+        RefreshUpdateAvailability();
     }
 
     [ObservableProperty]
@@ -94,7 +96,34 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool isCheckingForUpdates;
 
     [ObservableProperty]
+    private bool isInstallingUpdate;
+
+    [ObservableProperty]
     private string updateStatusText = string.Empty;
+
+    [ObservableProperty]
+    private bool hasAvailableUpdate;
+
+    [ObservableProperty]
+    private string availableUpdateVersion = string.Empty;
+
+    [ObservableProperty]
+    private string availableUpdateNotes = string.Empty;
+
+    [ObservableProperty]
+    private bool isUpdateProgressVisible;
+
+    [ObservableProperty]
+    private bool isUpdateProgressIndeterminate;
+
+    [ObservableProperty]
+    private double updateProgressPercent;
+
+    public bool IsUpdateBusy => IsCheckingForUpdates || IsInstallingUpdate;
+
+    partial void OnIsCheckingForUpdatesChanged(bool value) => OnPropertyChanged(nameof(IsUpdateBusy));
+
+    partial void OnIsInstallingUpdateChanged(bool value) => OnPropertyChanged(nameof(IsUpdateBusy));
 
     [ObservableProperty]
     private bool multiccDetected;
@@ -650,63 +679,196 @@ public sealed partial class SettingsViewModel : ObservableObject
         var ct = _updateCheckCts.Token;
 
         IsCheckingForUpdates = true;
+        IsUpdateProgressVisible = true;
+        IsUpdateProgressIndeterminate = true;
+        UpdateProgressPercent = 0;
         UpdateStatusText = "Checking for updates...";
 
         try
         {
-            var result = await Task.Run(() => _updateCoordinator.CheckAndStageUpdateAsync(ct, forceCheck: true), ct);
-
-            switch (result)
-            {
-                case UpdateCheckResult.UpdateStaged:
-                case UpdateCheckResult.UpdateAlreadyStaged:
-                    UpdateStatusText = "Update found. Restarting...";
-                    if (await Task.Run(() => _updateCoordinator.TryApplyPendingUpdateAsync(ct, manualTrigger: true), ct))
-                    {
-                        // Use BeginInvoke to avoid any potential deadlock with synchronous Invoke
-                        _ = System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
-                            System.Windows.Application.Current.Shutdown(0));
-                    }
-                    else
-                    {
-                        UpdateStatusText = "Update staged. Restart to apply.";
-                        IsCheckingForUpdates = false;
-                    }
-                    break;
-
-                case UpdateCheckResult.UpToDate:
-                case UpdateCheckResult.Skipped:
-                    UpdateStatusText = "You're up to date.";
-                    IsCheckingForUpdates = false;
-                    break;
-
-                case UpdateCheckResult.Disabled:
-                    UpdateStatusText = "Updates are not available.";
-                    IsCheckingForUpdates = false;
-                    break;
-
-                case UpdateCheckResult.AlreadyRunning:
-                    UpdateStatusText = "Update check already in progress.";
-                    IsCheckingForUpdates = false;
-                    break;
-
-                case UpdateCheckResult.CheckFailed:
-                default:
-                    UpdateStatusText = "Could not check for updates.";
-                    IsCheckingForUpdates = false;
-                    break;
-            }
+            var result = await _updateCoordinator.CheckForUpdateAsync(ct, forceCheck: true);
+            ApplyUpdateCheckResult(result);
         }
         catch (OperationCanceledException)
         {
             UpdateStatusText = "Update check timed out. Try again.";
-            IsCheckingForUpdates = false;
         }
         catch
         {
             UpdateStatusText = "Could not check for updates.";
-            IsCheckingForUpdates = false;
         }
+        finally
+        {
+            IsCheckingForUpdates = false;
+            IsUpdateProgressVisible = false;
+            IsUpdateProgressIndeterminate = false;
+        }
+    }
+
+    [RelayCommand]
+    private async Task InstallUpdateAsync()
+    {
+        if (_updateCoordinator is null || _availableUpdate is null || IsUpdateBusy)
+        {
+            return;
+        }
+
+        _updateCheckCts?.Cancel();
+        _updateCheckCts?.Dispose();
+        _updateCheckCts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        var ct = _updateCheckCts.Token;
+
+        IsInstallingUpdate = true;
+        IsUpdateProgressVisible = true;
+        IsUpdateProgressIndeterminate = false;
+        UpdateProgressPercent = 0;
+        UpdateStatusText = "Starting download...";
+
+        try
+        {
+            var progress = new Progress<UpdateProgress>(ApplyUpdateProgress);
+            if (!await _updateCoordinator.DownloadAndStageUpdateAsync(_availableUpdate, progress, ct))
+            {
+                UpdateStatusText = "Could not prepare the update. Try again.";
+                IsUpdateProgressVisible = false;
+                return;
+            }
+
+            UpdateProgressPercent = 100;
+            IsUpdateProgressIndeterminate = true;
+            UpdateStatusText = "Installing update. AI Usage Tray will restart automatically...";
+
+            // Let WPF render the final status before the updater asks this process to exit.
+            await Task.Delay(750, ct);
+            if (await _updateCoordinator.TryApplyPendingUpdateAsync(ct, manualTrigger: true))
+            {
+                _ = System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
+                    System.Windows.Application.Current.Shutdown(0));
+                return;
+            }
+
+            UpdateStatusText = "Update is ready. Restart the app to install it.";
+            IsUpdateProgressVisible = false;
+        }
+        catch (OperationCanceledException)
+        {
+            UpdateStatusText = "Update was interrupted. Try again.";
+            IsUpdateProgressVisible = false;
+        }
+        catch
+        {
+            UpdateStatusText = "Could not install the update. Try again.";
+            IsUpdateProgressVisible = false;
+        }
+        finally
+        {
+            IsInstallingUpdate = false;
+            IsUpdateProgressIndeterminate = false;
+        }
+    }
+
+    public void ApplyBackgroundUpdateResult(UpdateCheckResult result)
+    {
+        if (!IsUpdateBusy)
+        {
+            ApplyUpdateCheckResult(result, background: true);
+        }
+    }
+
+    public void RefreshUpdateAvailability()
+    {
+        if (_updateCoordinator?.LastCheckResult is { } result)
+        {
+            ApplyUpdateCheckResult(result, background: true);
+        }
+    }
+
+    private void ApplyUpdateCheckResult(UpdateCheckResult result, bool background = false)
+    {
+        switch (result.Status)
+        {
+            case UpdateCheckStatus.UpdateAvailable when result.Update is not null:
+                _availableUpdate = result.Update;
+                AvailableUpdateVersion = result.Update.Version;
+                AvailableUpdateNotes = result.Update.ReleaseNotes;
+                HasAvailableUpdate = true;
+                UpdateStatusText = $"Version {result.Update.Version} is available.";
+                break;
+
+            case UpdateCheckStatus.UpToDate:
+                ClearAvailableUpdate();
+                UpdateStatusText = "You're up to date.";
+                break;
+
+            case UpdateCheckStatus.Skipped:
+                if (!background)
+                {
+                    UpdateStatusText = "You're up to date.";
+                }
+                break;
+
+            case UpdateCheckStatus.Disabled:
+                ClearAvailableUpdate();
+                UpdateStatusText = "Updates are not available.";
+                break;
+
+            case UpdateCheckStatus.AlreadyRunning:
+                if (!background)
+                {
+                    UpdateStatusText = "Update check already in progress.";
+                }
+                break;
+
+            case UpdateCheckStatus.CheckFailed:
+                if (!background)
+                {
+                    UpdateStatusText = "Could not check for updates.";
+                }
+                break;
+        }
+    }
+
+    private void ApplyUpdateProgress(UpdateProgress progress)
+    {
+        switch (progress.Stage)
+        {
+            case UpdateProgressStage.Downloading:
+                IsUpdateProgressIndeterminate = !progress.Percentage.HasValue;
+                if (progress.Percentage is { } percentage)
+                {
+                    UpdateProgressPercent = percentage;
+                    UpdateStatusText = $"Downloading update... {percentage}%";
+                }
+                else
+                {
+                    UpdateStatusText = "Downloading update...";
+                }
+                break;
+
+            case UpdateProgressStage.Verifying:
+                IsUpdateProgressIndeterminate = true;
+                UpdateStatusText = "Verifying download...";
+                break;
+
+            case UpdateProgressStage.Preparing:
+                IsUpdateProgressIndeterminate = true;
+                UpdateStatusText = "Preparing update...";
+                break;
+
+            case UpdateProgressStage.ReadyToInstall:
+                IsUpdateProgressIndeterminate = true;
+                UpdateProgressPercent = 100;
+                UpdateStatusText = "Download complete. Preparing to restart...";
+                break;
+        }
+    }
+
+    private void ClearAvailableUpdate()
+    {
+        _availableUpdate = null;
+        AvailableUpdateVersion = string.Empty;
+        AvailableUpdateNotes = string.Empty;
+        HasAvailableUpdate = false;
     }
 
     private CancellationTokenSource? _updateCheckCts;

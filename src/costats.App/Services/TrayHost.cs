@@ -2,7 +2,9 @@ using System.Drawing;
 using System.Windows;
 using System.Windows.Controls;
 using H.NotifyIcon;
+using H.NotifyIcon.Core;
 using costats.App.ViewModels;
+using costats.App.Services.Updates;
 using costats.Application.Pulse;
 using costats.Application.Settings;
 using costats.Core.Pulse;
@@ -105,6 +107,7 @@ namespace costats.App.Services
             _taskbarIcon.TrayMouseMove += OnTrayMouseMove;
             _taskbarIcon.ContextMenu = BuildContextMenu();
             _taskbarIcon.TrayLeftMouseUp += OnTrayLeftClick;
+            _taskbarIcon.TrayBalloonTipClicked += (_, _) => ShowSettings();
             _taskbarIcon.ForceCreate(enablesEfficiencyMode: false);
             _pulseSubscription = pulseOrchestrator.PulseStream.Subscribe(this);
 
@@ -209,6 +212,32 @@ namespace costats.App.Services
             // Settings returns the user to wherever they came from: the widget
             // only comes back if it was on screen when settings was opened.
             _settingsWindow.ShowCentered(returnToWidgetOnDismiss: _widgetWindow.IsVisible);
+        }
+
+        public void HandleBackgroundUpdateResult(UpdateCheckResult result)
+        {
+            if (_settingsWindow.DataContext is SettingsViewModel settingsViewModel)
+            {
+                settingsViewModel.ApplyBackgroundUpdateResult(result);
+            }
+
+            if (result.Status != UpdateCheckStatus.UpdateAvailable ||
+                result.Update is null ||
+                result.FromCache)
+            {
+                return;
+            }
+
+            _taskbarIcon.ShowNotification(
+                "AI Usage Tray update available",
+                $"Version {result.Update.Version} is ready to review. Click to see what's new.",
+                NotificationIcon.Info,
+                customIconHandle: null,
+                largeIcon: true,
+                sound: false,
+                respectQuietTime: true,
+                realtime: false,
+                timeout: TimeSpan.FromSeconds(8));
         }
 
         private void OnSettingsDismissing(object? sender, EventArgs e)

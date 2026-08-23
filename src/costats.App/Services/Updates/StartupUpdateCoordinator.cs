@@ -44,6 +44,9 @@ public sealed class StartupUpdateCoordinator
     private readonly Version _currentVersion;
     private readonly SemaphoreSlim _checkLock = new(1, 1);
 
+    public UpdateCheckResult? LastCheckResult { get; private set; }
+    public TimeSpan CheckInterval => TimeSpan.FromHours(_options.CheckIntervalHours);
+
     public StartupUpdateCoordinator(UpdateOptions options)
     {
         _options = options;
@@ -174,37 +177,32 @@ public sealed class StartupUpdateCoordinator
         }
     }
 
-    public async Task<UpdateCheckResult> CheckAndStageUpdateAsync(CancellationToken cancellationToken, bool forceCheck = false)
+    public async Task<UpdateCheckResult> CheckForUpdateAsync(CancellationToken cancellationToken, bool forceCheck = false)
     {
         if (!_options.Enabled || !CanSelfUpdate())
         {
-            return UpdateCheckResult.Disabled;
+            return CompleteCheck(new UpdateCheckResult(UpdateCheckStatus.Disabled));
         }
 
         if (!await _checkLock.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false))
         {
-            return UpdateCheckResult.AlreadyRunning;
+            return CompleteCheck(new UpdateCheckResult(UpdateCheckStatus.AlreadyRunning));
         }
 
         try
         {
             Directory.CreateDirectory(_updatesRoot);
-            var pending = await ReadJsonAsync<PendingUpdate>(_pendingPath, cancellationToken).ConfigureAwait(false);
-            if (pending is not null && IsPendingValidAndNewer(pending))
-            {
-                return UpdateCheckResult.UpdateAlreadyStaged;
-            }
-
             var state = await ReadJsonAsync<UpdateState>(_statePath, cancellationToken).ConfigureAwait(false) ?? new UpdateState();
             var now = DateTimeOffset.UtcNow;
             var interval = TimeSpan.FromHours(_options.CheckIntervalHours);
             if (!forceCheck && state.LastCheckedUtc.HasValue && now - state.LastCheckedUtc.Value < interval)
             {
-                return UpdateCheckResult.Skipped;
+                return CompleteCheck(ResultFromCachedState(state, UpdateCheckStatus.Skipped));
             }
 
             using var request = new HttpRequestMessage(HttpMethod.Get, BuildLatestReleaseUri(_options.Repository));
-            if (!string.IsNullOrWhiteSpace(state.ETag) &&
+            if (CanUseCachedRelease(state) &&
+                !string.IsNullOrWhiteSpace(state.ETag) &&
                 EntityTagHeaderValue.TryParse(state.ETag, out var eTagHeader))
             {
                 request.Headers.IfNoneMatch.Add(eTagHeader);
@@ -219,13 +217,13 @@ public sealed class StartupUpdateCoordinator
             if (response.StatusCode == HttpStatusCode.NotModified)
             {
                 await WriteJsonAsync(_statePath, state, cancellationToken).ConfigureAwait(false);
-                return UpdateCheckResult.UpToDate;
+                return CompleteCheck(ResultFromCachedState(state, UpdateCheckStatus.UpToDate));
             }
 
             if (!response.IsSuccessStatusCode)
             {
                 await WriteJsonAsync(_statePath, state, cancellationToken).ConfigureAwait(false);
-                return UpdateCheckResult.CheckFailed;
+                return CompleteCheck(new UpdateCheckResult(UpdateCheckStatus.CheckFailed));
             }
 
             await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
@@ -233,45 +231,104 @@ public sealed class StartupUpdateCoordinator
             if (release is null)
             {
                 await WriteJsonAsync(_statePath, state, cancellationToken).ConfigureAwait(false);
-                return UpdateCheckResult.CheckFailed;
+                return CompleteCheck(new UpdateCheckResult(UpdateCheckStatus.CheckFailed));
             }
 
             if (release.Prerelease && !_options.AllowPrerelease)
             {
+                state.AvailableUpdate = null;
                 await WriteJsonAsync(_statePath, state, cancellationToken).ConfigureAwait(false);
-                return UpdateCheckResult.UpToDate;
+                return CompleteCheck(new UpdateCheckResult(UpdateCheckStatus.UpToDate));
             }
 
             if (!TryGetBestAsset(release, out var zipAsset, out var releaseVersion))
             {
+                state.AvailableUpdate = null;
                 await WriteJsonAsync(_statePath, state, cancellationToken).ConfigureAwait(false);
-                return UpdateCheckResult.UpToDate;
+                return CompleteCheck(new UpdateCheckResult(UpdateCheckStatus.UpToDate));
             }
 
             if (releaseVersion <= _currentVersion)
             {
                 state.LastSeenVersion = releaseVersion.ToString(3);
+                state.AvailableUpdate = null;
                 await WriteJsonAsync(_statePath, state, cancellationToken).ConfigureAwait(false);
-                return UpdateCheckResult.UpToDate;
+                return CompleteCheck(new UpdateCheckResult(UpdateCheckStatus.UpToDate));
             }
 
-            // Persist the check timestamp before downloading so a repeatedly
-            // failing release does not trigger a fresh download on every start.
-            state.LastSeenVersion = releaseVersion.ToString(3);
+            var availableUpdate = new AvailableUpdate(
+                releaseVersion.ToString(3),
+                FormatReleaseNotes(release.Body),
+                release.ReleasePageUrl,
+                zipAsset.Name,
+                zipAsset.DownloadUrl,
+                FindChecksumAsset(release, zipAsset)?.DownloadUrl);
+
+            state.LastSeenVersion = availableUpdate.Version;
+            state.AvailableUpdate = availableUpdate;
             await WriteJsonAsync(_statePath, state, cancellationToken).ConfigureAwait(false);
+            return CompleteCheck(new UpdateCheckResult(UpdateCheckStatus.UpdateAvailable, availableUpdate));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Trace.WriteLine($"[costats-update] update check failed: {ex}");
+            return CompleteCheck(new UpdateCheckResult(UpdateCheckStatus.CheckFailed));
+        }
+        finally
+        {
+            _checkLock.Release();
+        }
+    }
+
+    public async Task<bool> DownloadAndStageUpdateAsync(
+        AvailableUpdate update,
+        IProgress<UpdateProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        if (!_options.Enabled || !CanSelfUpdate() || !IsUpdateNewer(update))
+        {
+            return false;
+        }
+
+        if (!await _checkLock.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_updatesRoot);
+            var pending = await ReadJsonAsync<PendingUpdate>(_pendingPath, cancellationToken).ConfigureAwait(false);
+            if (pending is not null && IsPendingValidAndNewer(pending) &&
+                string.Equals(pending.Version, update.Version, StringComparison.OrdinalIgnoreCase))
+            {
+                progress?.Report(new UpdateProgress(UpdateProgressStage.ReadyToInstall, 100));
+                return true;
+            }
+
+            EnsureTrustedUrl(update.PackageDownloadUrl);
+            if (!TryExtractVersionFromAssetName(update.PackageName, out var assetRid, out var assetVersion) ||
+                !string.Equals(assetRid, _runtimeRid, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(assetVersion.ToString(3), update.Version, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException("The selected update package does not match this app or system architecture.");
+            }
 
             var downloadsDir = Path.Combine(_updatesRoot, "downloads");
             Directory.CreateDirectory(downloadsDir);
-            var zipPath = Path.Combine(downloadsDir, zipAsset.Name);
-            await DownloadToFileAsync(zipAsset.DownloadUrl, zipPath, cancellationToken).ConfigureAwait(false);
+            var zipPath = Path.Combine(downloadsDir, update.PackageName);
+            await DownloadToFileAsync(update.PackageDownloadUrl, zipPath, progress, cancellationToken).ConfigureAwait(false);
 
             try
             {
-                // The checksum is mandatory: an unverified ZIP is never extracted,
-                // because the updater also runs the apply-update.ps1 it contains.
-                var expectedHash = await TryResolveChecksumAsync(release, zipAsset, cancellationToken).ConfigureAwait(false);
+                progress?.Report(new UpdateProgress(UpdateProgressStage.Verifying));
+                var expectedHash = await DownloadExpectedChecksumAsync(update, cancellationToken).ConfigureAwait(false);
                 var actualHash = await ComputeSha256Async(zipPath, cancellationToken).ConfigureAwait(false);
-                EnsureChecksumMatches(expectedHash, actualHash, zipAsset.Name);
+                EnsureChecksumMatches(expectedHash, actualHash, update.PackageName);
             }
             catch
             {
@@ -282,12 +339,13 @@ public sealed class StartupUpdateCoordinator
             var stageDir = Path.Combine(
                 _updatesRoot,
                 "staging",
-                $"{releaseVersion.Major}.{releaseVersion.Minor}.{releaseVersion.Build}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}");
+                $"{update.Version}-{DateTimeOffset.UtcNow:yyyyMMddHHmmss}");
             if (Directory.Exists(stageDir))
             {
                 Directory.Delete(stageDir, recursive: true);
             }
 
+            progress?.Report(new UpdateProgress(UpdateProgressStage.Preparing));
             Directory.CreateDirectory(stageDir);
             ZipFile.ExtractToDirectory(zipPath, stageDir, overwriteFiles: true);
 
@@ -299,7 +357,7 @@ public sealed class StartupUpdateCoordinator
             var executableRelativePath = Path.GetRelativePath(stageDir, stagedExecutablePath);
             var pendingUpdate = new PendingUpdate
             {
-                Version = releaseVersion.ToString(3),
+                Version = update.Version,
                 CreatedUtc = DateTimeOffset.UtcNow,
                 StagingDirectory = stageDir,
                 ExecutableRelativePath = executableRelativePath
@@ -307,18 +365,20 @@ public sealed class StartupUpdateCoordinator
 
             await WriteJsonAsync(_pendingPath, pendingUpdate, cancellationToken).ConfigureAwait(false);
 
-            state.LastSeenVersion = releaseVersion.ToString(3);
-            await WriteJsonAsync(_statePath, state, cancellationToken).ConfigureAwait(false);
-
             SafeDeleteFile(zipPath);
             CleanupOldStagingDirectories(stageDir);
 
-            return UpdateCheckResult.UpdateStaged;
+            progress?.Report(new UpdateProgress(UpdateProgressStage.ReadyToInstall, 100));
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
-            Trace.WriteLine($"[costats-update] check/stage failed: {ex}");
-            return UpdateCheckResult.CheckFailed;
+            Trace.WriteLine($"[costats-update] download/stage failed: {ex}");
+            return false;
         }
         finally
         {
@@ -336,6 +396,37 @@ public sealed class StartupUpdateCoordinator
         var uri = $"https://api.github.com/repos/{repository}/releases/latest";
         EnsureTrustedUrl(uri);
         return uri;
+    }
+
+    private UpdateCheckResult CompleteCheck(UpdateCheckResult result)
+    {
+        LastCheckResult = result;
+        return result;
+    }
+
+    private UpdateCheckResult ResultFromCachedState(UpdateState state, UpdateCheckStatus fallbackStatus)
+    {
+        if (state.AvailableUpdate is { } update && IsUpdateNewer(update))
+        {
+            return new UpdateCheckResult(UpdateCheckStatus.UpdateAvailable, update, FromCache: true);
+        }
+
+        return new UpdateCheckResult(fallbackStatus, FromCache: true);
+    }
+
+    private bool CanUseCachedRelease(UpdateState state)
+    {
+        if (state.AvailableUpdate is { } available)
+        {
+            return IsUpdateNewer(available);
+        }
+
+        return !TryParseSemVer(state.LastSeenVersion, out var lastSeenVersion) || lastSeenVersion <= _currentVersion;
+    }
+
+    private bool IsUpdateNewer(AvailableUpdate update)
+    {
+        return TryParseSemVer(update.Version, out var version) && version > _currentVersion;
     }
 
     /// <summary>Only "owner/name" is accepted, so the release URL cannot be redirected elsewhere.</summary>
@@ -639,25 +730,48 @@ public sealed class StartupUpdateCoordinator
         return true;
     }
 
-    private async Task<string?> TryResolveChecksumAsync(ReleaseDocument release, ReleaseAsset packageAsset, CancellationToken cancellationToken)
+    private static ReleaseAsset? FindChecksumAsset(ReleaseDocument release, ReleaseAsset packageAsset)
     {
         var directChecksumAsset = release.Assets
             .FirstOrDefault(asset => string.Equals(asset.Name, $"{packageAsset.Name}.sha256", StringComparison.OrdinalIgnoreCase));
         if (directChecksumAsset is not null && !string.IsNullOrWhiteSpace(directChecksumAsset.Name))
         {
-            var checksumText = await DownloadAsStringAsync(directChecksumAsset.DownloadUrl, cancellationToken).ConfigureAwait(false);
-            return ExtractChecksum(checksumText, packageAsset.Name);
+            return directChecksumAsset;
         }
 
-        var checksumsAsset = release.Assets
+        return release.Assets
             .FirstOrDefault(asset => string.Equals(asset.Name, "checksums.txt", StringComparison.OrdinalIgnoreCase));
-        if (checksumsAsset is not null && !string.IsNullOrWhiteSpace(checksumsAsset.Name))
+    }
+
+    private async Task<string?> DownloadExpectedChecksumAsync(AvailableUpdate update, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(update.ChecksumDownloadUrl))
         {
-            var checksumText = await DownloadAsStringAsync(checksumsAsset.DownloadUrl, cancellationToken).ConfigureAwait(false);
-            return ExtractChecksum(checksumText, packageAsset.Name);
+            return null;
         }
 
-        return null;
+        var checksumText = await DownloadAsStringAsync(update.ChecksumDownloadUrl, cancellationToken).ConfigureAwait(false);
+        return ExtractChecksum(checksumText, update.PackageName);
+    }
+
+    internal static string FormatReleaseNotes(string? markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown))
+        {
+            return "No release notes were provided.";
+        }
+
+        var text = markdown.Replace("\r\n", "\n", StringComparison.Ordinal).Trim();
+        text = Regex.Replace(text, @"(?m)^#{1,6}\s*", string.Empty);
+        text = Regex.Replace(text, @"(?m)^\s*[-*]\s+", "• ");
+        text = Regex.Replace(text, @"\[([^\]]+)\]\([^\)]+\)", "$1");
+        text = text.Replace("**", string.Empty, StringComparison.Ordinal)
+            .Replace("__", string.Empty, StringComparison.Ordinal)
+            .Replace("`", string.Empty, StringComparison.Ordinal);
+        text = Regex.Replace(text, @"(?m)^Full Changelog:\s*.*$", string.Empty, RegexOptions.IgnoreCase);
+        text = Regex.Replace(text, @"\n{3,}", "\n\n").Trim();
+
+        return string.IsNullOrWhiteSpace(text) ? "No release notes were provided." : text;
     }
 
     internal static string? ExtractChecksum(string checksumText, string packageName)
@@ -698,28 +812,67 @@ public sealed class StartupUpdateCoordinator
         return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task DownloadToFileAsync(string url, string destinationPath, CancellationToken cancellationToken)
+    private async Task DownloadToFileAsync(
+        string url,
+        string destinationPath,
+        IProgress<UpdateProgress>? progress,
+        CancellationToken cancellationToken)
     {
         EnsureTrustedUrl(url);
         var tempPath = $"{destinationPath}.part";
         SafeDeleteFile(tempPath);
 
-        using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-
-        // HttpClient.Timeout only covers headers with ResponseHeadersRead.
-        // Add an explicit timeout for the body download to prevent indefinite hangs.
-        using var downloadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        downloadCts.CancelAfter(TimeSpan.FromMinutes(3));
-
-        await using (var source = await response.Content.ReadAsStreamAsync(downloadCts.Token).ConfigureAwait(false))
-        await using (var destination = File.Create(tempPath))
+        try
         {
-            await source.CopyToAsync(destination, downloadCts.Token).ConfigureAwait(false);
-        }
+            using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
 
-        SafeDeleteFile(destinationPath);
-        File.Move(tempPath, destinationPath);
+            // HttpClient.Timeout only covers headers with ResponseHeadersRead.
+            // Add an explicit timeout for the body download to prevent indefinite hangs.
+            using var downloadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            downloadCts.CancelAfter(TimeSpan.FromMinutes(3));
+
+            var contentLength = response.Content.Headers.ContentLength;
+            progress?.Report(new UpdateProgress(UpdateProgressStage.Downloading, contentLength.HasValue ? 0 : null));
+
+            await using (var source = await response.Content.ReadAsStreamAsync(downloadCts.Token).ConfigureAwait(false))
+            await using (var destination = File.Create(tempPath))
+            {
+                var buffer = new byte[81920];
+                long downloaded = 0;
+                int lastReportedPercentage = -1;
+                while (true)
+                {
+                    var bytesRead = await source.ReadAsync(buffer, downloadCts.Token).ConfigureAwait(false);
+                    if (bytesRead == 0)
+                    {
+                        break;
+                    }
+
+                    await destination.WriteAsync(buffer.AsMemory(0, bytesRead), downloadCts.Token).ConfigureAwait(false);
+                    downloaded += bytesRead;
+
+                    if (contentLength is > 0)
+                    {
+                        var percentage = (int)Math.Clamp(downloaded * 100 / contentLength.Value, 0, 100);
+                        if (percentage != lastReportedPercentage)
+                        {
+                            lastReportedPercentage = percentage;
+                            progress?.Report(new UpdateProgress(UpdateProgressStage.Downloading, percentage));
+                        }
+                    }
+                }
+            }
+
+            progress?.Report(new UpdateProgress(UpdateProgressStage.Downloading, 100));
+            SafeDeleteFile(destinationPath);
+            File.Move(tempPath, destinationPath);
+        }
+        catch
+        {
+            SafeDeleteFile(tempPath);
+            throw;
+        }
     }
 
     private static async Task<string> ComputeSha256Async(string path, CancellationToken cancellationToken)
@@ -754,7 +907,14 @@ public sealed class StartupUpdateCoordinator
         }
 
         var prerelease = root.TryGetProperty("prerelease", out var prereleaseElement) && prereleaseElement.GetBoolean();
-        return new ReleaseDocument(prerelease, assets);
+        var body = root.TryGetProperty("body", out var bodyElement) ? bodyElement.GetString() : null;
+        var releasePageUrl = root.TryGetProperty("html_url", out var pageElement) ? pageElement.GetString() : null;
+        if (!IsTrustedUrl(releasePageUrl))
+        {
+            releasePageUrl = string.Empty;
+        }
+
+        return new ReleaseDocument(prerelease, body ?? string.Empty, releasePageUrl ?? string.Empty, assets);
     }
 
     private static async Task<T?> ReadJsonAsync<T>(string path, CancellationToken cancellationToken)
@@ -812,7 +972,11 @@ public sealed class StartupUpdateCoordinator
         }
     }
 
-    private sealed record ReleaseDocument(bool Prerelease, IReadOnlyList<ReleaseAsset> Assets);
+    private sealed record ReleaseDocument(
+        bool Prerelease,
+        string Body,
+        string ReleasePageUrl,
+        IReadOnlyList<ReleaseAsset> Assets);
 
     private sealed record ReleaseAsset(string Name, string DownloadUrl, string RuntimeIdentifier = "");
 
@@ -821,6 +985,7 @@ public sealed class StartupUpdateCoordinator
         public DateTimeOffset? LastCheckedUtc { get; set; }
         public string? ETag { get; set; }
         public string? LastSeenVersion { get; set; }
+        public AvailableUpdate? AvailableUpdate { get; set; }
     }
 
     private sealed class PendingUpdate

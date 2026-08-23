@@ -37,6 +37,7 @@ namespace costats.App
         private IHost? _host;
         private SingleInstanceCoordinator? _singleInstance;
         private StartupUpdateCoordinator? _updateCoordinator;
+        private CancellationTokenSource? _updateLoopCts;
 
         protected override void OnStartup(System.Windows.StartupEventArgs e)
         {
@@ -79,6 +80,7 @@ namespace costats.App
         protected override async void OnExit(System.Windows.ExitEventArgs e)
         {
             Log.Information("Application exiting (ExitCode={ExitCode})", e.ApplicationExitCode);
+            _updateLoopCts?.Cancel();
             try
             {
                 if (_host is not null)
@@ -93,6 +95,7 @@ namespace costats.App
             }
 
             _singleInstance?.Dispose();
+            _updateLoopCts?.Dispose();
             Log.CloseAndFlush();
             base.OnExit(e);
         }
@@ -125,7 +128,7 @@ namespace costats.App
                 // keeps DisplayVersion in step after a self-update.
                 LogFireAndForget(Task.Run(UninstallRegistration.Refresh), "UninstallRegistration");
 
-                await Dispatcher.InvokeAsync(() =>
+                var tray = await Dispatcher.InvokeAsync(() =>
                 {
                     ThemeService.Apply(settings.Theme);
                     Microsoft.Win32.SystemEvents.UserPreferenceChanged += (_, args) =>
@@ -136,17 +139,17 @@ namespace costats.App
                             Dispatcher.BeginInvoke(() => ThemeService.Apply(settings.Theme));
                         }
                     };
-                    var tray = InitializeHost(settingsStore, settings);
-                    LogFireAndForget(StartListenerAsync(tray), "SingleInstanceListener");
-                    MaybeCaptureScreenshot(tray);
+                    var initializedTray = InitializeHost(settingsStore, settings);
+                    LogFireAndForget(StartListenerAsync(initializedTray), "SingleInstanceListener");
+                    MaybeCaptureScreenshot(initializedTray);
+                    return initializedTray;
                 });
 
                 if (_updateCoordinator is not null)
                 {
-                    // Use a timeout so a stalled download never holds the semaphore forever
-                    var backgroundCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                    _updateLoopCts = new CancellationTokenSource();
                     LogFireAndForget(
-                        Task.Run(() => _updateCoordinator.CheckAndStageUpdateAsync(backgroundCts.Token)),
+                        RunBackgroundUpdateChecksAsync(tray, _updateLoopCts.Token),
                         "UpdateCheck");
                 }
 
@@ -160,6 +163,39 @@ namespace costats.App
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
                 Shutdown(1);
+            }
+        }
+
+        private async Task RunBackgroundUpdateChecksAsync(TrayHost tray, CancellationToken cancellationToken)
+        {
+            if (_updateCoordinator is null)
+            {
+                return;
+            }
+
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(60));
+
+                    try
+                    {
+                        var result = await _updateCoordinator.CheckForUpdateAsync(timeoutCts.Token).ConfigureAwait(false);
+                        await Dispatcher.InvokeAsync(() => tray.HandleBackgroundUpdateResult(result));
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        Log.Warning("Background update check timed out");
+                    }
+
+                    await Task.Delay(_updateCoordinator.CheckInterval, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // Normal application shutdown.
             }
         }
 

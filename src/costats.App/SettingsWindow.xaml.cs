@@ -37,6 +37,10 @@ namespace costats.App
         public void ShowCentered(bool returnToWidgetOnDismiss)
         {
             ReturnToWidgetOnDismiss = returnToWidgetOnDismiss;
+            if (DataContext is SettingsViewModel viewModel)
+            {
+                viewModel.RefreshUpdateAvailability();
+            }
 
             var workArea = SystemParameters.WorkArea;
             Left = (workArea.Width - Width) / 2 + workArea.Left;
