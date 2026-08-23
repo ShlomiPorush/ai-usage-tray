@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using costats.App.ViewModels;
+using costats.Application.Windowing;
 
 namespace costats.App
 {
@@ -17,6 +18,7 @@ namespace costats.App
     {
         private readonly UsageWindowViewModel _viewModel;
         private bool _allowClose;
+        private bool _hasBeenPositioned;
 
         /// <summary>
         /// What a maximized WindowChrome window has to give back. The window is
@@ -62,14 +64,11 @@ namespace costats.App
         /// </summary>
         public void ShowUsage()
         {
+            RestoreAndFitToWorkArea();
+
             if (!IsVisible)
             {
                 Show();
-            }
-
-            if (WindowState == WindowState.Minimized)
-            {
-                WindowState = WindowState.Normal;
             }
 
             Activate();
@@ -83,18 +82,54 @@ namespace costats.App
         /// </summary>
         public void ShowUsageForAccount(string accountId)
         {
+            RestoreAndFitToWorkArea();
+
             if (!IsVisible)
             {
                 Show();
             }
 
+            Activate();
+            _ = _viewModel.InitializeForAccountAsync(accountId);
+        }
+
+        /// <summary>
+        /// Makes the custom title bar reachable before every show. WPF sizes
+        /// this window in DIPs, so a fixed 900-DIP height can be taller than a
+        /// laptop work area at 125% or 150% display scaling.
+        /// </summary>
+        private void RestoreAndFitToWorkArea()
+        {
             if (WindowState == WindowState.Minimized)
             {
                 WindowState = WindowState.Normal;
             }
 
-            Activate();
-            _ = _viewModel.InitializeForAccountAsync(accountId);
+            if (WindowState != WindowState.Normal)
+            {
+                return;
+            }
+
+            // After the safe first placement, keep any move or resize the user
+            // makes for the lifetime of the app.
+            if (_hasBeenPositioned)
+            {
+                return;
+            }
+
+            var area = SystemParameters.WorkArea;
+            var fitted = WindowPlacementCalculator.FitCentered(
+                new WindowBounds(area.Left, area.Top, area.Width, area.Height),
+                desiredWidth: 1180,
+                desiredHeight: 900,
+                minWidth: MinWidth,
+                minHeight: MinHeight);
+
+            Width = fitted.Width;
+            Height = fitted.Height;
+            Left = fitted.Left;
+            Top = fitted.Top;
+            _hasBeenPositioned = true;
         }
 
         /// <summary>Closes the window for real, on application shutdown.</summary>
