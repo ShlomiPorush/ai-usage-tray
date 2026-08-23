@@ -197,13 +197,19 @@ public static class TrayStatusComposer
             // Leads the line: "which window" matters less than "you are stopped".
             windows.Add("blocked");
         }
-        if (account.SessionRemainingPercent.HasValue && account.SessionResetsAt.HasValue)
+        if (account.SessionRemainingPercent.HasValue)
         {
-            windows.Add(FormatWindow("Session", 100 - account.SessionRemainingPercent.Value, account.SessionResetsAt.Value, now, weekly: false));
+            var used = 100 - account.SessionRemainingPercent.Value;
+            windows.Add(account.SessionResetsAt.HasValue
+                ? FormatWindow("Session", used, account.SessionResetsAt.Value, now, weekly: false)
+                : FormatPercentOnly("Session", used));
         }
-        if (account.WeeklyRemainingPercent.HasValue && account.WeeklyResetsAt.HasValue)
+        if (account.WeeklyRemainingPercent.HasValue)
         {
-            windows.Add(FormatWindow("Weekly", 100 - account.WeeklyRemainingPercent.Value, account.WeeklyResetsAt.Value, now, weekly: true));
+            var used = 100 - account.WeeklyRemainingPercent.Value;
+            windows.Add(account.WeeklyResetsAt.HasValue
+                ? FormatWindow("Weekly", used, account.WeeklyResetsAt.Value, now, weekly: true)
+                : FormatPercentOnly("Weekly", used));
         }
         foreach (var scoped in account.ScopedQuotas ?? [])
         {
@@ -214,6 +220,13 @@ public static class TrayStatusComposer
         }
 
         return windows;
+    }
+
+    private static string FormatPercentOnly(string label, double usedPercent)
+    {
+        var percent = Math.Clamp(usedPercent, 0, 100)
+            .ToString("0", CultureInfo.InvariantCulture);
+        return $"{label} {percent}%";
     }
 
     private static string FormatAccount(AccountUsageStatus account, DateTimeOffset now)

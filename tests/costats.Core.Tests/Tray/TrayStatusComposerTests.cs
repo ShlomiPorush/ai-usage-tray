@@ -57,6 +57,19 @@ public sealed class TrayStatusComposerTests
     }
 
     [Fact]
+    public void ComposeRows_keeps_session_usage_when_the_provider_omits_its_reset_time()
+    {
+        var accounts = new[]
+        {
+            new AccountUsageStatus("Claude", 100, null, 88, Now.AddDays(4.2))
+        };
+
+        var row = Assert.Single(TrayStatusComposer.ComposeRows(accounts, Now));
+
+        Assert.Equal("Session 0%  |  Weekly 12% · 4.2d", row.WindowsText);
+    }
+
+    [Fact]
     public void FromUsagePulse_converts_used_percentages_to_remaining_percentages()
     {
         var usage = new costats.Core.Pulse.UsagePulse(
