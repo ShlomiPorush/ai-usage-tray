@@ -14,9 +14,11 @@
     <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.2" />
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.3719.77" />
     <PackageVersion Include="NHotkey.Wpf" Version="4.0.0" />
+    <PackageVersion Include="QRCoder" Version="1.8.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="ZXing.Net.Bindings.ImageSharp.V3" Version="0.16.18" />
     <PackageVersion Include="Serilog" Version="4.3.0" />
     <PackageVersion Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageVersion Include="Serilog.Settings.Configuration" Version="10.0.0" />

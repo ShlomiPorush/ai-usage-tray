@@ -2,11 +2,14 @@ using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using costats.App.Services;
 using costats.App.Services.Updates;
 using costats.Application.Pulse;
+using costats.Application.RemoteView;
 using costats.Application.Security;
 using costats.Application.Settings;
 using costats.Core.Pulse;
@@ -165,6 +168,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     private string remoteViewMessage = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasRemoteViewQrCode))]
+    private ImageSource? remoteViewQrImage;
+
+    public bool HasRemoteViewQrCode => RemoteViewQrImage is not null;
 
     /// <summary>
     /// The link to open on a phone: the viewer page plus the read id derived
@@ -475,6 +484,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     partial void OnRemoteViewEnabledChanged(bool value)
     {
+        RemoteViewQrImage = null;
         _settings.RemoteViewEnabled = value;
 
         RemoteViewMessage = DescribeRemoteViewUrlProblems();
@@ -512,6 +522,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     partial void OnRemoteViewPageUrlChanged(string value)
     {
+        RemoteViewQrImage = null;
         _settings.RemoteViewPageUrl = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         RemoteViewMessage = DescribeRemoteViewUrlProblems();
         SaveSettingsInBackground();
@@ -547,6 +558,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void NewRemoteViewLink()
     {
+        RemoteViewQrImage = null;
         var retiredWriteId = _settings.RemoteViewId;
         _settings.RemoteViewId = RemoteViewIds.MintWriteId();
         SaveSettingsInBackground();
@@ -603,6 +615,27 @@ public sealed partial class SettingsViewModel : ObservableObject
             // The clipboard can be locked by another process; nothing to recover.
             Debug.WriteLine($"Share link copy failed: {ex.Message}");
         }
+    }
+
+    [RelayCommand]
+    private void GenerateRemoteViewQrCode()
+    {
+        var qr = RemoteViewQrCode.Create(_settings);
+        if (qr is null)
+        {
+            RemoteViewQrImage = null;
+            RemoteViewMessage = "Enable remote view and finish the viewer URL before generating a QR code.";
+            return;
+        }
+
+        using var stream = new MemoryStream(qr.PngBytes);
+        var image = new BitmapImage();
+        image.BeginInit();
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        image.StreamSource = stream;
+        image.EndInit();
+        image.Freeze();
+        RemoteViewQrImage = image;
     }
 
     partial void OnCopilotEnabledChanged(bool value)
