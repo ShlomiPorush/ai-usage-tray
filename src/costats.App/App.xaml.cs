@@ -7,11 +7,13 @@ using costats.App.ViewModels;
 using costats.Application.Abstractions;
 using costats.Application.Pulse;
 using costats.Application.Security;
+using costats.Application.SessionActivation;
 using costats.Application.Settings;
 using costats.Application.Shell;
 using costats.Infrastructure.Analytics;
 using costats.Infrastructure.Providers;
 using costats.Infrastructure.Security;
+using costats.Infrastructure.SessionActivation;
 using costats.Infrastructure.Settings;
 using costats.Infrastructure.Time;
 using costats.Infrastructure.Windows;
@@ -426,6 +428,11 @@ namespace costats.App
                         () => settings.ZAiDisplayName));
                     services.AddSingleton<IPulseOrchestrator, PulseOrchestrator>();
                     services.AddHostedService(sp => (PulseOrchestrator)sp.GetRequiredService<IPulseOrchestrator>());
+
+                    services.AddSingleton<ISessionActivationStateStore, JsonSessionActivationStateStore>();
+                    services.AddSingleton<ISessionWindowActivator, ClaudeCodeSessionActivator>();
+                    services.AddSingleton<SessionAutoStartCoordinator>();
+                    services.AddHostedService<SessionAutoStartWorker>();
 
                     // Local usage analytics: reads the agent logs on demand and
                     // computes token totals and raw API-rate cost. Nothing polls

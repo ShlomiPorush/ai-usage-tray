@@ -75,6 +75,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         copilotEnabled = settings.CopilotEnabled;
         showOverviewResetTimes = settings.ShowOverviewResetTimes;
+        autoStartClaudeFiveHourWindow = settings.AutoStartClaudeFiveHourWindow;
+        autoStartZaiFiveHourWindow = settings.AutoStartZaiFiveHourWindow;
 
         remoteViewEnabled = settings.RemoteViewEnabled;
         remoteViewUploadUrl = settings.RemoteViewUploadUrl ?? string.Empty;
@@ -109,6 +111,12 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool isClearingUsageCache;
+
+    [ObservableProperty]
+    private bool autoStartClaudeFiveHourWindow;
+
+    [ObservableProperty]
+    private bool autoStartZaiFiveHourWindow;
 
     /// <summary>One row per monitored provider: Claude/Codex accounts plus Z.AI and Copilot when configured.</summary>
     public System.Collections.ObjectModel.ObservableCollection<ProviderRowViewModel> ProviderRows { get; } = new();
@@ -529,6 +537,18 @@ public sealed partial class SettingsViewModel : ObservableObject
         _settings.ShowOverviewResetTimes = value;
         SaveSettingsInBackground();
         _pulseOrchestrator.RepublishLastState();
+    }
+
+    partial void OnAutoStartClaudeFiveHourWindowChanged(bool value)
+    {
+        _settings.AutoStartClaudeFiveHourWindow = value;
+        SaveSettingsInBackground();
+    }
+
+    partial void OnAutoStartZaiFiveHourWindowChanged(bool value)
+    {
+        _settings.AutoStartZaiFiveHourWindow = value;
+        SaveSettingsInBackground();
     }
 
     partial void OnRemoteViewEnabledChanged(bool value)

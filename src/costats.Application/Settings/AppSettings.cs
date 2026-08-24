@@ -24,6 +24,19 @@ public sealed class AppSettings
     public bool ShowOverviewResetTimes { get; set; } = false;
 
     /// <summary>
+    /// After a previously observed Claude five-hour window expires, send one
+    /// minimal Haiku prompt through the official Claude Code CLI to start the
+    /// next window. Off by default because this consumes subscription quota.
+    /// </summary>
+    public bool AutoStartClaudeFiveHourWindow { get; set; } = false;
+
+    /// <summary>
+    /// The Z.AI equivalent, using Claude Code with the coding-plan endpoint and
+    /// GLM-4.5-Air. OpenAI/Codex accounts are intentionally never eligible.
+    /// </summary>
+    public bool AutoStartZaiFiveHourWindow { get; set; } = false;
+
+    /// <summary>
     /// UI theme: "system" (follow Windows apps theme), "light" or "dark".
     /// </summary>
     public string Theme { get; set; } = "system";

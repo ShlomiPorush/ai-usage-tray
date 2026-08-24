@@ -108,6 +108,27 @@ public sealed class JsonSettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Automatic_session_toggles_round_trip_but_default_off()
+    {
+        var store = new JsonSettingsStore(new FakeCredentialVault(), _root);
+        var defaults = new AppSettings();
+        Assert.False(defaults.AutoStartClaudeFiveHourWindow);
+        Assert.False(defaults.AutoStartZaiFiveHourWindow);
+
+        await store.SaveAsync(
+            new AppSettings
+            {
+                AutoStartClaudeFiveHourWindow = true,
+                AutoStartZaiFiveHourWindow = true
+            },
+            CancellationToken.None);
+
+        var loaded = await store.LoadAsync(CancellationToken.None);
+        Assert.True(loaded.AutoStartClaudeFiveHourWindow);
+        Assert.True(loaded.AutoStartZaiFiveHourWindow);
+    }
+
+    [Fact]
     public async Task Clearing_a_key_deletes_the_vault_entry()
     {
         var vault = new FakeCredentialVault();

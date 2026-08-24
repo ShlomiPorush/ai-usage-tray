@@ -174,7 +174,7 @@
                               DockPanel.Dock="Right" HorizontalAlignment="Right" Width="120" />
                 </DockPanel>
                 <TextBlock Text="How often AI Usage Tray polls for usage data in the background."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,0"
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,12"
                            TextWrapping="Wrap" />
 
                 <CheckBox IsChecked="{Binding HotkeyEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,14,0,6">
@@ -193,6 +193,26 @@
                 <TextBlock Text="{Binding HotkeyStatus}" FontSize="11" Foreground="#F97316" Margin="30,0,0,0"
                            TextWrapping="Wrap"
                            Visibility="{Binding HotkeyStatus, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+
+                <CheckBox IsChecked="{Binding AutoStartClaudeFiveHourWindow}"
+                          Style="{StaticResource SettingsCheckBox}" Margin="0,14,0,6">
+                    <TextBlock Text="Automatically start Claude's next 5-hour window"
+                               FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
+                               TextWrapping="Wrap" />
+                </CheckBox>
+                <TextBlock Text="After an observed window expires, sends one 'Reply OK' prompt through Claude Code using Haiku."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
+                           Margin="30,0,0,12" TextWrapping="Wrap" />
+
+                <CheckBox IsChecked="{Binding AutoStartZaiFiveHourWindow}"
+                          Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                    <TextBlock Text="Automatically start GLM's next 5-hour window"
+                               FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
+                               TextWrapping="Wrap" />
+                </CheckBox>
+                <TextBlock Text="Uses the GLM coding-plan key with GLM-4.5-Air. A failed activation is retried up to three times, every five minutes."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
+                           Margin="30,0,0,0" TextWrapping="Wrap" />
 
                 <!-- Divider -->
                 <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,16,0,16" />
