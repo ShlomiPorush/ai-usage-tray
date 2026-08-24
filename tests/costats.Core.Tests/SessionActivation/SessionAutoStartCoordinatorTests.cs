@@ -226,6 +226,42 @@ public sealed class SessionAutoStartCoordinatorTests
         Assert.Null(call.ConfigDirectory);
     }
 
+    [Fact]
+    public async Task Glm_idle_window_without_reset_timestamp_starts_a_new_window()
+    {
+        var settings = new AppSettings
+        {
+            AutoStartZaiFiveHourWindow = true,
+            ZAiCodingApiKey = "test-only-key"
+        };
+        var clock = new FakeClock { UtcNow = Baseline };
+        var orchestrator = new FakeOrchestrator { CurrentState = State("zai", null) };
+        var activator = new FakeActivator();
+        var coordinator = CreateCoordinator(
+            orchestrator,
+            settings,
+            activator,
+            new FakeStateStore(),
+            clock);
+
+        await coordinator.CheckOnceAsync(CancellationToken.None);
+
+        var call = Assert.Single(activator.Calls);
+        Assert.Equal(SessionActivationProvider.Zai, call.Provider);
+    }
+
+    [Fact]
+    public async Task Claude_window_without_reset_timestamp_is_not_inferred_as_expired()
+    {
+        var harness = Harness.Claude(Baseline.AddMinutes(-1), Baseline);
+        harness.Orchestrator.CurrentState = State("claude:work", null);
+
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        Assert.Empty(harness.Activator.Calls);
+        Assert.Empty(harness.Orchestrator.Refreshes);
+    }
+
     private static SessionAutoStartCoordinator CreateCoordinator(
         FakeOrchestrator orchestrator,
         AppSettings settings,
@@ -242,7 +278,7 @@ public sealed class SessionAutoStartCoordinatorTests
 
     private static PulseState State(
         string providerId,
-        DateTimeOffset resetAt,
+        DateTimeOffset? resetAt,
         TimeSpan? duration = null) =>
         new(
             new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase)
@@ -273,7 +309,7 @@ public sealed class SessionAutoStartCoordinatorTests
 
     private static ProviderReading Reading(
         string providerId,
-        DateTimeOffset resetAt,
+        DateTimeOffset? resetAt,
         TimeSpan duration) =>
         new(
             new UsagePulse(

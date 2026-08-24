@@ -15,6 +15,7 @@ public sealed class SessionAutoStartCoordinator
 {
     public const int MaximumAttempts = 4; // initial attempt + three retries
     public static readonly TimeSpan RetryInterval = TimeSpan.FromMinutes(5);
+    private static readonly DateTimeOffset IdleZaiWindowMarker = DateTimeOffset.UnixEpoch;
 
     private readonly IPulseOrchestrator _pulseOrchestrator;
     private readonly AppSettings _settings;
@@ -189,15 +190,32 @@ public sealed class SessionAutoStartCoordinator
         if (state is null || state.IsRefreshing ||
             !state.Providers.TryGetValue(providerId, out var reading) ||
             reading.Usage?.SessionWindow is not { } window ||
-            window.ResetsAt is not { } providerReset ||
             window.Duration < TimeSpan.FromHours(4.5) ||
             window.Duration > TimeSpan.FromHours(5.5))
         {
             return false;
         }
 
-        resetAt = providerReset;
-        return true;
+        if (window.ResetsAt is { } providerReset)
+        {
+            resetAt = providerReset;
+            return true;
+        }
+
+        // Z.AI removes nextResetTime after an unused five-hour bucket expires
+        // and reports the idle state as 100% remaining (0 used). That exact
+        // provider-specific shape is the signal that the next prompt must start
+        // a new window. The fixed marker keeps retries and restart deduplication
+        // stable until Z.AI publishes the next real reset timestamp.
+        if (string.Equals(providerId, "zai", StringComparison.OrdinalIgnoreCase) &&
+            reading.Usage.SessionUsed == 0 &&
+            reading.Usage.SessionLimit is > 0)
+        {
+            resetAt = IdleZaiWindowMarker;
+            return true;
+        }
+
+        return false;
     }
 
     private async Task ArmAsync(
