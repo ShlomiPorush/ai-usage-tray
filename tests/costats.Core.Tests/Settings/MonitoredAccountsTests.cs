@@ -36,4 +36,12 @@ public sealed class MonitoredAccountsTests
         var account = Assert.Single(accounts);
         Assert.Equal("ok", account.Id);
     }
+
+    [Fact]
+    public void Explicitly_empty_accounts_do_not_restore_fresh_install_defaults()
+    {
+        var settings = new AppSettings { Accounts = [] };
+
+        Assert.Empty(settings.GetEffectiveAccounts());
+    }
 }

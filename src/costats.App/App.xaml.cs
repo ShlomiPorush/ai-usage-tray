@@ -114,6 +114,7 @@ namespace costats.App
 
                 var settingsStore = new JsonSettingsStore(new CredentialVault());
                 var settings = await settingsStore.LoadAsync(CancellationToken.None).ConfigureAwait(false);
+                ApplyPreviewTheme(settings);
 
                 // Remote view ships with a working endpoint, so the user only has
                 // to tick the checkbox. These are runtime-only defaults: they are
@@ -140,7 +141,10 @@ namespace costats.App
                     };
                     var initializedTray = InitializeHost(settingsStore, settings);
                     LogFireAndForget(StartListenerAsync(initializedTray), "SingleInstanceListener");
-                    MaybeCaptureScreenshot(initializedTray);
+                    if (!MaybeCaptureScreenshot(initializedTray))
+                    {
+                        initializedTray.ShowInitialOnboardingIfNeeded();
+                    }
                     return initializedTray;
                 });
 
@@ -214,26 +218,61 @@ namespace costats.App
         }
 
         /// <summary>
-        /// Dev/docs helper: "--screenshot &lt;path&gt;" opens the widget, waits for
-        /// the first refresh, renders it to a PNG and exits.
+        /// Dev/docs helpers render the normal widget, guided onboarding, or its
+        /// compact widget fallback to a PNG and exit. Preview state is in-memory
+        /// only and never touches settings.json.
         /// </summary>
-        private void MaybeCaptureScreenshot(TrayHost tray)
+        private bool MaybeCaptureScreenshot(TrayHost tray)
         {
             var args = Environment.GetCommandLineArgs();
-            var index = Array.IndexOf(args, "--screenshot");
+            var flag = new[]
+            {
+                "--screenshot",
+                "--onboarding-screenshot",
+                "--onboarding-fallback-screenshot"
+            }.FirstOrDefault(candidate => Array.IndexOf(args, candidate) >= 0);
+            if (flag is null)
+            {
+                return false;
+            }
+
+            var index = Array.IndexOf(args, flag);
             if (index < 0 || index + 1 >= args.Length)
             {
-                return;
+                return false;
             }
 
             var path = args[index + 1];
             _ = Dispatcher.InvokeAsync(async () =>
             {
-                tray.ShowWidget();
-                await Task.Delay(TimeSpan.FromSeconds(15));
+                Window window;
+                var wait = TimeSpan.FromSeconds(1);
+                if (flag == "--onboarding-screenshot")
+                {
+                    var onboarding = _host!.Services.GetRequiredService<OnboardingWindow>();
+                    onboarding.ShowCentered(
+                        resume: false,
+                        previewOnly: true,
+                        previewStep: ReadPreviewStep(args));
+                    window = onboarding;
+                }
+                else
+                {
+                    if (flag == "--onboarding-fallback-screenshot")
+                    {
+                        var settings = _host!.Services.GetRequiredService<AppSettings>();
+                        settings.OnboardingState = OnboardingStates.Dismissed;
+                        _host.Services.GetRequiredService<PulseViewModel>().NotifyOnboardingStateChanged();
+                    }
+
+                    tray.ShowWidget();
+                    window = _host!.Services.GetRequiredService<GlassWidgetWindow>();
+                    wait = TimeSpan.FromSeconds(15);
+                }
+
+                await Task.Delay(wait);
                 try
                 {
-                    var window = _host!.Services.GetRequiredService<GlassWidgetWindow>();
                     var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
                         (int)Math.Ceiling(window.ActualWidth * 2),
                         (int)Math.Ceiling(window.ActualHeight * 2),
@@ -250,8 +289,34 @@ namespace costats.App
                 {
                     Log.Error(ex, "Screenshot capture failed");
                 }
+                window.Hide();
                 Shutdown(0);
             });
+            return true;
+        }
+
+        private static void ApplyPreviewTheme(AppSettings settings)
+        {
+            var args = Environment.GetCommandLineArgs();
+            var index = Array.IndexOf(args, "--preview-theme");
+            if (index < 0 || index + 1 >= args.Length)
+            {
+                return;
+            }
+
+            var theme = args[index + 1];
+            if (theme is ThemeService.LightTheme or ThemeService.DarkTheme)
+            {
+                settings.Theme = theme;
+            }
+        }
+
+        private static int ReadPreviewStep(string[] args)
+        {
+            var index = Array.IndexOf(args, "--onboarding-step");
+            return index >= 0 && index + 1 < args.Length && int.TryParse(args[index + 1], out var step)
+                ? Math.Clamp(step, 1, 3)
+                : 1;
         }
 
         /// <summary>Reads a URL from configuration, treating blank as "not shipped".</summary>
@@ -438,9 +503,11 @@ namespace costats.App
                     services.AddSingleton<IGlassBackdropService, GlassBackdropService>();
 
                     services.AddSingleton<PulseViewModel>();
+                    services.AddSingleton<OnboardingViewModel>();
                     services.AddSingleton<SettingsViewModel>();
                     services.AddSingleton<UsageWindowViewModel>();
                     services.AddSingleton<GlassWidgetWindow>();
+                    services.AddSingleton<OnboardingWindow>();
                     services.AddSingleton<SettingsWindow>();
                     services.AddSingleton<UsageWindow>();
                     services.AddSingleton<TaskbarPositionService>();

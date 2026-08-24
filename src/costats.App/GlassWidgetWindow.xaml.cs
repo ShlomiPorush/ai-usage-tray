@@ -15,11 +15,13 @@ namespace costats.App
         private readonly IGlassBackdropService _backdropService;
         private readonly SettingsWindow _settingsWindow;
         private readonly UsageWindow _usageWindow;
+        private readonly OnboardingWindow _onboardingWindow;
 
         public GlassWidgetWindow(
             PulseViewModel viewModel,
             SettingsWindow settingsWindow,
             UsageWindow usageWindow,
+            OnboardingWindow onboardingWindow,
             IGlassBackdropService backdropService)
         {
             InitializeComponent();
@@ -27,6 +29,7 @@ namespace costats.App
             _backdropService = backdropService;
             _settingsWindow = settingsWindow;
             _usageWindow = usageWindow;
+            _onboardingWindow = onboardingWindow;
             SourceInitialized += OnSourceInitialized;
             MouseLeftButtonDown += OnMouseLeftButtonDown;
             Deactivated += OnDeactivated;
@@ -96,6 +99,11 @@ namespace costats.App
             // The widget hides itself the moment the dashboard takes focus,
             // which is what we want: the dashboard is a full window.
             _usageWindow.ShowUsage();
+        }
+
+        private void OnFinishSetupClick(object sender, RoutedEventArgs e)
+        {
+            _onboardingWindow.ShowCentered(resume: true);
         }
 
         private void OnAccountUsageClick(object sender, RoutedEventArgs e)

@@ -1,0 +1,393 @@
+<Window x:Class="costats.App.OnboardingWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:costats.App"
+        Title="Set up AI Usage Tray"
+        Width="820" Height="530"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        AllowsTransparency="True"
+        Background="Transparent"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <Style x:Key="OnboardingButton" TargetType="Button">
+            <Setter Property="MinHeight" Value="38" />
+            <Setter Property="Padding" Value="15,8" />
+            <Setter Property="Background" Value="{DynamicResource ButtonBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource ButtonHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Chrome" Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryOnboardingButton" TargetType="Button" BasedOn="{StaticResource OnboardingButton}">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+        </Style>
+
+        <Style x:Key="ProviderChoice" TargetType="ToggleButton">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Background" Value="{DynamicResource CardBgBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="ChoiceBorder" MinHeight="150" Padding="17"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="12">
+                            <Grid>
+                                <ContentPresenter />
+                                <Border x:Name="Check" Width="22" Height="22" CornerRadius="6"
+                                        HorizontalAlignment="Right" VerticalAlignment="Top"
+                                        BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
+                                        Background="{DynamicResource InputBgBrush}">
+                                    <TextBlock x:Name="CheckGlyph" Text="&#x2713;" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               FontSize="12" FontWeight="Bold" Foreground="{DynamicResource AccentTextBrush}" Visibility="Collapsed" />
+                                </Border>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ChoiceBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="ChoiceBorder" Property="BorderThickness" Value="2" />
+                                <Setter TargetName="ChoiceBorder" Property="Background" Value="{DynamicResource KindBadgeBrush}" />
+                                <Setter TargetName="Check" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Check" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="CheckGlyph" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ChoiceBorder" Property="Background" Value="{DynamicResource CardHoverBgBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="StepItem" TargetType="Border">
+            <Setter Property="CornerRadius" Value="9" />
+            <Setter Property="Padding" Value="8" />
+            <Setter Property="Margin" Value="0,0,0,7" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+
+        <Style x:Key="StatusPill" TargetType="Border">
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Background" Value="{DynamicResource KindBadgeBrush}" />
+        </Style>
+    </Window.Resources>
+
+    <Border CornerRadius="18" BorderBrush="{DynamicResource WindowBorderBrush}" BorderThickness="1"
+            Background="{DynamicResource WidgetBgBrush}">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="{DynamicResource PanelBgBrush}" CornerRadius="17,0,0,17"
+                    BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,0,1,0">
+                <StackPanel Margin="22,28">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,32">
+                        <Border Width="32" Height="32" CornerRadius="9" Background="{DynamicResource AccentBrush}">
+                            <TextBlock Text="%" FontSize="15" FontWeight="Bold" Foreground="{DynamicResource AccentTextBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="AI Usage Tray" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="10,0,0,0"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <Border>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource StepItem}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Step}" Value="1">
+                                        <Setter Property="Background" Value="{DynamicResource KindBadgeBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Border Width="25" Height="25" CornerRadius="13" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1">
+                                <TextBlock Text="1" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                <TextBlock Text="Choose" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                <TextBlock Text="Your AI tools" FontSize="10.5" Foreground="{DynamicResource TextFaintBrush}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource StepItem}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Step}" Value="2">
+                                        <Setter Property="Background" Value="{DynamicResource KindBadgeBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Border Width="25" Height="25" CornerRadius="13" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1">
+                                <TextBlock Text="2" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                <TextBlock Text="Connect" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                <TextBlock Text="Check sign-in" FontSize="10.5" Foreground="{DynamicResource TextFaintBrush}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <Border>
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource StepItem}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Step}" Value="3">
+                                        <Setter Property="Background" Value="{DynamicResource KindBadgeBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="28" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Border Width="25" Height="25" CornerRadius="13" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1">
+                                <TextBlock Text="3" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                <TextBlock Text="Done" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                <TextBlock Text="Open the widget" FontSize="10.5" Foreground="{DynamicResource TextFaintBrush}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <Grid Grid.Column="1" Margin="34,28,34,24">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <Button Grid.Row="0" HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Width="30" Height="30" Padding="0" Content="&#x2715;"
+                        Style="{StaticResource OnboardingButton}" Click="OnCloseClick"
+                        AutomationProperties.Name="Close setup" />
+
+                <!-- Step 1: provider selection -->
+                <StackPanel Grid.Row="0" Margin="0,0,34,0"
+                            Visibility="{Binding IsChooseStep, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <TextBlock Text="STEP 1 OF 3" FontSize="10" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,8" />
+                    <TextBlock Text="Which tools do you use?" FontSize="22" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <TextBlock Text="Select one or both. You can add more accounts later in Settings."
+                               FontSize="12.5" Foreground="{DynamicResource TextMutedBrush}" Margin="0,6,0,22" />
+
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <ToggleButton Grid.Column="0" Style="{StaticResource ProviderChoice}"
+                                      IsChecked="{Binding MonitorClaude, Mode=TwoWay}">
+                            <StackPanel>
+                                <Border Width="40" Height="40" CornerRadius="10" Background="{DynamicResource ClaudeAccent}"
+                                        HorizontalAlignment="Left" Margin="0,0,0,14">
+                                    <Path Data="{StaticResource ClaudeIconPath}" Fill="White" Stretch="Uniform" Margin="9" />
+                                </Border>
+                                <TextBlock Text="Claude" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                <TextBlock Text="Subscription usage through your local Claude Code profile."
+                                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,5,0,0" />
+                            </StackPanel>
+                        </ToggleButton>
+                        <ToggleButton Grid.Column="2" Style="{StaticResource ProviderChoice}"
+                                      IsChecked="{Binding MonitorCodex, Mode=TwoWay}">
+                            <StackPanel>
+                                <Border Width="40" Height="40" CornerRadius="10" Background="{DynamicResource AccentBrush}"
+                                        HorizontalAlignment="Left" Margin="0,0,0,14">
+                                    <Path Data="{StaticResource CodexIconPath}" Fill="White" Stretch="Uniform" Margin="8" />
+                                </Border>
+                                <TextBlock Text="OpenAI Codex" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                                <TextBlock Text="ChatGPT quota through the official local Codex app-server."
+                                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,5,0,0" />
+                            </StackPanel>
+                        </ToggleButton>
+                    </Grid>
+                </StackPanel>
+
+                <!-- Step 2: connection check -->
+                <StackPanel Grid.Row="0" Margin="0,0,34,0"
+                            Visibility="{Binding IsConnectStep, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <TextBlock Text="STEP 2 OF 3" FontSize="10" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,8" />
+                    <TextBlock Text="Connect your accounts" FontSize="22" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <TextBlock Text="We use each tool's standard local profile. Fix only the accounts that need attention."
+                               FontSize="12.5" Foreground="{DynamicResource TextMutedBrush}" TextWrapping="Wrap" Margin="0,6,0,18" />
+
+                    <Border BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1" CornerRadius="11"
+                            Background="{DynamicResource CardBgBrush}" Padding="13" Margin="0,0,0,10"
+                            Visibility="{Binding MonitorClaude, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <Border Width="36" Height="36" CornerRadius="9" Background="{DynamicResource ClaudeAccent}" VerticalAlignment="Center">
+                                <Path Data="{StaticResource ClaudeIconPath}" Fill="White" Stretch="Uniform" Margin="8" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Claude" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                                    <Border Margin="8,0,0,0">
+                                        <Border.Style>
+                                            <Style TargetType="Border" BasedOn="{StaticResource StatusPill}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding ClaudeReady}" Value="True">
+                                                        <Setter Property="Background" Value="{DynamicResource SuccessTintBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="{Binding ClaudeStatusLabel}" FontSize="10.5" FontWeight="SemiBold">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding ClaudeReady}" Value="True"><Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" /></DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Text="{Binding ClaudeStatusDetail}" FontSize="10.5" Foreground="{DynamicResource TextFaintBrush}"
+                                           TextWrapping="Wrap" Margin="0,4,0,0" />
+                            </StackPanel>
+                            <Button Grid.Column="2" Content="Open sign-in" Command="{Binding OpenClaudeSignInCommand}"
+                                    VerticalAlignment="Center">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource OnboardingButton}">
+                                        <Setter Property="MinHeight" Value="32" /><Setter Property="Padding" Value="11,5" />
+                                        <Style.Triggers><DataTrigger Binding="{Binding ClaudeReady}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <Border BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1" CornerRadius="11"
+                            Background="{DynamicResource CardBgBrush}" Padding="13" Margin="0,0,0,10"
+                            Visibility="{Binding MonitorCodex, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <Border Width="36" Height="36" CornerRadius="9" Background="{DynamicResource AccentBrush}" VerticalAlignment="Center">
+                                <Path Data="{StaticResource CodexIconPath}" Fill="White" Stretch="Uniform" Margin="7" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="OpenAI Codex" FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                                    <Border Margin="8,0,0,0">
+                                        <Border.Style>
+                                            <Style TargetType="Border" BasedOn="{StaticResource StatusPill}">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CodexReady}" Value="True"><Setter Property="Background" Value="{DynamicResource SuccessTintBrush}" /></DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="{Binding CodexStatusLabel}" FontSize="10.5" FontWeight="SemiBold">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding CodexReady}" Value="True"><Setter Property="Foreground" Value="{DynamicResource SuccessBrush}" /></DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Text="{Binding CodexStatusDetail}" FontSize="10.5" Foreground="{DynamicResource TextFaintBrush}"
+                                           TextWrapping="Wrap" Margin="0,4,0,0" />
+                            </StackPanel>
+                            <Button Grid.Column="2" Content="Open sign-in" Command="{Binding OpenCodexSignInCommand}" VerticalAlignment="Center">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource OnboardingButton}">
+                                        <Setter Property="MinHeight" Value="32" /><Setter Property="Padding" Value="11,5" />
+                                        <Style.Triggers><DataTrigger Binding="{Binding CodexReady}" Value="True"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <DockPanel Margin="0,4,0,0">
+                        <TextBlock Text="Complete sign-in in the official CLI, then retry."
+                                   FontSize="10.5" Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
+                        <Button Content="Retry" Command="{Binding RetryCommand}" DockPanel.Dock="Right"
+                                Style="{StaticResource OnboardingButton}" MinHeight="32" Padding="11,5"
+                                IsEnabled="{Binding IsChecking, Converter={x:Static local:BoolNegationConverter.Instance}}" />
+                    </DockPanel>
+                </StackPanel>
+
+                <!-- Step 3: complete -->
+                <Grid Grid.Row="0" Margin="0,0,34,0"
+                      Visibility="{Binding IsDoneStep, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="360">
+                        <Border Width="58" Height="58" CornerRadius="29" Background="{DynamicResource SuccessTintBrush}" HorizontalAlignment="Center" Margin="0,0,0,16">
+                            <TextBlock Text="&#x2713;" FontSize="27" FontWeight="SemiBold" Foreground="{DynamicResource SuccessBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="You're ready" FontSize="22" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" HorizontalAlignment="Center" />
+                        <TextBlock Text="{Binding ConnectedSummary}" FontSize="12.5" Foreground="{DynamicResource TextMutedBrush}"
+                                   TextWrapping="Wrap" TextAlignment="Center" Margin="0,8,0,0" />
+                    </StackPanel>
+                </Grid>
+
+                <DockPanel Grid.Row="1" Margin="0,18,0,0">
+                    <Button Content="Back" Style="{StaticResource OnboardingButton}" Click="OnBackClick"
+                            Visibility="{Binding CanGoBack, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
+                    <Button Content="{Binding PrimaryActionText}" Style="{StaticResource PrimaryOnboardingButton}"
+                            Click="OnPrimaryClick" IsEnabled="{Binding CanContinue}"
+                            DockPanel.Dock="Right" HorizontalAlignment="Right" MinWidth="92" />
+                </DockPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>

@@ -20,6 +20,9 @@
     <SolidColorBrush x:Key="TextSecondaryBrush" Color="#4C4234" />
     <SolidColorBrush x:Key="TextMutedBrush" Color="#5E5548" />
     <SolidColorBrush x:Key="TextFaintBrush" Color="#706659" />
+    <SolidColorBrush x:Key="AccentTextBrush" Color="#07121D" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="#10B981" />
+    <SolidColorBrush x:Key="SuccessTintBrush" Color="#2210B981" />
     <SolidColorBrush x:Key="DividerBrush" Color="#DAD1C2" />
     <SolidColorBrush x:Key="TrackBrush" Color="#DFD6C7" />
     <SolidColorBrush x:Key="AccentBrush" Color="#B45309" />
