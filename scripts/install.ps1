@@ -106,7 +106,12 @@ function Assert-Checksum {
     param([string]$ZipPath, [string]$ChecksumUrl, [string]$AssetName)
 
     $headers = @{ "User-Agent" = "ai-usage-tray-installer" }
-    $checksumText = (Invoke-WebRequest -Uri $ChecksumUrl -Headers $headers -UseBasicParsing).Content
+    $checksumContent = (Invoke-WebRequest -Uri $ChecksumUrl -Headers $headers -UseBasicParsing).Content
+    if ($checksumContent -is [byte[]]) {
+        $checksumText = [Text.Encoding]::UTF8.GetString($checksumContent)
+    } else {
+        $checksumText = [string]$checksumContent
+    }
     $expected = $null
     foreach ($line in ($checksumText -split "`n")) {
         $trimmed = $line.Trim()

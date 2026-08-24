@@ -39,3 +39,8 @@ jobs:
 
       - name: Test
         run: dotnet test costats.sln --configuration ${{ matrix.configuration }} --no-build --verbosity normal
+
+      - name: Test installer checksum parsing
+        if: matrix.configuration == 'Release'
+        shell: powershell
+        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\tests\scripts\InstallChecksum.Tests.ps1
