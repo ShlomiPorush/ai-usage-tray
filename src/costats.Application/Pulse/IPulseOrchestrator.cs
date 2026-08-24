@@ -6,6 +6,9 @@ public interface IPulseOrchestrator
 {
     IObservable<PulseState> PulseStream { get; }
 
+    /// <summary>The most recently published provider state, if an initial refresh has completed.</summary>
+    PulseState? CurrentState { get; }
+
     Task RefreshOnceAsync(RefreshTrigger trigger, CancellationToken cancellationToken);
 
     /// <summary>

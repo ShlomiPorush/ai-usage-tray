@@ -319,8 +319,6 @@ public sealed class SessionAutoStartCoordinatorTests
                 100,
                 0,
                 100,
-                null,
-                null,
                 new QuotaWindow(duration, resetAt),
                 new QuotaWindow(TimeSpan.FromDays(7), Baseline.AddDays(4))),
             null,
@@ -448,6 +446,9 @@ public sealed class SessionAutoStartCoordinatorTests
         public Task RefreshOnceAsync(RefreshTrigger trigger, CancellationToken cancellationToken) =>
             Task.CompletedTask;
 
+        public Task RefreshIfStaleAsync(TimeSpan maxAge, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
         public Task RefreshProviderAsync(string providerId, CancellationToken cancellationToken)
         {
             Refreshes.Add(providerId);
@@ -456,6 +457,12 @@ public sealed class SessionAutoStartCoordinatorTests
         }
 
         public void UpdateRefreshInterval(TimeSpan interval)
+        {
+        }
+
+        public bool IsFullRefreshStale(TimeSpan maxAge) => false;
+
+        public void RepublishLastState()
         {
         }
     }
