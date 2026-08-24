@@ -19,6 +19,7 @@ namespace costats.App.Services
         private readonly TaskbarIcon _taskbarIcon;
         private readonly GlassWidgetWindow _widgetWindow;
         private readonly SettingsWindow _settingsWindow;
+        private readonly OnboardingWindow _onboardingWindow;
         private readonly UsageWindow _usageWindow;
         private readonly IPulseOrchestrator _pulseOrchestrator;
         private readonly PulseViewModel _viewModel;
@@ -37,6 +38,7 @@ namespace costats.App.Services
             PulseViewModel viewModel,
             GlassWidgetWindow widgetWindow,
             SettingsWindow settingsWindow,
+            OnboardingWindow onboardingWindow,
             UsageWindow usageWindow,
             IPulseOrchestrator pulseOrchestrator,
             TaskbarPositionService taskbarPosition,
@@ -47,6 +49,7 @@ namespace costats.App.Services
             _viewModel = viewModel;
             _widgetWindow = widgetWindow;
             _settingsWindow = settingsWindow;
+            _onboardingWindow = onboardingWindow;
             _usageWindow = usageWindow;
             _pulseOrchestrator = pulseOrchestrator;
             _taskbarPosition = taskbarPosition;
@@ -111,6 +114,7 @@ namespace costats.App.Services
             SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
             _widgetWindow.SizeChanged += OnWidgetSizeChanged;
             _settingsWindow.Dismissing += OnSettingsDismissing;
+            _onboardingWindow.Dismissing += OnOnboardingDismissing;
         }
 
         private void OnTrayLeftClick(object? sender, EventArgs e)
@@ -242,6 +246,23 @@ namespace costats.App.Services
             // Same path as a tray icon click, so position, theme and the silent
             // refresh all behave exactly as they normally do.
             ShowWidget();
+        }
+
+        private void OnOnboardingDismissing(object? sender, EventArgs e) => ShowWidget();
+
+        /// <summary>Shows guided setup only for a fresh or interrupted first run.</summary>
+        public void ShowInitialOnboardingIfNeeded()
+        {
+            if (!_settings.ShouldShowInitialOnboarding)
+            {
+                return;
+            }
+
+            var resume = string.Equals(
+                _settings.OnboardingState,
+                OnboardingStates.Started,
+                StringComparison.OrdinalIgnoreCase);
+            _onboardingWindow.ShowCentered(resume);
         }
 
         public void ShowWidget()
