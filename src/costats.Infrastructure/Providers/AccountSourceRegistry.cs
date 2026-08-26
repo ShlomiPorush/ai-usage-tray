@@ -1,4 +1,5 @@
 using costats.Application.Pulse;
+using costats.Application.SessionActivation;
 using costats.Application.Settings;
 
 namespace costats.Infrastructure.Providers;
@@ -12,12 +13,17 @@ public sealed class AccountSourceRegistry : IAccountSourceRegistry
 {
     private readonly AppSettings _settings;
     private readonly ICodexAppServerClient _codexClient;
+    private readonly ISessionActivationWindowRegistry _windowRegistry;
     private volatile IReadOnlyList<ISignalSource> _current = [];
 
-    public AccountSourceRegistry(AppSettings settings, ICodexAppServerClient codexClient)
+    public AccountSourceRegistry(
+        AppSettings settings,
+        ICodexAppServerClient codexClient,
+        ISessionActivationWindowRegistry windowRegistry)
     {
         _settings = settings;
         _codexClient = codexClient;
+        _windowRegistry = windowRegistry;
         Reload();
     }
 
@@ -35,7 +41,8 @@ public sealed class AccountSourceRegistry : IAccountSourceRegistry
                 {
                     sources.Add(new CodexAppServerSource(
                         new CodexAccountProfile(account.Id, displayName, account.ConfigDir),
-                        _codexClient));
+                        _codexClient,
+                        _windowRegistry));
                 }
                 else if (account.IsClaude)
                 {

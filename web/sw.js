@@ -5,10 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v6: the shell files are unchanged, but the worker now serves them with a
-// Content-Security-Policy. Cached responses carry their headers, so an old
-// cache would keep replaying the page without one.
-var CACHE = "ai-usage-tray-shell-v6";
+// v7: adds the persisted % used / % left control to the phone/PWA shell.
+var CACHE = "ai-usage-tray-shell-v7";
 
 var SHELL = [
   "./",

@@ -20,6 +20,7 @@ namespace costats.App.Services
         private readonly GlassWidgetWindow _widgetWindow;
         private readonly SettingsWindow _settingsWindow;
         private readonly UsageWindow _usageWindow;
+        private readonly TrayStatusPanelWindow _statusPanelWindow;
         private readonly IPulseOrchestrator _pulseOrchestrator;
         private readonly PulseViewModel _viewModel;
         private readonly TaskbarPositionService _taskbarPosition;
@@ -30,7 +31,9 @@ namespace costats.App.Services
         private System.Windows.Controls.StackPanel _tooltipPanel = null!;
         private Window? _hoverTooltipWindow;
         private System.Windows.Threading.DispatcherTimer? _hoverHideTimer;
+        private readonly TrayHoverRetention _hoverRetention = new(TimeSpan.FromMilliseconds(300));
         private TrayStatus? _lastAppliedStatus;
+        private bool _lastShowRemainingPercentages;
         private readonly AppSettings _settings;
 
         public TrayHost(
@@ -38,6 +41,7 @@ namespace costats.App.Services
             GlassWidgetWindow widgetWindow,
             SettingsWindow settingsWindow,
             UsageWindow usageWindow,
+            TrayStatusPanelWindow statusPanelWindow,
             IPulseOrchestrator pulseOrchestrator,
             TaskbarPositionService taskbarPosition,
             IEnumerable<ISignalSource> sources,
@@ -48,6 +52,7 @@ namespace costats.App.Services
             _widgetWindow = widgetWindow;
             _settingsWindow = settingsWindow;
             _usageWindow = usageWindow;
+            _statusPanelWindow = statusPanelWindow;
             _pulseOrchestrator = pulseOrchestrator;
             _taskbarPosition = taskbarPosition;
             _settings = settings;
@@ -94,12 +99,29 @@ namespace costats.App.Services
             };
             _hoverHideTimer = new System.Windows.Threading.DispatcherTimer
             {
-                Interval = TimeSpan.FromMilliseconds(1400)
+                Interval = TimeSpan.FromMilliseconds(100)
             };
             _hoverHideTimer.Tick += (_, _) =>
             {
-                _hoverHideTimer!.Stop();
-                _hoverTooltipWindow!.Hide();
+                if (_widgetWindow.IsVisible)
+                {
+                    _hoverHideTimer!.Stop();
+                    _hoverTooltipWindow!.Hide();
+                    return;
+                }
+
+                var now = DateTimeOffset.UtcNow;
+                var pointerIsOverTrayIcon = IsPointerOverTrayIcon();
+                if (pointerIsOverTrayIcon)
+                {
+                    _hoverRetention.MarkTrayActivity(now);
+                }
+
+                if (!_hoverRetention.ShouldRemainVisible(now, pointerIsOverTrayIcon))
+                {
+                    _hoverHideTimer!.Stop();
+                    _hoverTooltipWindow!.Hide();
+                }
             };
             _taskbarIcon.TrayMouseMove += OnTrayMouseMove;
             _taskbarIcon.ContextMenu = BuildContextMenu();
@@ -118,14 +140,18 @@ namespace costats.App.Services
             _hoverHideTimer?.Stop();
             _hoverTooltipWindow?.Hide();
             ToggleWidget();
+            RaiseFloatingPanel();
         }
 
         private void OnTrayMouseMove(object? sender, EventArgs e)
         {
             if (_hoverTooltipWindow is null || _widgetWindow.IsVisible)
             {
+                RaiseFloatingPanel();
                 return;
             }
+
+            _hoverRetention.MarkTrayActivity(DateTimeOffset.UtcNow);
 
             if (!_hoverTooltipWindow.IsVisible)
             {
@@ -146,14 +172,58 @@ namespace costats.App.Services
             _hoverTooltipWindow.Left = left;
             _hoverTooltipWindow.Top = workArea.Bottom - _hoverTooltipWindow.ActualHeight - 6;
 
-            // Keep the popup alive while the pointer stays over the icon;
-            // it fades out shortly after the mouse-move events stop.
+            // Poll the actual icon rectangle so a stationary pointer keeps the
+            // popup open; Windows does not keep sending mouse-move events.
             _hoverHideTimer!.Stop();
             _hoverHideTimer.Start();
+            RaiseFloatingPanel();
+        }
+
+        private bool IsPointerOverTrayIcon()
+        {
+            if (!GetCursorPos(out var cursor))
+            {
+                return false;
+            }
+
+            var identifier = new NotifyIconIdentifier
+            {
+                CbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NotifyIconIdentifier>(),
+                HWnd = _taskbarIcon.TrayIcon.WindowHandle,
+                UID = 0,
+                GuidItem = _taskbarIcon.TrayIcon.Id
+            };
+
+            return Shell_NotifyIconGetRect(ref identifier, out var bounds) == 0 &&
+                   cursor.X >= bounds.Left && cursor.X < bounds.Right &&
+                   cursor.Y >= bounds.Top && cursor.Y < bounds.Bottom;
         }
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool GetCursorPos(out NativePoint point);
+
+        [System.Runtime.InteropServices.DllImport("shell32.dll")]
+        private static extern int Shell_NotifyIconGetRect(
+            ref NotifyIconIdentifier identifier,
+            out NativeRect iconLocation);
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NotifyIconIdentifier
+        {
+            public uint CbSize;
+            public IntPtr HWnd;
+            public uint UID;
+            public Guid GuidItem;
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NativeRect
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
 
         private struct NativePoint
         {
@@ -161,11 +231,10 @@ namespace costats.App.Services
             public int Y;
         }
 
-        // Always-on numeric overlay so the tray shows the highest used
-        // percentage at a glance, like the system clock. See TrayIconRenderer
-        // for why the digits are scaled to fill the plate.
-        private static Icon CreateIcon(TraySeverity severity, double? highestUsedPercent) =>
-            TrayIconRenderer.CreateIcon(severity, highestUsedPercent);
+        // Numeric overlay follows the selected used/remaining display mode;
+        // severity and colour always continue to represent actual usage.
+        private static Icon CreateIcon(TraySeverity severity, double? displayPercent) =>
+            TrayIconRenderer.CreateIcon(severity, displayPercent);
 
         private ContextMenu BuildContextMenu()
         {
@@ -246,12 +315,11 @@ namespace costats.App.Services
 
         public void ShowWidget()
         {
-            PositionWidget();
-
             var wasVisible = _widgetWindow.IsVisible;
 
             if (!wasVisible)
             {
+                PositionWidget();
                 _viewModel.ResetToOverview();
                 _widgetWindow.Show();
             }
@@ -317,7 +385,13 @@ namespace costats.App.Services
                 .ThenBy(account => account.Label, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
-            var status = TrayStatusComposer.Compose(accounts, DateTimeOffset.UtcNow);
+            var showRemainingPercentages = _settings.ShowRemainingPercentages;
+            var showWeeklyBeforeSession = _settings.ShowWeeklyBeforeSession;
+            var status = TrayStatusComposer.Compose(
+                accounts,
+                DateTimeOffset.UtcNow,
+                showRemainingPercentages,
+                showWeeklyBeforeSession);
             var orderedAccounts = accounts;
 
             // When a primary account is configured, its status drives the icon
@@ -329,25 +403,50 @@ namespace costats.App.Services
                 var primaryAccount = primaryReading.Usage is { } primaryUsage
                     ? AccountUsageStatus.FromUsagePulse(label, primaryUsage)
                     : new AccountUsageStatus(label, null, null, null, null);
-                var primaryStatus = TrayStatusComposer.Compose([primaryAccount], DateTimeOffset.UtcNow);
+                var primaryStatus = TrayStatusComposer.Compose(
+                    [primaryAccount],
+                    DateTimeOffset.UtcNow,
+                    showRemainingPercentages,
+                    showWeeklyBeforeSession);
                 orderedAccounts = accounts
                     .OrderBy(a => a.Label.Equals(label, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                     .ToArray();
-                var ordered = TrayStatusComposer.Compose(orderedAccounts, DateTimeOffset.UtcNow);
+                var ordered = TrayStatusComposer.Compose(
+                    orderedAccounts,
+                    DateTimeOffset.UtcNow,
+                    showRemainingPercentages,
+                    showWeeklyBeforeSession);
                 status = new TrayStatus(primaryStatus.HighestUsedPercent, primaryStatus.Severity, ordered.Tooltip)
                 {
                     FullTooltip = ordered.FullTooltip
                 };
             }
 
-            var rows = TrayStatusComposer.ComposeRows(orderedAccounts, DateTimeOffset.UtcNow);
+            var rows = TrayStatusComposer.ComposeRows(
+                orderedAccounts,
+                DateTimeOffset.UtcNow,
+                showRemainingPercentages,
+                showWeeklyBeforeSession);
+            var compactRows = TrayStatusComposer.ComposeCompactRows(
+                orderedAccounts,
+                DateTimeOffset.UtcNow,
+                showRemainingPercentages,
+                showWeeklyBeforeSession);
             var dispatcher = System.Windows.Application.Current?.Dispatcher;
             if (dispatcher is null)
             {
                 return;
             }
 
-            dispatcher.BeginInvoke(() => ApplyTrayStatus(status, rows));
+            dispatcher.BeginInvoke(() => ApplyTrayStatus(status, rows, compactRows));
+        }
+
+        private void RaiseFloatingPanel()
+        {
+            if (_settings.ShowFloatingStatusPanel)
+            {
+                _statusPanelWindow.BringToFront();
+            }
         }
 
         public void OnError(Exception error)
@@ -418,25 +517,46 @@ namespace costats.App.Services
             ? BandPalette.Vivid(UsageBands.Of(used))
             : "#9CA3AF";
 
-        private void ApplyTrayStatus(TrayStatus status, IReadOnlyList<TrayAccountRow> rows)
+        private void ApplyTrayStatus(
+            TrayStatus status,
+            IReadOnlyList<TrayAccountRow> rows,
+            IReadOnlyList<TrayCompactRow> compactRows)
         {
             RebuildTooltipRows(rows);
+
+            var showRemainingPercentages = _settings.ShowRemainingPercentages;
+            var displayPercent = status.GetDisplayPercent(showRemainingPercentages);
+            var previousDisplayPercent = _lastAppliedStatus?.GetDisplayPercent(_lastShowRemainingPercentages);
 
             // Only redraw the icon when the severity or percent actually changed,
             // so the tray isn't constantly invalidated every refresh.
             var severityChanged = _lastAppliedStatus is null
                 || _lastAppliedStatus.Severity != status.Severity
-                || Math.Abs((_lastAppliedStatus.HighestUsedPercent ?? -1) - (status.HighestUsedPercent ?? -1)) >= 1;
+                || Math.Abs((previousDisplayPercent ?? -1) - (displayPercent ?? -1)) >= 1;
             if (severityChanged)
             {
-                var replacement = CreateIcon(status.Severity, status.HighestUsedPercent);
+                var replacement = CreateIcon(status.Severity, displayPercent);
                 var previous = _currentIcon;
                 _currentIcon = replacement;
                 _taskbarIcon.Icon = replacement;
                 previous.Dispose();
             }
             _lastAppliedStatus = status;
+            _lastShowRemainingPercentages = showRemainingPercentages;
 
+            if (!_settings.ShowFloatingStatusPanel)
+            {
+                _statusPanelWindow.HidePanel();
+            }
+            else if (_statusPanelWindow.Update(compactRows))
+            {
+                var position = _taskbarPosition.GetWidgetPosition(
+                    _statusPanelWindow.ActualWidth,
+                    _statusPanelWindow.ActualHeight,
+                    12);
+                _statusPanelWindow.Left = position.X;
+                _statusPanelWindow.Top = position.Y;
+            }
         }
 
         public void Dispose()
@@ -451,6 +571,7 @@ namespace costats.App.Services
             _currentIcon.Dispose();
             _widgetWindow.Close();
             _settingsWindow.Close();
+            _statusPanelWindow.Close();
             _usageWindow.ForceClose();
         }
 

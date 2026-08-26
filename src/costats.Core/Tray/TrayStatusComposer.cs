@@ -65,13 +65,22 @@ public sealed record TrayStatus(
     /// shell 127-character limit; custom WPF tray tooltips can show this one.
     /// </summary>
     public string FullTooltip { get; init; } = string.Empty;
+
+    public double? GetDisplayPercent(bool showRemainingPercentages) =>
+        HighestUsedPercent is { } used
+            ? showRemainingPercentages ? 100 - used : used
+            : null;
 }
 
 public static class TrayStatusComposer
 {
     public const int MaximumTooltipLength = 127;
 
-    public static TrayStatus Compose(IEnumerable<AccountUsageStatus> accounts, DateTimeOffset now)
+    public static TrayStatus Compose(
+        IEnumerable<AccountUsageStatus> accounts,
+        DateTimeOffset now,
+        bool showRemainingPercentages = false,
+        bool showWeeklyBeforeSession = false)
     {
         ArgumentNullException.ThrowIfNull(accounts);
 
@@ -83,7 +92,8 @@ public static class TrayStatusComposer
         var highest = usedValues.Length == 0 ? (double?)null : usedValues.Max();
         var severity = ComposeSeverity(materialized);
 
-        var fullTooltip = string.Join('\n', materialized.Select(account => FormatAccount(account, now)));
+        var fullTooltip = string.Join('\n', materialized.Select(account =>
+            FormatAccount(account, now, showRemainingPercentages, showWeeklyBeforeSession)));
         var tooltip = fullTooltip.Length > MaximumTooltipLength
             ? fullTooltip[..MaximumTooltipLength]
             : fullTooltip;
@@ -95,17 +105,50 @@ public static class TrayStatusComposer
     /// One display row per account for rich (non-shell) tooltips: label, the
     /// formatted windows text, and the worst (highest) used percentage for colouring.
     /// </summary>
-    public static IReadOnlyList<TrayAccountRow> ComposeRows(IEnumerable<AccountUsageStatus> accounts, DateTimeOffset now)
+    public static IReadOnlyList<TrayAccountRow> ComposeRows(
+        IEnumerable<AccountUsageStatus> accounts,
+        DateTimeOffset now,
+        bool showRemainingPercentages = false,
+        bool showWeeklyBeforeSession = false)
     {
         ArgumentNullException.ThrowIfNull(accounts);
         return accounts.Select(account =>
         {
-            var windows = BuildWindowTexts(account, now);
+            var windows = BuildWindowTexts(
+                account,
+                now,
+                showRemainingPercentages,
+                showWeeklyBeforeSession);
             var used = UsedPercents(account).ToArray();
 
             return new TrayAccountRow(
                 account.Label,
                 windows.Count == 0 ? "unavailable" : string.Join("  |  ", windows),
+                used.Length == 0 ? null : used.Max());
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Short rows for the movable floating panel.
+    /// </summary>
+    public static IReadOnlyList<TrayCompactRow> ComposeCompactRows(
+        IEnumerable<AccountUsageStatus> accounts,
+        DateTimeOffset now,
+        bool showRemainingPercentages = false,
+        bool showWeeklyBeforeSession = false)
+    {
+        ArgumentNullException.ThrowIfNull(accounts);
+        return accounts.Select(account =>
+        {
+            var windows = BuildCompactWindowTexts(
+                account,
+                now,
+                showRemainingPercentages,
+                showWeeklyBeforeSession);
+            var used = UsedPercents(account).ToArray();
+            return new TrayCompactRow(
+                account.Label,
+                windows.Count == 0 ? "unavailable" : string.Join(" <> ", windows),
                 used.Length == 0 ? null : used.Max());
         }).ToList();
     }
@@ -189,7 +232,11 @@ public static class TrayStatusComposer
             .Concat((account.ScopedQuotas ?? []).Select(q => (double)Math.Clamp(q.UsedPercent, 0, 100)));
     }
 
-    private static List<string> BuildWindowTexts(AccountUsageStatus account, DateTimeOffset now)
+    private static List<string> BuildWindowTexts(
+        AccountUsageStatus account,
+        DateTimeOffset now,
+        bool showRemainingPercentages,
+        bool showWeeklyBeforeSession)
     {
         var windows = new List<string>(3);
         if (account.IsBlocked)
@@ -197,53 +244,189 @@ public static class TrayStatusComposer
             // Leads the line: "which window" matters less than "you are stopped".
             windows.Add("blocked");
         }
-        if (account.SessionRemainingPercent.HasValue)
+        if (showWeeklyBeforeSession)
         {
-            var used = 100 - account.SessionRemainingPercent.Value;
-            windows.Add(account.SessionResetsAt.HasValue
-                ? FormatWindow("Session", used, account.SessionResetsAt.Value, now, weekly: false)
-                : FormatPercentOnly("Session", used));
+            AddWeeklyWindow(windows, account, now, showRemainingPercentages);
+            AddSessionWindow(windows, account, now, showRemainingPercentages);
         }
-        if (account.WeeklyRemainingPercent.HasValue)
+        else
         {
-            var used = 100 - account.WeeklyRemainingPercent.Value;
-            windows.Add(account.WeeklyResetsAt.HasValue
-                ? FormatWindow("Weekly", used, account.WeeklyResetsAt.Value, now, weekly: true)
-                : FormatPercentOnly("Weekly", used));
+            AddSessionWindow(windows, account, now, showRemainingPercentages);
+            AddWeeklyWindow(windows, account, now, showRemainingPercentages);
         }
         foreach (var scoped in account.ScopedQuotas ?? [])
         {
             var used = Math.Clamp(scoped.UsedPercent, 0, 100);
+            var displayPercent = showRemainingPercentages ? 100 - used : used;
             windows.Add(scoped.ResetsAt.HasValue
-                ? FormatWindow(scoped.Label, used, scoped.ResetsAt.Value, now, weekly: scoped.Group.Contains("week", StringComparison.OrdinalIgnoreCase))
-                : $"{scoped.Label} {used}%");
+                ? FormatWindow(scoped.Label, displayPercent, scoped.ResetsAt.Value, now, weekly: scoped.Group.Contains("week", StringComparison.OrdinalIgnoreCase))
+                : $"{scoped.Label} {displayPercent}%");
         }
 
         return windows;
     }
 
-    private static string FormatPercentOnly(string label, double usedPercent)
+    private static List<string> BuildCompactWindowTexts(
+        AccountUsageStatus account,
+        DateTimeOffset now,
+        bool showRemainingPercentages,
+        bool showWeeklyBeforeSession)
     {
-        var percent = Math.Clamp(usedPercent, 0, 100)
+        var windows = new List<string>(4);
+        if (account.IsBlocked)
+        {
+            windows.Add("blocked");
+        }
+
+        if (showWeeklyBeforeSession)
+        {
+            AddCompactWeeklyWindow(windows, account, now, showRemainingPercentages);
+            AddCompactSessionWindow(windows, account, now, showRemainingPercentages);
+        }
+        else
+        {
+            AddCompactSessionWindow(windows, account, now, showRemainingPercentages);
+            AddCompactWeeklyWindow(windows, account, now, showRemainingPercentages);
+        }
+
+        foreach (var scoped in account.ScopedQuotas ?? [])
+        {
+            var used = Math.Clamp(scoped.UsedPercent, 0, 100);
+            var display = showRemainingPercentages ? 100 - used : used;
+            windows.Add(FormatCompactWindow(
+                scoped.Label,
+                display,
+                scoped.ResetsAt,
+                now,
+                scoped.Group.Contains("week", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        return windows;
+    }
+
+    private static void AddSessionWindow(
+        ICollection<string> windows,
+        AccountUsageStatus account,
+        DateTimeOffset now,
+        bool showRemainingPercentages)
+    {
+        if (account.SessionRemainingPercent is not { } sessionRemaining)
+        {
+            return;
+        }
+
+        var display = showRemainingPercentages ? sessionRemaining : 100 - sessionRemaining;
+        windows.Add(account.SessionResetsAt.HasValue
+            ? FormatWindow("Session", display, account.SessionResetsAt.Value, now, weekly: false)
+            : FormatPercentOnly("Session", display));
+    }
+
+    private static void AddWeeklyWindow(
+        ICollection<string> windows,
+        AccountUsageStatus account,
+        DateTimeOffset now,
+        bool showRemainingPercentages)
+    {
+        if (account.WeeklyRemainingPercent is not { } weeklyRemaining)
+        {
+            return;
+        }
+
+        var display = showRemainingPercentages ? weeklyRemaining : 100 - weeklyRemaining;
+        windows.Add(account.WeeklyResetsAt.HasValue
+            ? FormatWindow("Weekly", display, account.WeeklyResetsAt.Value, now, weekly: true)
+            : FormatPercentOnly("Weekly", display));
+    }
+
+    private static void AddCompactSessionWindow(
+        ICollection<string> windows,
+        AccountUsageStatus account,
+        DateTimeOffset now,
+        bool showRemainingPercentages)
+    {
+        if (account.SessionRemainingPercent is not { } sessionRemaining)
+        {
+            return;
+        }
+
+        var display = showRemainingPercentages ? sessionRemaining : 100 - sessionRemaining;
+        windows.Add(FormatCompactWindow("S", display, account.SessionResetsAt, now, weekly: false));
+    }
+
+    private static void AddCompactWeeklyWindow(
+        ICollection<string> windows,
+        AccountUsageStatus account,
+        DateTimeOffset now,
+        bool showRemainingPercentages)
+    {
+        if (account.WeeklyRemainingPercent is not { } weeklyRemaining)
+        {
+            return;
+        }
+
+        var display = showRemainingPercentages ? weeklyRemaining : 100 - weeklyRemaining;
+        windows.Add(FormatCompactWindow("W", display, account.WeeklyResetsAt, now, weekly: true));
+    }
+
+    private static string FormatCompactWindow(
+        string label,
+        double displayPercent,
+        DateTimeOffset? resetsAt,
+        DateTimeOffset now,
+        bool weekly)
+    {
+        var percent = Math.Clamp(displayPercent, 0, 100)
+            .ToString("0", CultureInfo.InvariantCulture);
+        if (resetsAt is null)
+        {
+            return $"{label} {percent}%";
+        }
+
+        var remaining = resetsAt.Value - now;
+        if (remaining < TimeSpan.Zero)
+        {
+            remaining = TimeSpan.Zero;
+        }
+
+        if (weekly)
+        {
+            return $"{label} {percent}%-{remaining.TotalDays.ToString("0.0", CultureInfo.InvariantCulture)}d";
+        }
+
+        var totalHours = (int)Math.Floor(remaining.TotalHours);
+        return $"{label} {percent}%-{totalHours}h{remaining.Minutes:00}m";
+    }
+
+    private static string FormatPercentOnly(string label, double displayPercent)
+    {
+        var percent = Math.Clamp(displayPercent, 0, 100)
             .ToString("0", CultureInfo.InvariantCulture);
         return $"{label} {percent}%";
     }
 
-    private static string FormatAccount(AccountUsageStatus account, DateTimeOffset now)
+    private static string FormatAccount(
+        AccountUsageStatus account,
+        DateTimeOffset now,
+        bool showRemainingPercentages,
+        bool showWeeklyBeforeSession)
     {
-        var windows = BuildWindowTexts(account, now);
+        var windows = BuildWindowTexts(
+            account,
+            now,
+            showRemainingPercentages,
+            showWeeklyBeforeSession);
         return windows.Count == 0
             ? $"{account.Label} unavailable"
             : $"{account.Label} {string.Join(" | ", windows)}";
     }
 
     /// <summary>
-    /// Compact window text, e.g. "Session 86% · 1h22m". The percentage is the
-    /// USED share of the quota, matching every other surface in the app.
+    /// Compact window text, e.g. "Session 86% · 1h22m". The caller supplies
+    /// either used or remaining percentage according to the display setting.
     /// </summary>
     private static string FormatWindow(
         string label,
-        double usedPercent,
+        double displayPercent,
         DateTimeOffset resetsAt,
         DateTimeOffset now,
         bool weekly)
@@ -254,7 +437,7 @@ public static class TrayStatusComposer
             remaining = TimeSpan.Zero;
         }
 
-        var percent = Math.Clamp(usedPercent, 0, 100)
+        var percent = Math.Clamp(displayPercent, 0, 100)
             .ToString("0", CultureInfo.InvariantCulture);
 
         if (weekly)
@@ -270,3 +453,6 @@ public static class TrayStatusComposer
 
 /// <summary>One account line for rich tray tooltips.</summary>
 public sealed record TrayAccountRow(string Label, string WindowsText, double? WorstUsedPercent);
+
+/// <summary>One abbreviated account entry for the movable floating panel.</summary>
+public sealed record TrayCompactRow(string Label, string StatusText, double? WorstUsedPercent);

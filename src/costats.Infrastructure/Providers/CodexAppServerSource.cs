@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using costats.Application.Pulse;
+using costats.Application.SessionActivation;
 using costats.Core.Pulse;
 
 namespace costats.Infrastructure.Providers;
@@ -25,8 +26,12 @@ public sealed class CodexAppServerSource : ISignalSource
 {
     private readonly CodexAccountProfile _account;
     private readonly ICodexAppServerClient _client;
+    private readonly ISessionActivationWindowRegistry? _windowRegistry;
 
-    public CodexAppServerSource(CodexAccountProfile account, ICodexAppServerClient client)
+    public CodexAppServerSource(
+        CodexAccountProfile account,
+        ICodexAppServerClient client,
+        ISessionActivationWindowRegistry? windowRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(account);
         ArgumentNullException.ThrowIfNull(client);
@@ -41,6 +46,7 @@ public sealed class CodexAppServerSource : ISignalSource
 
         _account = account;
         _client = client;
+        _windowRegistry = windowRegistry;
         Profile = new ProviderProfile($"codex:{account.ValidatedId}", account.DisplayName.Trim(), "#0A84FF");
     }
 
@@ -70,8 +76,12 @@ public sealed class CodexAppServerSource : ISignalSource
             sessionUsed.HasValue ? 100 : null,
             weeklyUsed,
             weeklyUsed.HasValue ? 100 : null,
-            CreateWindow(snapshot.SessionWindowDuration, snapshot.SessionResetsAt),
-            CreateWindow(snapshot.WeeklyWindowDuration, snapshot.WeeklyResetsAt))
+            CreateWindow(
+                snapshot.SessionWindowDuration,
+                ResolveSessionReset(snapshot.SessionResetsAt, sessionUsed, now)),
+            CreateWindow(
+                snapshot.WeeklyWindowDuration,
+                weeklyUsed == 0 ? null : snapshot.WeeklyResetsAt))
         {
             ScopedQuotas = snapshot.ScopedQuotas,
             // Only the account-wide entry can block the account; the parser
@@ -110,7 +120,24 @@ public sealed class CodexAppServerSource : ISignalSource
             ? (long)Math.Round(100 - Math.Clamp(remainingPercent.Value, 0, 100))
             : null;
 
-    private static QuotaWindow? CreateWindow(TimeSpan? duration, DateTimeOffset? resetsAt) =>
+    private DateTimeOffset? ResolveSessionReset(
+        DateTimeOffset? providerReset,
+        long? usedPercent,
+        DateTimeOffset now)
+    {
+        if (usedPercent != 0)
+        {
+            return providerReset;
+        }
+
+        return _windowRegistry?.TryGetActive(Profile.ProviderId, now, out var confirmedReset) == true
+            ? confirmedReset
+            : null;
+    }
+
+    private static QuotaWindow? CreateWindow(
+        TimeSpan? duration,
+        DateTimeOffset? resetsAt) =>
         duration.HasValue || resetsAt.HasValue
             ? new QuotaWindow(duration ?? TimeSpan.Zero, resetsAt)
             : null;

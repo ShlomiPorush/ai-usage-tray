@@ -18,6 +18,7 @@
   var STALE_MS = 30 * 60000;
 
   var THEME_KEY = "aiUsageTray.theme";
+  var PERCENT_MODE_KEY = "aiUsageTray.percentMode";
   var LAST_ID_KEY = "aiUsageTray.lastId";
 
   var RELEASES_URL = "https://github.com/ShlomiPorush/ai-usage-tray/releases/latest";
@@ -135,6 +136,45 @@
       applyTheme(next);
       writeStored(THEME_KEY, next);
     });
+  }
+
+  // --- percentage display ---------------------------------------------
+  // The visible number can show usage or capacity left. The fill and band
+  // colour stay usage-based, matching the Windows app and preserving the
+  // warning meaning of green/yellow/orange/red.
+
+  var percentToggle = document.getElementById("percent-toggle");
+  var percentButtons = percentToggle
+    ? percentToggle.querySelectorAll("[data-percent-mode]")
+    : [];
+  var percentMode = "used";
+
+  function applyPercentMode(mode) {
+    percentMode = mode === "left" ? "left" : "used";
+
+    for (var i = 0; i < percentButtons.length; i++) {
+      var button = percentButtons[i];
+      button.setAttribute(
+        "aria-pressed",
+        button.getAttribute("data-percent-mode") === percentMode ? "true" : "false"
+      );
+    }
+
+    if (payload) render();
+  }
+
+  function setupPercentToggle() {
+    applyPercentMode(readStored(PERCENT_MODE_KEY) || "used");
+    if (!percentToggle) return;
+
+    percentToggle.hidden = false;
+    for (var i = 0; i < percentButtons.length; i++) {
+      percentButtons[i].addEventListener("click", function () {
+        var next = this.getAttribute("data-percent-mode");
+        applyPercentMode(next);
+        writeStored(PERCENT_MODE_KEY, percentMode);
+      });
+    }
   }
 
   // "1d 12h" / "4h 21m" / "12m"
@@ -286,13 +326,15 @@
     return accounts;
   }
 
-  // The number and the fill are both "used", matching the Windows tray and widget.
+  // The number follows the selected view. The fill and band always remain "used"
+  // so the visual warning level does not reverse when the number changes.
   function renderMeterRow(accountName, source, now) {
     var used = clampPercent(source.usedPercent);
+    var left = 100 - used;
     var state = classify(used);
     var label = typeof source.label === "string" && source.label ? source.label : "Usage";
     var scope = typeof source.scope === "string" && source.scope ? source.scope : null;
-    var shown = Math.round(used);
+    var shown = Math.round(percentMode === "left" ? left : used);
 
     var row = el("div", "meter-row is-" + state);
 
@@ -310,8 +352,11 @@
     track.setAttribute("role", "meter");
     track.setAttribute("aria-valuemin", "0");
     track.setAttribute("aria-valuemax", "100");
-    track.setAttribute("aria-valuenow", String(shown));
-    track.setAttribute("aria-valuetext", shown + "% used");
+    track.setAttribute("aria-valuenow", String(Math.round(used)));
+    track.setAttribute(
+      "aria-valuetext",
+      Math.round(used) + "% used, " + Math.round(left) + "% left"
+    );
     track.setAttribute("aria-label", accountName + ": " + (scope ? scope + " " + label : label));
 
     var fill = el("div", "meter-fill");
@@ -547,6 +592,7 @@
       return;
     }
 
+    setupPercentToggle();
     id = resolved;
     // The demo is never remembered: an installed app must not be left pointing
     // at the sample because someone once opened the demo link on this device.

@@ -46,6 +46,20 @@ public sealed class SessionAutoStartCoordinatorTests
     }
 
     [Fact]
+    public async Task Failed_verification_refresh_never_sends_or_consumes_an_attempt()
+    {
+        var harness = Harness.Claude(Baseline.AddMinutes(-1), Baseline);
+        harness.Orchestrator.VerificationSucceeded = false;
+
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        Assert.Empty(harness.Activator.Calls);
+        var checkpoint = Assert.Single(harness.Store.Current).Value;
+        Assert.Equal(0, checkpoint.Attempts);
+        Assert.Equal(Baseline.AddMinutes(5), checkpoint.NextAttemptAt);
+    }
+
+    [Fact]
     public async Task Three_retries_are_spaced_five_minutes_apart_after_the_initial_attempt()
     {
         var harness = Harness.Claude(Baseline.AddMinutes(-1), Baseline);
@@ -135,6 +149,70 @@ public sealed class SessionAutoStartCoordinatorTests
     }
 
     [Fact]
+    public async Task Corrupt_state_recovery_is_persisted_independently_for_each_provider()
+    {
+        var settings = new AppSettings
+        {
+            AutoStartClaudeFiveHourWindow = true,
+            AutoStartCodexFiveHourWindow = true,
+            AutoStartZaiFiveHourWindow = true,
+            ZAiCodingApiKey = "test-only-key",
+            Accounts =
+            [
+                new MonitoredAccountSettings
+                {
+                    Id = "work",
+                    Type = MonitoredAccountSettings.ClaudeType,
+                    DisplayName = "Claude",
+                    ConfigDir = @"C:\profiles\claude-work"
+                },
+                new MonitoredAccountSettings
+                {
+                    Id = "gpt",
+                    Type = MonitoredAccountSettings.CodexType,
+                    DisplayName = "GPT",
+                    ConfigDir = @"C:\profiles\codex-gpt"
+                }
+            ]
+        };
+        var clock = new FakeClock { UtcNow = Baseline };
+        var orchestrator = new FakeOrchestrator
+        {
+            CurrentState = new PulseState(
+                new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["claude:work"] = Reading("claude:work", Baseline.AddHours(5), TimeSpan.FromHours(5)),
+                    ["codex:gpt"] = Reading("codex:gpt", Baseline.AddMinutes(-1), TimeSpan.FromHours(5)),
+                    ["zai"] = Reading("zai", Baseline.AddMinutes(-1), TimeSpan.FromHours(5))
+                },
+                Baseline,
+                [],
+                false,
+                RefreshTrigger.Scheduled)
+        };
+        var store = new FakeStateStore { IsReliable = false };
+        var activator = new FakeActivator();
+        var coordinator = CreateCoordinator(orchestrator, settings, activator, store, clock);
+
+        await coordinator.CheckOnceAsync(CancellationToken.None);
+
+        Assert.False(store.Current["claude:work"].RequiresFutureObservation);
+        Assert.True(store.Current["codex:gpt"].RequiresFutureObservation);
+        Assert.True(store.Current["zai"].RequiresFutureObservation);
+        Assert.Empty(activator.Calls);
+
+        // The recovery barrier survives once the repaired state file is loaded
+        // as valid on the next process start.
+        store.IsReliable = true;
+        var restarted = CreateCoordinator(orchestrator, settings, activator, store, clock);
+        await restarted.CheckOnceAsync(CancellationToken.None);
+
+        Assert.Empty(activator.Calls);
+        Assert.True(store.Current["codex:gpt"].RequiresFutureObservation);
+        Assert.True(store.Current["zai"].RequiresFutureObservation);
+    }
+
+    [Fact]
     public async Task Unavailable_provider_never_sends_and_does_not_consume_an_attempt()
     {
         var harness = Harness.Claude(Baseline.AddMinutes(-1), Baseline);
@@ -150,7 +228,7 @@ public sealed class SessionAutoStartCoordinatorTests
     }
 
     [Fact]
-    public async Task Codex_accounts_are_never_eligible()
+    public async Task Codex_accounts_require_their_own_toggle()
     {
         var settings = new AppSettings
         {
@@ -227,6 +305,42 @@ public sealed class SessionAutoStartCoordinatorTests
     }
 
     [Fact]
+    public async Task Glm_legacy_key_alone_is_not_eligible_for_activation()
+    {
+        var settings = new AppSettings
+        {
+            AutoStartZaiFiveHourWindow = true,
+            ZAiApiKey = "legacy-standard-key"
+        };
+        var orchestrator = new FakeOrchestrator { CurrentState = State("zai", Baseline.AddSeconds(-1)) };
+        var activator = new FakeActivator();
+        var coordinator = CreateCoordinator(
+            orchestrator,
+            settings,
+            activator,
+            new FakeStateStore(),
+            new FakeClock { UtcNow = Baseline });
+
+        await coordinator.CheckOnceAsync(CancellationToken.None);
+
+        Assert.Empty(activator.Calls);
+        Assert.Empty(orchestrator.Refreshes);
+    }
+
+    [Fact]
+    public async Task Codex_expired_window_uses_the_matching_account_profile()
+    {
+        var harness = Harness.Codex(Baseline.AddMinutes(-1), Baseline);
+
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        var call = Assert.Single(harness.Activator.Calls);
+        Assert.Equal("codex:gpt", call.ProviderId);
+        Assert.Equal(SessionActivationProvider.Codex, call.Provider);
+        Assert.Equal(@"C:\profiles\codex-gpt", call.ConfigDirectory);
+    }
+
+    [Fact]
     public async Task Glm_idle_window_without_reset_timestamp_starts_a_new_window()
     {
         var settings = new AppSettings
@@ -262,28 +376,135 @@ public sealed class SessionAutoStartCoordinatorTests
         Assert.Empty(harness.Orchestrator.Refreshes);
     }
 
+    [Fact]
+    public async Task Claude_idle_null_reset_activates_after_its_persisted_reset_is_due()
+    {
+        var resetAt = Baseline.AddHours(5);
+        var harness = Harness.Claude(resetAt, Baseline);
+
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+        Assert.Empty(harness.Activator.Calls);
+
+        harness.Clock.UtcNow = resetAt.AddSeconds(1);
+        harness.Orchestrator.CurrentState = State("claude:work", null);
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        var call = Assert.Single(harness.Activator.Calls);
+        Assert.Equal("claude:work", call.ProviderId);
+        Assert.True(harness.Store.Current["claude:work"].Succeeded);
+    }
+
+    [Fact]
+    public async Task Claude_null_reset_with_nonzero_usage_never_activates()
+    {
+        var resetAt = Baseline.AddHours(5);
+        var harness = Harness.Claude(resetAt, Baseline);
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        harness.Clock.UtcNow = resetAt.AddSeconds(1);
+        harness.Orchestrator.CurrentState = new PulseState(
+            new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["claude:work"] = Reading(
+                    "claude:work",
+                    null,
+                    TimeSpan.FromHours(5),
+                    sessionUsed: 3)
+            },
+            resetAt.AddSeconds(1),
+            [],
+            false,
+            RefreshTrigger.Scheduled);
+
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        Assert.Empty(harness.Activator.Calls);
+        Assert.Empty(harness.Orchestrator.Refreshes);
+    }
+
+    [Fact]
+    public async Task Codex_idle_null_reset_activates_immediately_after_explicit_opt_in()
+    {
+        var harness = Harness.Codex(Baseline.AddHours(5), Baseline);
+
+        harness.Orchestrator.CurrentState = State("codex:gpt", null);
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        var call = Assert.Single(harness.Activator.Calls);
+        Assert.Equal(SessionActivationProvider.Codex, call.Provider);
+        Assert.True(harness.Store.Current["codex:gpt"].Succeeded);
+    }
+
+    [Fact]
+    public async Task Successful_codex_activation_arms_the_next_stable_deadline()
+    {
+        var harness = Harness.Codex(Baseline.AddMinutes(-1), Baseline);
+
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+        harness.Orchestrator.CurrentState = State("codex:gpt", null);
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        Assert.Single(harness.Activator.Calls);
+        var checkpoint = harness.Store.Current["codex:gpt"];
+        Assert.Equal(Baseline.AddHours(5), checkpoint.ObservedResetAt);
+        Assert.Equal(Baseline.AddHours(5), checkpoint.NextAttemptAt);
+        Assert.Equal(0, checkpoint.Attempts);
+        Assert.False(checkpoint.Completed);
+        Assert.True(checkpoint.Succeeded);
+        Assert.True(harness.WindowRegistry.TryGetActive(
+            "codex:gpt",
+            Baseline,
+            out var visibleReset));
+        Assert.Equal(Baseline.AddHours(5), visibleReset);
+    }
+
+    [Fact]
+    public async Task Legacy_codex_rolling_placeholder_migrates_to_immediate_idle_activation()
+    {
+        var resetAt = Baseline.AddHours(5);
+        var harness = Harness.Codex(resetAt, Baseline);
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        harness.Store.Current["codex:gpt"].ObservedActiveWindow = false;
+        harness.Clock.UtcNow = resetAt.AddSeconds(1);
+        harness.Orchestrator.CurrentState = State("codex:gpt", null);
+        var restarted = CreateCoordinator(
+            harness.Orchestrator,
+            harness.Settings,
+            harness.Activator,
+            harness.Store,
+            harness.Clock);
+
+        await restarted.CheckOnceAsync(CancellationToken.None);
+
+        Assert.Single(harness.Activator.Calls);
+    }
+
     private static SessionAutoStartCoordinator CreateCoordinator(
         FakeOrchestrator orchestrator,
         AppSettings settings,
         FakeActivator activator,
         FakeStateStore store,
-        FakeClock clock) =>
+        FakeClock clock,
+        ISessionActivationWindowRegistry? windowRegistry = null) =>
         new(
             orchestrator,
             settings,
             activator,
             store,
             clock,
-            NullLogger<SessionAutoStartCoordinator>.Instance);
+            NullLogger<SessionAutoStartCoordinator>.Instance,
+            windowRegistry);
 
     private static PulseState State(
         string providerId,
         DateTimeOffset? resetAt,
-        TimeSpan? duration = null) =>
+        TimeSpan? duration = null,
+        long sessionUsed = 0) =>
         new(
             new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase)
             {
-                [providerId] = Reading(providerId, resetAt, duration ?? TimeSpan.FromHours(5))
+                [providerId] = Reading(providerId, resetAt, duration ?? TimeSpan.FromHours(5), sessionUsed)
             },
             Baseline,
             [],
@@ -310,12 +531,13 @@ public sealed class SessionAutoStartCoordinatorTests
     private static ProviderReading Reading(
         string providerId,
         DateTimeOffset? resetAt,
-        TimeSpan duration) =>
+        TimeSpan duration,
+        long sessionUsed = 0) =>
         new(
             new UsagePulse(
                 providerId,
                 Baseline,
-                0,
+                sessionUsed,
                 100,
                 0,
                 100,
@@ -341,7 +563,14 @@ public sealed class SessionAutoStartCoordinatorTests
             Orchestrator = orchestrator;
             Activator = activator;
             Store = store;
-            Coordinator = CreateCoordinator(orchestrator, settings, activator, store, clock);
+            WindowRegistry = new SessionActivationWindowRegistry();
+            Coordinator = CreateCoordinator(
+                orchestrator,
+                settings,
+                activator,
+                store,
+                clock,
+                WindowRegistry);
         }
 
         public AppSettings Settings { get; }
@@ -349,6 +578,7 @@ public sealed class SessionAutoStartCoordinatorTests
         public FakeOrchestrator Orchestrator { get; }
         public FakeActivator Activator { get; }
         public FakeStateStore Store { get; }
+        public SessionActivationWindowRegistry WindowRegistry { get; }
         public SessionAutoStartCoordinator Coordinator { get; }
 
         public static Harness Claude(DateTimeOffset resetAt, DateTimeOffset now)
@@ -371,6 +601,35 @@ public sealed class SessionAutoStartCoordinatorTests
             var orchestrator = new FakeOrchestrator
             {
                 CurrentState = State("claude:work", resetAt)
+            };
+            return new Harness(
+                settings,
+                clock,
+                orchestrator,
+                new FakeActivator(),
+                new FakeStateStore());
+        }
+
+        public static Harness Codex(DateTimeOffset resetAt, DateTimeOffset now)
+        {
+            var settings = new AppSettings
+            {
+                AutoStartCodexFiveHourWindow = true,
+                Accounts =
+                [
+                    new MonitoredAccountSettings
+                    {
+                        Id = "gpt",
+                        Type = MonitoredAccountSettings.CodexType,
+                        DisplayName = "GPT",
+                        ConfigDir = @"C:\profiles\codex-gpt"
+                    }
+                ]
+            };
+            var clock = new FakeClock { UtcNow = now };
+            var orchestrator = new FakeOrchestrator
+            {
+                CurrentState = State("codex:gpt", resetAt, sessionUsed: 1)
             };
             return new Harness(
                 settings,
@@ -428,6 +687,8 @@ public sealed class SessionAutoStartCoordinatorTests
                 pair => new SessionActivationCheckpoint
                 {
                     ObservedResetAt = pair.Value.ObservedResetAt,
+                    ObservedActiveWindow = pair.Value.ObservedActiveWindow,
+                    RequiresFutureObservation = pair.Value.RequiresFutureObservation,
                     Attempts = pair.Value.Attempts,
                     NextAttemptAt = pair.Value.NextAttemptAt,
                     Completed = pair.Value.Completed,
@@ -442,6 +703,7 @@ public sealed class SessionAutoStartCoordinatorTests
         public PulseState? CurrentState { get; set; }
         public List<string> Refreshes { get; } = [];
         public Action<string>? OnRefresh { get; set; }
+        public bool VerificationSucceeded { get; set; } = true;
 
         public Task RefreshOnceAsync(RefreshTrigger trigger, CancellationToken cancellationToken) =>
             Task.CompletedTask;
@@ -454,6 +716,21 @@ public sealed class SessionAutoStartCoordinatorTests
             Refreshes.Add(providerId);
             OnRefresh?.Invoke(providerId);
             return Task.CompletedTask;
+        }
+
+        public Task<ProviderRefreshResult> RefreshProviderForVerificationAsync(
+            string providerId,
+            CancellationToken cancellationToken)
+        {
+            Refreshes.Add(providerId);
+            OnRefresh?.Invoke(providerId);
+            if (!VerificationSucceeded || CurrentState is null ||
+                !CurrentState.Providers.TryGetValue(providerId, out var reading))
+            {
+                return Task.FromResult(ProviderRefreshResult.Failure());
+            }
+
+            return Task.FromResult(ProviderRefreshResult.Success(reading));
         }
 
         public void UpdateRefreshInterval(TimeSpan interval)

@@ -172,6 +172,62 @@ public sealed class PulseOrchestratorCancellationTests
         Assert.Equal(RefreshTrigger.Silent, Assert.Single(harness.Observer.States).Trigger);
     }
 
+    [Fact]
+    public async Task Verification_refresh_waits_for_an_in_flight_refresh_and_returns_its_own_fresh_reading()
+    {
+        var selector = new ScriptedSelector();
+        using var harness = new Harness(selector);
+        var firstReadStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirstRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = 0;
+
+        selector.Next = async (_, _) =>
+        {
+            if (Interlocked.Increment(ref reads) == 1)
+            {
+                firstReadStarted.SetResult();
+                await releaseFirstRead.Task;
+                return Reading("concurrent");
+            }
+
+            return Reading("verified");
+        };
+
+        var activeRefresh = harness.Orchestrator.RefreshOnceAsync(RefreshTrigger.Scheduled, CancellationToken.None);
+        await firstReadStarted.Task;
+        var verification = harness.Orchestrator.RefreshProviderForVerificationAsync(
+            "claude:work",
+            CancellationToken.None);
+
+        Assert.False(verification.IsCompleted);
+        releaseFirstRead.SetResult();
+        await activeRefresh;
+        var result = await verification;
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("verified", result.Reading?.StatusSummary);
+        Assert.Equal(2, reads);
+        Assert.Equal("verified", harness.Orchestrator.CurrentState?.Providers["claude:work"].StatusSummary);
+    }
+
+    [Fact]
+    public async Task Verification_refresh_reports_failure_and_keeps_the_last_good_state()
+    {
+        var selector = new ScriptedSelector();
+        using var harness = new Harness(selector);
+        selector.Next = (_, _) => Task.FromResult(Reading("good"));
+        await harness.Orchestrator.RefreshOnceAsync(RefreshTrigger.Manual, CancellationToken.None);
+
+        selector.Next = (_, _) => throw new InvalidOperationException("verification failed");
+        var result = await harness.Orchestrator.RefreshProviderForVerificationAsync(
+            "claude:work",
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Reading);
+        Assert.Equal("good", harness.Orchestrator.CurrentState?.Providers["claude:work"].StatusSummary);
+    }
+
     private static ProviderReading Reading(string summary) => new(
         Usage: null,
         Identity: null,

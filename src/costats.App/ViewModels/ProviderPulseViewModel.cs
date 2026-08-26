@@ -195,7 +195,10 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     [ObservableProperty]
     private string monthTokensText = "--";
 
-    public static ProviderPulseViewModel FromReading(ProviderReading reading, string displayNameFallback)
+    public static ProviderPulseViewModel FromReading(
+        ProviderReading reading,
+        string displayNameFallback,
+        bool showRemainingPercentages = false)
     {
         var vm = new ProviderPulseViewModel
         {
@@ -206,9 +209,10 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
             Email = reading.Identity?.Email?.Trim() ?? string.Empty
         };
 
-        PopulateSessionMetrics(vm, reading);
-        PopulateWeekMetrics(vm, reading);
-        PopulateScopedLimits(vm, reading);
+        var isDark = ThemeManager.IsDark;
+        PopulateSessionMetrics(vm, reading, showRemainingPercentages, isDark);
+        PopulateWeekMetrics(vm, reading, showRemainingPercentages, isDark);
+        PopulateScopedLimits(vm, reading, showRemainingPercentages, isDark);
         PopulateResetCredits(vm, reading);
 
         // Set overall status based on the higher of session or week utilization
@@ -230,7 +234,11 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         return vm;
     }
 
-    private static void PopulateSessionMetrics(ProviderPulseViewModel vm, ProviderReading reading)
+    private static void PopulateSessionMetrics(
+        ProviderPulseViewModel vm,
+        ProviderReading reading,
+        bool showRemainingPercentages,
+        bool isDark)
     {
         var usage = reading.Usage;
         if (usage?.SessionUsed is null || usage.SessionLimit is null)
@@ -241,7 +249,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         vm.HasSessionData = true;
         var usedPercent = CalculateUsedPercent(usage.SessionUsed, usage.SessionLimit);
         vm.SessionProgress = usedPercent / 100.0;
-        vm.SessionUsageLabel = FormatUsageLabel(usedPercent, usage.SessionUsed);
+        vm.SessionUsageLabel = FormatUsageLabel(usedPercent, showRemainingPercentages);
 
         // Reset text
         if (usage.SessionWindow?.ResetsAt is { } sessionResets)
@@ -264,12 +272,16 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
 
         var band = UsageBands.Of(usedPercent);
         vm.SessionStatusColor = BandPalette.Vivid(band);
-        vm.SessionPercentText = $"{(int)Math.Round(usedPercent)}%";
-        vm.SessionPercentColor = BandPalette.Ink(band, ThemeManager.IsDark);
+        vm.SessionPercentText = FormatPercent(usedPercent, showRemainingPercentages);
+        vm.SessionPercentColor = BandPalette.Ink(band, isDark);
         vm.SessionPercentPillColor = BandPalette.Pill(band);
     }
 
-    private static void PopulateWeekMetrics(ProviderPulseViewModel vm, ProviderReading reading)
+    private static void PopulateWeekMetrics(
+        ProviderPulseViewModel vm,
+        ProviderReading reading,
+        bool showRemainingPercentages,
+        bool isDark)
     {
         var usage = reading.Usage;
         if (usage?.WeekUsed is null || usage.WeekLimit is null)
@@ -280,7 +292,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         vm.HasWeekData = true;
         var usedPercent = CalculateUsedPercent(usage.WeekUsed, usage.WeekLimit);
         vm.WeekProgress = usedPercent / 100.0;
-        vm.WeekUsageLabel = FormatUsageLabel(usedPercent, usage.WeekUsed);
+        vm.WeekUsageLabel = FormatUsageLabel(usedPercent, showRemainingPercentages);
 
         // Reset text
         if (usage.WeekWindow?.ResetsAt is { } weekResets)
@@ -303,12 +315,16 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
 
         var band = UsageBands.Of(usedPercent);
         vm.WeekStatusColor = BandPalette.Vivid(band);
-        vm.WeekPercentText = $"{(int)Math.Round(usedPercent)}%";
-        vm.WeekPercentColor = BandPalette.Ink(band, ThemeManager.IsDark);
+        vm.WeekPercentText = FormatPercent(usedPercent, showRemainingPercentages);
+        vm.WeekPercentColor = BandPalette.Ink(band, isDark);
         vm.WeekPercentPillColor = BandPalette.Pill(band);
     }
 
-    private static void PopulateScopedLimits(ProviderPulseViewModel vm, ProviderReading reading)
+    private static void PopulateScopedLimits(
+        ProviderPulseViewModel vm,
+        ProviderReading reading,
+        bool showRemainingPercentages,
+        bool isDark)
     {
         var quotas = reading.Usage?.ScopedQuotas;
         if (quotas is not { Count: > 0 })
@@ -319,7 +335,6 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         // The window group leads the row (as it does for the account-wide
         // Session/Weekly rows) and the model name rides along as a chip, so
         // "Weekly" for one model never reads as "Weekly" for the whole account.
-        var isDark = ThemeManager.IsDark;
         vm.ScopedLimits = quotas
             .Select(q =>
             {
@@ -327,7 +342,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
                 return new ScopedLimitRow(
                     q.Label,
                     GroupLabelFor(q.Group),
-                    $"{q.UsedPercent}%",
+                    FormatPercent(q.UsedPercent, showRemainingPercentages),
                     q.UsedPercent / 100.0,
                     BandPalette.Ink(band, isDark),
                     BandPalette.Pill(band),
@@ -436,14 +451,14 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         return Math.Clamp((double)used.Value / limit.Value * 100, 0, 100);
     }
 
-    private static string FormatUsageLabel(double usedPercent, long? used)
-    {
-        if (used is null || used == 0)
-        {
-            return "0% used";
-        }
+    private static string FormatUsageLabel(double usedPercent, bool showRemainingPercentages) =>
+        $"{FormatPercent(usedPercent, showRemainingPercentages)} " +
+        (showRemainingPercentages ? "remaining" : "used");
 
-        return $"{(int)Math.Round(usedPercent)}% used";
+    private static string FormatPercent(double usedPercent, bool showRemainingPercentages)
+    {
+        var displayPercent = showRemainingPercentages ? 100 - usedPercent : usedPercent;
+        return $"{(int)Math.Round(Math.Clamp(displayPercent, 0, 100))}%";
     }
 
     private static string FormatStatusSummary(ProviderReading reading)

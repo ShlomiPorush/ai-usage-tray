@@ -147,6 +147,27 @@
                 <TextBlock Text="Adds the reset countdown next to each usage bar in the account overview."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
 
+                <CheckBox IsChecked="{Binding ShowRemainingPercentages}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                    <TextBlock Text="Show remaining percentages instead of used" FontSize="12"
+                               Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                </CheckBox>
+                <TextBlock Text="Applies to the tray icon, hover panel, floating status panel, and main window. Warning colours still reflect usage."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
+
+                <CheckBox IsChecked="{Binding ShowWeeklyBeforeSession}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                    <TextBlock Text="Show Weekly before Session in compact panels" FontSize="12"
+                               Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                </CheckBox>
+                <TextBlock Text="Enabled by default for the tray hover and floating status panel. Turn it off to restore Session before Weekly."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
+
+                <CheckBox IsChecked="{Binding ShowFloatingStatusPanel}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                    <TextBlock Text="Show the floating compact status panel" FontSize="12"
+                               Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                </CheckBox>
+                <TextBlock Text="Shows the movable dark status bar independently of the main usage window. Use its X to close it."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
+
                 <DockPanel Margin="0,0,0,6">
                     <TextBlock Text="Theme" FontSize="12"
                                Foreground="{DynamicResource TextPrimaryBrush}" DockPanel.Dock="Left"
@@ -204,13 +225,24 @@
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
                            Margin="30,0,0,12" TextWrapping="Wrap" />
 
+                <CheckBox IsChecked="{Binding AutoStartCodexFiveHourWindow}"
+                          Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                    <TextBlock Text="Automatically start GPT/Codex's next 5-hour window"
+                               FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
+                               TextWrapping="Wrap" />
+                </CheckBox>
+                <TextBlock Text="Explicit opt-in: if an account is idle, immediately runs one isolated read-only prompt; then starts each next window after expiry."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
+                           Margin="30,0,0,12" TextWrapping="Wrap" />
+
                 <CheckBox IsChecked="{Binding AutoStartZaiFiveHourWindow}"
+                          IsEnabled="{Binding CanAutoStartZaiFiveHourWindow}"
                           Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
                     <TextBlock Text="Automatically start GLM's next 5-hour window"
                                FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
                                TextWrapping="Wrap" />
                 </CheckBox>
-                <TextBlock Text="Uses the GLM coding-plan key with GLM-4.5-Air. A failed activation is retried up to three times, every five minutes."
+                <TextBlock Text="Requires the GLM coding-plan key and uses GLM-4.5-Air. A failed activation is retried up to three times, every five minutes."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
                            Margin="30,0,0,0" TextWrapping="Wrap" />
 

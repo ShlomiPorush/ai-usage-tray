@@ -59,7 +59,8 @@ namespace costats.App
 
         private void OnDeactivated(object? sender, EventArgs e)
         {
-            // Hide window when it loses focus (like a popup)
+            // The main widget remains a tray popup. The optional always-on
+            // surface is the separate compact status panel.
             Hide();
         }
 

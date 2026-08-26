@@ -21,6 +21,8 @@ public sealed class JsonSessionActivationStateStoreTests : IDisposable
             ["claude:work"] = new()
             {
                 ObservedResetAt = resetAt,
+                ObservedActiveWindow = true,
+                RequiresFutureObservation = true,
                 Attempts = 2,
                 NextAttemptAt = resetAt.AddMinutes(10),
                 Completed = false,
@@ -34,6 +36,8 @@ public sealed class JsonSessionActivationStateStoreTests : IDisposable
         Assert.True(loaded.IsReliable);
         var checkpoint = Assert.Single(loaded.Checkpoints).Value;
         Assert.Equal(resetAt, checkpoint.ObservedResetAt);
+        Assert.True(checkpoint.ObservedActiveWindow);
+        Assert.True(checkpoint.RequiresFutureObservation);
         Assert.Equal(2, checkpoint.Attempts);
         Assert.Equal(resetAt.AddMinutes(10), checkpoint.NextAttemptAt);
         Assert.False(checkpoint.Completed);

@@ -23,26 +23,8 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, IDisposable
             throw new ArgumentException("Codex executable is required.", nameof(codexExecutable));
         }
 
-        _codexExecutable = ResolveExecutable(codexExecutable);
+        _codexExecutable = CodexExecutableResolver.Resolve(codexExecutable);
         _timeout = timeout ?? TimeSpan.FromSeconds(15);
-    }
-
-    private static string ResolveExecutable(string executable)
-    {
-        if (!executable.Equals("codex", StringComparison.OrdinalIgnoreCase) || !OperatingSystem.IsWindows())
-        {
-            return executable;
-        }
-
-        var standaloneInstallerPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Programs",
-            "OpenAI",
-            "Codex",
-            "bin",
-            "codex.exe");
-
-        return File.Exists(standaloneInstallerPath) ? standaloneInstallerPath : executable;
     }
 
     public async Task<CodexAppServerRateLimitSnapshot?> FetchAsync(

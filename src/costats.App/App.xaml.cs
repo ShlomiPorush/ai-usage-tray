@@ -413,6 +413,7 @@ namespace costats.App
                     services.AddSingleton<ISourceSelector, SourceSelector>();
                     services.AddSingleton<CopilotUsageFetcher>();
                     services.AddSingleton<ICodexAppServerClient, CodexAppServerClient>();
+                    services.AddSingleton<ISessionActivationWindowRegistry, SessionActivationWindowRegistry>();
 
                     // Per-account sources live in a registry so Settings edits
                     // apply at the next refresh without restarting the app.
@@ -430,7 +431,7 @@ namespace costats.App
                     services.AddHostedService(sp => (PulseOrchestrator)sp.GetRequiredService<IPulseOrchestrator>());
 
                     services.AddSingleton<ISessionActivationStateStore, JsonSessionActivationStateStore>();
-                    services.AddSingleton<ISessionWindowActivator, ClaudeCodeSessionActivator>();
+                    services.AddSingleton<ISessionWindowActivator, CliSessionWindowActivator>();
                     services.AddSingleton<SessionAutoStartCoordinator>();
                     services.AddHostedService<SessionAutoStartWorker>();
 
@@ -449,6 +450,7 @@ namespace costats.App
                     services.AddSingleton<UsageWindowViewModel>();
                     services.AddSingleton<GlassWidgetWindow>();
                     services.AddSingleton<SettingsWindow>();
+                    services.AddSingleton<TrayStatusPanelWindow>();
                     services.AddSingleton<UsageWindow>();
                     services.AddSingleton<TaskbarPositionService>();
                     services.AddSingleton<TrayHost>();

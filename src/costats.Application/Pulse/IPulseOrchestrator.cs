@@ -2,6 +2,13 @@ using costats.Core.Pulse;
 
 namespace costats.Application.Pulse;
 
+public sealed record ProviderRefreshResult(bool Succeeded, ProviderReading? Reading)
+{
+    public static ProviderRefreshResult Success(ProviderReading reading) => new(true, reading);
+
+    public static ProviderRefreshResult Failure() => new(false, null);
+}
+
 public interface IPulseOrchestrator
 {
     IObservable<PulseState> PulseStream { get; }
@@ -21,6 +28,14 @@ public interface IPulseOrchestrator
     /// Silently refresh a specific provider (no loading indicator).
     /// </summary>
     Task RefreshProviderAsync(string providerId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Waits for any in-flight refresh, then reads and publishes a specific provider.
+    /// The result succeeds only when this call obtained a fresh provider reading.
+    /// </summary>
+    Task<ProviderRefreshResult> RefreshProviderForVerificationAsync(
+        string providerId,
+        CancellationToken cancellationToken);
 
     /// <summary>True when no complete refresh exists within <paramref name="maxAge"/>.</summary>
     bool IsFullRefreshStale(TimeSpan maxAge);

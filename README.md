@@ -22,8 +22,8 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 <p align="center"><sub>Usage dashboard: cost and tokens over the last 30 days, per provider, model or day.</sub></p>
 
 ## Features
-- Tray icon shows the worst window's used percentage as a number, coloured by how much of the quota is gone.
-- **Four usage levels everywhere**, derived from the used percentage alone: green under 50%, yellow 50-74%, orange 75-89%, red 90% and above. The tray icon, the widget, the hover popup and the web view all use the same scale, and every surface shows used percent, never remaining.
+- Tray icon shows the worst window's percentage as a number; Settings can display either used or remaining quota.
+- **Four usage levels everywhere**, derived from the used percentage alone: green under 50%, yellow 50-74%, orange 75-89%, red 90% and above. Switching desktop labels to remaining never changes these warning colours.
 - Percentages are shown as quiet tinted pills, so a calm account stays calm and a hot one stands out.
 - Hovering the icon opens a popup next to it listing every account, one line each with a status dot.
 - The widget (click the icon or `Ctrl+Alt+U`) opens on an overview of all accounts, sized to fit them; click a card for details.
@@ -70,6 +70,9 @@ Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from up
 | `Theme` | `system` | `system` / `light` / `dark` |
 | `PrimaryAccountId` | empty | Provider id whose status drives the tray icon |
 | `ShowOverviewResetTimes` | `false` | Reset countdowns on overview cards |
+| `ShowRemainingPercentages` | `false` | Show remaining rather than used quota on desktop surfaces; colours still represent used quota |
+| `ShowFloatingStatusPanel` | `false` | Show the compact movable status panel with an X close button |
+| `AutoStartClaudeFiveHourWindow` / `AutoStartCodexFiveHourWindow` / `AutoStartZaiFiveHourWindow` | `false` | Opt-in activation of the next observed five-hour window through the matching official CLI/profile. GLM requires its coding-plan key. |
 | `RemoteViewEnabled` + `RemoteViewUploadUrl` / `RemoteViewPageUrl` | `false` / empty | Remote view (see below) |
 
 `appsettings.json` (`Costats:Update`) controls updater infrastructure and release verification. Automatic checks can be switched off in Settings; manual checks remain available.

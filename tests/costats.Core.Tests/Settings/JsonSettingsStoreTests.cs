@@ -113,19 +113,72 @@ public sealed class JsonSettingsStoreTests : IDisposable
         var store = new JsonSettingsStore(new FakeCredentialVault(), _root);
         var defaults = new AppSettings();
         Assert.False(defaults.AutoStartClaudeFiveHourWindow);
+        Assert.False(defaults.AutoStartCodexFiveHourWindow);
         Assert.False(defaults.AutoStartZaiFiveHourWindow);
 
         await store.SaveAsync(
             new AppSettings
             {
                 AutoStartClaudeFiveHourWindow = true,
+                AutoStartCodexFiveHourWindow = true,
                 AutoStartZaiFiveHourWindow = true
             },
             CancellationToken.None);
 
         var loaded = await store.LoadAsync(CancellationToken.None);
         Assert.True(loaded.AutoStartClaudeFiveHourWindow);
+        Assert.True(loaded.AutoStartCodexFiveHourWindow);
         Assert.True(loaded.AutoStartZaiFiveHourWindow);
+    }
+
+    [Fact]
+    public async Task Desktop_display_preferences_round_trip_but_default_off()
+    {
+        var store = new JsonSettingsStore(new FakeCredentialVault(), _root);
+        var defaults = new AppSettings();
+        Assert.False(defaults.ShowRemainingPercentages);
+        Assert.True(defaults.ShowWeeklyBeforeSession);
+        Assert.False(defaults.ShowFloatingStatusPanel);
+
+        await store.SaveAsync(
+            new AppSettings
+            {
+                ShowRemainingPercentages = true,
+                ShowWeeklyBeforeSession = false,
+                ShowFloatingStatusPanel = true
+            },
+            CancellationToken.None);
+
+        var loaded = await store.LoadAsync(CancellationToken.None);
+        Assert.True(loaded.ShowRemainingPercentages);
+        Assert.False(loaded.ShowWeeklyBeforeSession);
+        Assert.True(loaded.ShowFloatingStatusPanel);
+    }
+
+    [Fact]
+    public async Task Legacy_main_widget_setting_migrates_to_the_floating_panel()
+    {
+        var settingsDirectory = Path.Combine(_root, "costats");
+        Directory.CreateDirectory(settingsDirectory);
+        await File.WriteAllTextAsync(
+            Path.Combine(settingsDirectory, "settings.json"),
+            """{"keepWidgetOpen":true}""");
+
+        var store = new JsonSettingsStore(new FakeCredentialVault(), _root);
+        var loaded = await store.LoadAsync(CancellationToken.None);
+
+        Assert.True(loaded.ShowFloatingStatusPanel);
+    }
+
+    [Fact]
+    public void Glm_activation_requires_the_coding_plan_key_specifically()
+    {
+        var legacyOnly = new AppSettings { ZAiApiKey = "standard-secret-value" };
+        Assert.True(legacyOnly.HasZaiKey);
+        Assert.False(legacyOnly.HasZaiCodingKey);
+
+        legacyOnly.ZAiCodingApiKey = "coding-secret-value";
+        Assert.True(legacyOnly.HasZaiCodingKey);
     }
 
     [Fact]

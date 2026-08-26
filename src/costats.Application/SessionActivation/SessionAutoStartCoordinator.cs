@@ -16,6 +16,7 @@ public sealed class SessionAutoStartCoordinator
     public const int MaximumAttempts = 4; // initial attempt + three retries
     public static readonly TimeSpan RetryInterval = TimeSpan.FromMinutes(5);
     private static readonly DateTimeOffset IdleZaiWindowMarker = DateTimeOffset.UnixEpoch;
+    private static readonly DateTimeOffset IdleCodexWindowMarker = DateTimeOffset.UnixEpoch;
 
     private readonly IPulseOrchestrator _pulseOrchestrator;
     private readonly AppSettings _settings;
@@ -23,6 +24,7 @@ public sealed class SessionAutoStartCoordinator
     private readonly ISessionActivationStateStore _stateStore;
     private readonly IClock _clock;
     private readonly ILogger<SessionAutoStartCoordinator> _logger;
+    private readonly ISessionActivationWindowRegistry _windowRegistry;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private Dictionary<string, SessionActivationCheckpoint>? _checkpoints;
@@ -34,7 +36,8 @@ public sealed class SessionAutoStartCoordinator
         ISessionWindowActivator activator,
         ISessionActivationStateStore stateStore,
         IClock clock,
-        ILogger<SessionAutoStartCoordinator> logger)
+        ILogger<SessionAutoStartCoordinator> logger,
+        ISessionActivationWindowRegistry? windowRegistry = null)
     {
         _pulseOrchestrator = pulseOrchestrator;
         _settings = settings;
@@ -42,6 +45,7 @@ public sealed class SessionAutoStartCoordinator
         _stateStore = stateStore;
         _clock = clock;
         _logger = logger;
+        _windowRegistry = windowRegistry ?? new SessionActivationWindowRegistry();
     }
 
     public async Task CheckOnceAsync(CancellationToken cancellationToken)
@@ -79,30 +83,57 @@ public sealed class SessionAutoStartCoordinator
         SessionActivationTarget target,
         CancellationToken cancellationToken)
     {
-        var now = _clock.UtcNow;
-        if (!TryReadReset(target.ProviderId, out var resetAt))
+        if (!_loadedStateIsReliable && !_checkpoints!.ContainsKey(target.ProviderId))
         {
-            // Never infer expiry from an unavailable provider or from a bare
-            // percentage. A real provider reset timestamp is required.
+            // Persist a target-specific recovery barrier. If another provider
+            // observes a healthy future window, this provider must still remain
+            // closed until it independently does the same.
+            _checkpoints[target.ProviderId] = new SessionActivationCheckpoint
+            {
+                RequiresFutureObservation = true
+            };
+            await SaveAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var now = _clock.UtcNow;
+        _checkpoints!.TryGetValue(target.ProviderId, out var checkpoint);
+        if (!TryReadCurrentReading(target.ProviderId, out var reading) ||
+            !TryResolveReset(target, reading, checkpoint, out var resetAt))
+        {
             return;
         }
 
         if (resetAt > now)
         {
-            await ArmAsync(target.ProviderId, resetAt, cancellationToken).ConfigureAwait(false);
-            _loadedStateIsReliable = true;
+            var restoredVisibleCodexWindow =
+                target.Provider == SessionActivationProvider.Codex &&
+                checkpoint is { ObservedActiveWindow: true, Succeeded: true } &&
+                _windowRegistry.Confirm(target.ProviderId, resetAt) &&
+                reading.Usage?.SessionWindow?.ResetsAt is null;
+
+            await ArmAsync(
+                    target.ProviderId,
+                    resetAt,
+                    target.Provider != SessionActivationProvider.Codex ||
+                    reading.Usage?.SessionWindow?.ResetsAt is not null,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            if (restoredVisibleCodexWindow)
+            {
+                await _pulseOrchestrator
+                    .RefreshProviderAsync(target.ProviderId, cancellationToken)
+                    .ConfigureAwait(false);
+            }
             return;
         }
 
-        if (!_loadedStateIsReliable && !_checkpoints!.ContainsKey(target.ProviderId))
+        if (checkpoint?.RequiresFutureObservation == true)
         {
-            // A corrupt/unreadable state file might have lost a completed
-            // marker. Wait until a genuinely new future window is observed;
-            // sending now could duplicate a prompt after restart.
             return;
         }
 
-        var checkpoint = GetOrCreateExpiredCheckpoint(target.ProviderId, resetAt, now);
+        checkpoint = GetOrCreateExpiredCheckpoint(target.ProviderId, resetAt, now);
         if (checkpoint.Completed || now < checkpoint.NextAttemptAt)
         {
             return;
@@ -110,12 +141,13 @@ public sealed class SessionAutoStartCoordinator
 
         // A user may have sent a prompt after our last global refresh. Refresh
         // this account immediately; if a new window exists, do not send ours.
-        await _pulseOrchestrator
-            .RefreshProviderAsync(target.ProviderId, cancellationToken)
+        var refresh = await _pulseOrchestrator
+            .RefreshProviderForVerificationAsync(target.ProviderId, cancellationToken)
             .ConfigureAwait(false);
 
         now = _clock.UtcNow;
-        if (!TryReadReset(target.ProviderId, out var refreshedResetAt))
+        if (!refresh.Succeeded || refresh.Reading is null ||
+            !TryResolveReset(target, refresh.Reading, checkpoint, out var refreshedResetAt))
         {
             checkpoint.NextAttemptAt = now + RetryInterval;
             await SaveAsync(cancellationToken).ConfigureAwait(false);
@@ -124,7 +156,13 @@ public sealed class SessionAutoStartCoordinator
 
         if (refreshedResetAt > now)
         {
-            await ArmAsync(target.ProviderId, refreshedResetAt, cancellationToken).ConfigureAwait(false);
+            await ArmAsync(
+                    target.ProviderId,
+                    refreshedResetAt,
+                    target.Provider != SessionActivationProvider.Codex ||
+                    refresh.Reading.Usage?.SessionWindow?.ResetsAt is not null,
+                    cancellationToken)
+                .ConfigureAwait(false);
             return;
         }
 
@@ -132,6 +170,8 @@ public sealed class SessionAutoStartCoordinator
         {
             checkpoint = GetOrCreateExpiredCheckpoint(target.ProviderId, refreshedResetAt, now);
         }
+
+        var verifiedWindowDuration = refresh.Reading.Usage!.SessionWindow!.Duration;
 
         // Persist the attempt before the external side effect. If the app exits
         // after Claude Code sends the prompt but before we record success, the
@@ -145,8 +185,24 @@ public sealed class SessionAutoStartCoordinator
         var result = await _activator.ActivateAsync(target, cancellationToken).ConfigureAwait(false);
         var finishedAt = _clock.UtcNow;
         checkpoint.Succeeded = result.Succeeded;
-        checkpoint.Completed = result.Succeeded || checkpoint.Attempts >= MaximumAttempts;
-        checkpoint.NextAttemptAt = finishedAt + RetryInterval;
+        if (result.Succeeded && target.Provider == SessionActivationProvider.Codex)
+        {
+            // Codex reports an idle 0%-used bucket as a rolling now+5h reset,
+            // so the provider cannot give us a stable timestamp for the tiny
+            // activation prompt. A successful official CLI invocation is the
+            // authoritative start event; arm its next deadline from that event.
+            checkpoint.ObservedResetAt = finishedAt + verifiedWindowDuration;
+            checkpoint.ObservedActiveWindow = true;
+            checkpoint.Attempts = 0;
+            checkpoint.NextAttemptAt = checkpoint.ObservedResetAt;
+            checkpoint.Completed = false;
+            _windowRegistry.Confirm(target.ProviderId, checkpoint.ObservedResetAt);
+        }
+        else
+        {
+            checkpoint.Completed = result.Succeeded || checkpoint.Attempts >= MaximumAttempts;
+            checkpoint.NextAttemptAt = finishedAt + RetryInterval;
+        }
         await SaveAsync(cancellationToken).ConfigureAwait(false);
 
         if (result.Succeeded)
@@ -183,17 +239,43 @@ public sealed class SessionAutoStartCoordinator
         }
     }
 
-    private bool TryReadReset(string providerId, out DateTimeOffset resetAt)
+    private bool TryReadCurrentReading(string providerId, out ProviderReading reading)
     {
-        resetAt = default;
+        reading = default!;
         var state = _pulseOrchestrator.CurrentState;
         if (state is null || state.IsRefreshing ||
-            !state.Providers.TryGetValue(providerId, out var reading) ||
-            reading.Usage?.SessionWindow is not { } window ||
+            !state.Providers.TryGetValue(providerId, out var currentReading))
+        {
+            return false;
+        }
+
+        reading = currentReading;
+        return true;
+    }
+
+    private static bool TryResolveReset(
+        SessionActivationTarget target,
+        ProviderReading reading,
+        SessionActivationCheckpoint? checkpoint,
+        out DateTimeOffset resetAt)
+    {
+        resetAt = default;
+        if (reading.Usage?.SessionWindow is not { } window ||
             window.Duration < TimeSpan.FromHours(4.5) ||
             window.Duration > TimeSpan.FromHours(5.5))
         {
             return false;
+        }
+
+        if (target.Provider == SessionActivationProvider.Codex &&
+            reading.Usage.SessionUsed == 0 &&
+            checkpoint is { Succeeded: true, Completed: false } &&
+            checkpoint.ObservedResetAt != default)
+        {
+            // After our own successful prompt, prefer the stable deadline we
+            // armed over a stale or rolling 0%-used provider timestamp.
+            resetAt = checkpoint.ObservedResetAt;
+            return true;
         }
 
         if (window.ResetsAt is { } providerReset)
@@ -202,16 +284,43 @@ public sealed class SessionAutoStartCoordinator
             return true;
         }
 
-        // Z.AI removes nextResetTime after an unused five-hour bucket expires
-        // and reports the idle state as 100% remaining (0 used). That exact
-        // provider-specific shape is the signal that the next prompt must start
-        // a new window. The fixed marker keeps retries and restart deduplication
-        // stable until Z.AI publishes the next real reset timestamp.
-        if (string.Equals(providerId, "zai", StringComparison.OrdinalIgnoreCase) &&
-            reading.Usage.SessionUsed == 0 &&
-            reading.Usage.SessionLimit is > 0)
+        if (reading.Usage.SessionUsed != 0 || reading.Usage.SessionLimit is not > 0)
+        {
+            return false;
+        }
+
+        // Z.AI reports an unused idle bucket as 0 used with no reset timestamp.
+        // Keep its fixed marker so retries and restart deduplication remain stable.
+        if (target.Provider == SessionActivationProvider.Zai)
         {
             resetAt = IdleZaiWindowMarker;
+            return true;
+        }
+
+        if (target.Provider == SessionActivationProvider.Codex)
+        {
+            if (checkpoint is { RequiresFutureObservation: false } &&
+                checkpoint.ObservedResetAt != default &&
+                (checkpoint.ObservedActiveWindow || checkpoint.Succeeded))
+            {
+                resetAt = checkpoint.ObservedResetAt;
+                return true;
+            }
+
+            // The GPT/Codex checkbox is an explicit opt-in to consume a small
+            // prompt immediately when the account is idle. Corrupt-state
+            // recovery still blocks this path per provider in CheckProviderAsync.
+            resetAt = IdleCodexWindowMarker;
+            return true;
+        }
+
+        // Claude is eligible only after this exact account persisted a real
+        // reset; its first-run null state must never consume quota.
+        if (target.Provider == SessionActivationProvider.Claude &&
+            checkpoint is { RequiresFutureObservation: false } &&
+            checkpoint.ObservedResetAt != default)
+        {
+            resetAt = checkpoint.ObservedResetAt;
             return true;
         }
 
@@ -221,10 +330,13 @@ public sealed class SessionAutoStartCoordinator
     private async Task ArmAsync(
         string providerId,
         DateTimeOffset resetAt,
+        bool observedActiveWindow,
         CancellationToken cancellationToken)
     {
         if (_checkpoints!.TryGetValue(providerId, out var current) &&
             current.ObservedResetAt == resetAt &&
+            (current.ObservedActiveWindow || !observedActiveWindow) &&
+            !current.RequiresFutureObservation &&
             !current.Completed)
         {
             return;
@@ -233,6 +345,8 @@ public sealed class SessionAutoStartCoordinator
         _checkpoints[providerId] = new SessionActivationCheckpoint
         {
             ObservedResetAt = resetAt,
+            ObservedActiveWindow = observedActiveWindow,
+            RequiresFutureObservation = false,
             Attempts = 0,
             NextAttemptAt = resetAt,
             Completed = false,
@@ -255,6 +369,7 @@ public sealed class SessionAutoStartCoordinator
         var checkpoint = new SessionActivationCheckpoint
         {
             ObservedResetAt = resetAt,
+            RequiresFutureObservation = false,
             Attempts = 0,
             NextAttemptAt = now,
             Completed = false,
@@ -277,7 +392,18 @@ public sealed class SessionAutoStartCoordinator
             }
         }
 
-        if (_settings.AutoStartZaiFiveHourWindow && _settings.HasZaiKey)
+        if (_settings.AutoStartCodexFiveHourWindow)
+        {
+            foreach (var account in _settings.GetEffectiveAccounts().Where(account => account.IsCodex))
+            {
+                yield return new SessionActivationTarget(
+                    $"codex:{account.Id}",
+                    SessionActivationProvider.Codex,
+                    account.ConfigDir);
+            }
+        }
+
+        if (_settings.AutoStartZaiFiveHourWindow && _settings.HasZaiCodingKey)
         {
             yield return new SessionActivationTarget("zai", SessionActivationProvider.Zai);
         }

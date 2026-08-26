@@ -44,6 +44,28 @@ public sealed class TrayStatusComposerTests
     }
 
     [Fact]
+    public void Remaining_display_changes_numbers_without_changing_usage_severity()
+    {
+        var accounts = new[]
+        {
+            new AccountUsageStatus("Claude", 34, Now.AddHours(2).AddMinutes(34), 60, Now.AddDays(3.2))
+        };
+
+        var result = TrayStatusComposer.Compose(accounts, Now, showRemainingPercentages: true);
+        var row = Assert.Single(TrayStatusComposer.ComposeRows(
+            accounts,
+            Now,
+            showRemainingPercentages: true));
+
+        Assert.Equal(66, result.HighestUsedPercent);
+        Assert.Equal(34, result.GetDisplayPercent(showRemainingPercentages: true));
+        Assert.Equal(TraySeverity.Yellow, result.Severity);
+        Assert.Equal("Claude Session 34% · 2h34m | Weekly 60% · 3.2d", result.Tooltip);
+        Assert.Equal("Session 34% · 2h34m  |  Weekly 60% · 3.2d", row.WindowsText);
+        Assert.Equal(66, row.WorstUsedPercent);
+    }
+
+    [Fact]
     public void Compose_omits_a_window_that_does_not_exist_for_the_account()
     {
         var accounts = new[]
@@ -241,5 +263,66 @@ public sealed class TrayStatusComposerTests
 
         Assert.Equal(TraySeverity.Red, status.Severity);
         Assert.Contains("blocked", status.FullTooltip, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Compact_rows_match_the_legacy_weekly_then_session_layout()
+    {
+        var accounts = new[]
+        {
+            new AccountUsageStatus(
+                "Claude",
+                SessionRemainingPercent: 0,
+                SessionResetsAt: Now.AddHours(3).AddMinutes(47),
+                WeeklyRemainingPercent: 9,
+                WeeklyResetsAt: Now.AddDays(5.9)),
+            new AccountUsageStatus("GLM", null, null, null, null)
+        };
+
+        var rows = TrayStatusComposer.ComposeCompactRows(
+            accounts,
+            Now,
+            showRemainingPercentages: true,
+            showWeeklyBeforeSession: true);
+
+        Assert.Equal("W 9%-5.9d <> S 0%-3h47m", rows[0].StatusText);
+        Assert.Equal("unavailable", rows[1].StatusText);
+    }
+
+    [Fact]
+    public void Compact_panels_follow_the_weekly_before_session_setting()
+    {
+        var account = new AccountUsageStatus(
+            "Claude",
+            SessionRemainingPercent: 75,
+            SessionResetsAt: Now.AddHours(1),
+            WeeklyRemainingPercent: 50,
+            WeeklyResetsAt: Now.AddDays(3));
+
+        var weeklyFirstHover = Assert.Single(TrayStatusComposer.ComposeRows(
+            [account],
+            Now,
+            showRemainingPercentages: true,
+            showWeeklyBeforeSession: true));
+        var weeklyFirstFloating = Assert.Single(TrayStatusComposer.ComposeCompactRows(
+            [account],
+            Now,
+            showRemainingPercentages: true,
+            showWeeklyBeforeSession: true));
+        var sessionFirstHover = Assert.Single(TrayStatusComposer.ComposeRows(
+            [account],
+            Now,
+            showRemainingPercentages: true,
+            showWeeklyBeforeSession: false));
+        var sessionFirstFloating = Assert.Single(TrayStatusComposer.ComposeCompactRows(
+            [account],
+            Now,
+            showRemainingPercentages: true,
+            showWeeklyBeforeSession: false));
+
+        Assert.StartsWith("Weekly 50%", weeklyFirstHover.WindowsText, StringComparison.Ordinal);
+        Assert.StartsWith("W 50%", weeklyFirstFloating.StatusText, StringComparison.Ordinal);
+        Assert.StartsWith("Session 75%", sessionFirstHover.WindowsText, StringComparison.Ordinal);
+        Assert.StartsWith("S 75%", sessionFirstFloating.StatusText, StringComparison.Ordinal);
     }
 }

@@ -75,7 +75,17 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         copilotEnabled = settings.CopilotEnabled;
         showOverviewResetTimes = settings.ShowOverviewResetTimes;
+        showRemainingPercentages = settings.ShowRemainingPercentages;
+        showWeeklyBeforeSession = settings.ShowWeeklyBeforeSession;
+        showFloatingStatusPanel = settings.ShowFloatingStatusPanel;
         autoStartClaudeFiveHourWindow = settings.AutoStartClaudeFiveHourWindow;
+        autoStartCodexFiveHourWindow = settings.AutoStartCodexFiveHourWindow;
+        if (!settings.HasZaiCodingKey)
+        {
+            // Never let a previously saved toggle become active later merely
+            // because a coding-plan key was added.
+            settings.AutoStartZaiFiveHourWindow = false;
+        }
         autoStartZaiFiveHourWindow = settings.AutoStartZaiFiveHourWindow;
 
         remoteViewEnabled = settings.RemoteViewEnabled;
@@ -116,7 +126,21 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool autoStartClaudeFiveHourWindow;
 
     [ObservableProperty]
+    private bool showRemainingPercentages;
+
+    [ObservableProperty]
+    private bool showWeeklyBeforeSession;
+
+    [ObservableProperty]
+    private bool showFloatingStatusPanel;
+
+    [ObservableProperty]
+    private bool autoStartCodexFiveHourWindow;
+
+    [ObservableProperty]
     private bool autoStartZaiFiveHourWindow;
+
+    public bool CanAutoStartZaiFiveHourWindow => _settings.HasZaiCodingKey;
 
     /// <summary>One row per monitored provider: Claude/Codex accounts plus Z.AI and Copilot when configured.</summary>
     public System.Collections.ObjectModel.ObservableCollection<ProviderRowViewModel> ProviderRows { get; } = new();
@@ -442,6 +466,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
             _settings.ZAiCodingApiKey = apiKey;
+            OnPropertyChanged(nameof(CanAutoStartZaiFiveHourWindow));
         }
         if (!string.IsNullOrWhiteSpace(displayName))
         {
@@ -487,8 +512,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         switch (row.Kind)
         {
             case "zai":
+                AutoStartZaiFiveHourWindow = false;
                 _settings.ZAiCodingApiKey = null;
                 _settings.ZAiApiKey = null;
+                OnPropertyChanged(nameof(CanAutoStartZaiFiveHourWindow));
                 ApplyAccountsChanged("Z.AI removed.");
                 break;
 
@@ -539,9 +566,36 @@ public sealed partial class SettingsViewModel : ObservableObject
         _pulseOrchestrator.RepublishLastState();
     }
 
+    partial void OnShowRemainingPercentagesChanged(bool value)
+    {
+        _settings.ShowRemainingPercentages = value;
+        SaveSettingsInBackground();
+        _pulseOrchestrator.RepublishLastState();
+    }
+
+    partial void OnShowWeeklyBeforeSessionChanged(bool value)
+    {
+        _settings.ShowWeeklyBeforeSession = value;
+        SaveSettingsInBackground();
+        _pulseOrchestrator.RepublishLastState();
+    }
+
+    partial void OnShowFloatingStatusPanelChanged(bool value)
+    {
+        _settings.ShowFloatingStatusPanel = value;
+        SaveSettingsInBackground();
+        _pulseOrchestrator.RepublishLastState();
+    }
+
     partial void OnAutoStartClaudeFiveHourWindowChanged(bool value)
     {
         _settings.AutoStartClaudeFiveHourWindow = value;
+        SaveSettingsInBackground();
+    }
+
+    partial void OnAutoStartCodexFiveHourWindowChanged(bool value)
+    {
+        _settings.AutoStartCodexFiveHourWindow = value;
         SaveSettingsInBackground();
     }
 

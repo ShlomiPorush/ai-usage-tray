@@ -43,9 +43,9 @@ call to your own worker.
 
 | File | Purpose |
 | --- | --- |
-| `index.html` | The page shell: header, theme toggle, notice slots. |
+| `index.html` | The page shell: header, percentage and theme toggles, notice slots. |
 | `styles.css` | Both palettes. Light/dark follow the system unless `<html data-theme>` forces one. |
-| `app.js` | Fetches the snapshot, renders the cards, owns the theme toggle and the landing view. |
+| `app.js` | Fetches the snapshot, renders the cards, owns the persisted percentage/theme toggles and the landing view. |
 | `config.js` | The one line you edit: `apiBase`. |
 | `manifest.webmanifest` | Makes the page installable ("Add to home screen"). |
 | `sw.js` | Service worker. Caches the static shell; never caches `/u/` responses. |

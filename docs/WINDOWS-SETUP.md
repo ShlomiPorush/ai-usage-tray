@@ -6,7 +6,7 @@ AI Usage Tray shows one system-tray icon for any number of accounts: Claude subs
 
 On a fresh install the app monitors the standard `~/.claude` (Claude Code login) and `~/.codex` (Codex CLI login) profiles. If you already use both tools, it shows data with no setup at all. Everything else is done in Settings (right-click the tray icon and choose **Settings...**).
 
-Hovering the tray icon shows a popup anchored to the icon that lists every account, one line each, with a coloured dot and the quota windows the provider returned. The icon itself shows the used percentage as a number. Every surface in the app, and the web view, uses the same four levels, based on the highest used percentage across the quota windows involved:
+Hovering the tray icon shows a popup anchored to the icon that lists every account, one line each, with a coloured dot and the quota windows the provider returned. The icon itself shows a percentage as a number. In Settings you can choose used (default) or remaining for desktop labels, and show the separate compact floating status panel; it can be moved anywhere and its X closes it without exiting the tray app. Warning colours always use the same four levels, based on the highest used percentage across the quota windows involved:
 
 - Green: below 50% used
 - Yellow: 50% to 74% used

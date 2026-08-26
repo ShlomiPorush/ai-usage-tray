@@ -127,35 +127,7 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
 
         try
         {
-            var providerSources = AllSources()
-                .Where(s => s.Profile.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
-            if (providerSources.Count == 0)
-            {
-                _logger.LogWarning("No sources found for provider {ProviderId}", providerId);
-                return;
-            }
-
-            var reading = await _selector.SelectAsync(providerId, providerSources, cancellationToken).ConfigureAwait(false);
-
-            // A cancelled read must not be merged into the published state.
-            cancellationToken.ThrowIfCancellationRequested();
-
-            // Merge with existing state
-            var existingProviders = _lastState?.Providers
-                ?? new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase);
-
-            var updatedProviders = new Dictionary<string, ProviderReading>(existingProviders, StringComparer.OrdinalIgnoreCase)
-            {
-                [providerId] = reading
-            };
-
-            var state = new PulseState(updatedProviders, _clock.UtcNow, Array.Empty<string>(), false, RefreshTrigger.Silent);
-            _lastState = state;
-            _broadcaster.Publish(state);
-
-            _logger.LogDebug("Silent refresh completed for {ProviderId}", providerId);
+            await RefreshProviderCoreAsync(providerId, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -171,6 +143,68 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
         {
             _refreshGate.Release();
         }
+    }
+
+    public async Task<ProviderRefreshResult> RefreshProviderForVerificationAsync(
+        string providerId,
+        CancellationToken cancellationToken)
+    {
+        await _refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var reading = await RefreshProviderCoreAsync(providerId, cancellationToken).ConfigureAwait(false);
+            return reading is null
+                ? ProviderRefreshResult.Failure()
+                : ProviderRefreshResult.Success(reading);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Provider verification refresh failed for {ProviderId}", providerId);
+            return ProviderRefreshResult.Failure();
+        }
+        finally
+        {
+            _refreshGate.Release();
+        }
+    }
+
+    private async Task<ProviderReading?> RefreshProviderCoreAsync(
+        string providerId,
+        CancellationToken cancellationToken)
+    {
+        var providerSources = AllSources()
+            .Where(s => s.Profile.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (providerSources.Count == 0)
+        {
+            _logger.LogWarning("No sources found for provider {ProviderId}", providerId);
+            return null;
+        }
+
+        var reading = await _selector.SelectAsync(providerId, providerSources, cancellationToken).ConfigureAwait(false);
+
+        // A cancelled read must not be merged into the published state.
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var existingProviders = _lastState?.Providers
+            ?? new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase);
+
+        var updatedProviders = new Dictionary<string, ProviderReading>(existingProviders, StringComparer.OrdinalIgnoreCase)
+        {
+            [providerId] = reading
+        };
+
+        var state = new PulseState(updatedProviders, _clock.UtcNow, Array.Empty<string>(), false, RefreshTrigger.Silent);
+        _lastState = state;
+        _broadcaster.Publish(state);
+
+        _logger.LogDebug("Silent refresh completed for {ProviderId}", providerId);
+        return reading;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

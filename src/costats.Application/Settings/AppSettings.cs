@@ -24,6 +24,42 @@ public sealed class AppSettings
     public bool ShowOverviewResetTimes { get; set; } = false;
 
     /// <summary>
+    /// When true, desktop quota labels show the remaining share instead of the
+    /// used share. Risk colours and progress bars always remain usage-based.
+    /// </summary>
+    public bool ShowRemainingPercentages { get; set; } = false;
+
+    /// <summary>
+    /// When true, compact tray text lists Weekly before Session. This is the
+    /// default; disabling it restores the original Session-before-Weekly order.
+    /// </summary>
+    public bool ShowWeeklyBeforeSession { get; set; } = true;
+
+    /// <summary>
+    /// Shows the compact movable status panel independently of the main tray
+    /// widget. The panel remains topmost until disabled or closed.
+    /// </summary>
+    public bool ShowFloatingStatusPanel { get; set; } = false;
+
+    /// <summary>
+    /// Reads the short-lived development setting that incorrectly applied
+    /// always-on behavior to the main widget. It is omitted on the next save.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("keepWidgetOpen")]
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public bool? LegacyKeepWidgetOpen
+    {
+        get => null;
+        set
+        {
+            if (value == true)
+            {
+                ShowFloatingStatusPanel = true;
+            }
+        }
+    }
+
+    /// <summary>
     /// After a previously observed Claude five-hour window expires, send one
     /// minimal Haiku prompt through the official Claude Code CLI to start the
     /// next window. Off by default because this consumes subscription quota.
@@ -31,8 +67,15 @@ public sealed class AppSettings
     public bool AutoStartClaudeFiveHourWindow { get; set; } = false;
 
     /// <summary>
+    /// Explicitly opts in to starting an idle OpenAI/Codex five-hour window
+    /// immediately, then starting each next window after expiry through the
+    /// matching account's official Codex CLI.
+    /// </summary>
+    public bool AutoStartCodexFiveHourWindow { get; set; } = false;
+
+    /// <summary>
     /// The Z.AI equivalent, using Claude Code with the coding-plan endpoint and
-    /// GLM-4.5-Air. OpenAI/Codex accounts are intentionally never eligible.
+    /// GLM-4.5-Air.
     /// </summary>
     public bool AutoStartZaiFiveHourWindow { get; set; } = false;
 
@@ -160,6 +203,10 @@ public sealed class AppSettings
     [System.Text.Json.Serialization.JsonIgnore]
     public bool HasZaiKey =>
         !string.IsNullOrWhiteSpace(ZAiCodingApiKey) || !string.IsNullOrWhiteSpace(ZAiApiKey);
+
+    /// <summary>True when the coding-plan key required for GLM session activation is configured.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasZaiCodingKey => !string.IsNullOrWhiteSpace(ZAiCodingApiKey);
 
     /// <summary>
     /// API key for the Z.AI / GLM coding-plan quota endpoint
