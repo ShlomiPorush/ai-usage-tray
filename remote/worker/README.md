@@ -231,7 +231,7 @@ READ_ID=$(printf %s "$WRITE_ID" | sha256sum | cut -c1-32)
 
 curl -i -X PUT "$BASE/u/$WRITE_ID" \
   -H 'Content-Type: application/json' \
-  -d '{"version":2,"generatedAt":"2026-08-20T18:00:00Z","primary":"claude:claude-1","accounts":[{"id":"claude:claude-1","provider":"claude","name":"Claude Work","plan":"Max 20x","windows":[{"label":"Session","usedPercent":42,"resetsAt":"2026-08-20T21:00:00Z"},{"label":"Weekly","usedPercent":88,"resetsAt":"2026-08-21T12:00:00Z"}]}]}'
+  -d '{"version":2,"generatedAt":"2026-08-20T18:00:00Z","primary":"claude:claude-1","displayMode":"remaining","accounts":[{"id":"claude:claude-1","provider":"claude","name":"Claude Work","plan":"Max 20x","windows":[{"label":"Session","usedPercent":42,"resetsAt":"2026-08-20T21:00:00Z"},{"label":"Weekly","usedPercent":88,"resetsAt":"2026-08-21T12:00:00Z"}]}]}'
 
 curl -i "$BASE/u/$READ_ID"
 curl -i -X DELETE "$BASE/u/$WRITE_ID"

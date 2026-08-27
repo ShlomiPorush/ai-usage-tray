@@ -84,7 +84,9 @@ not remembered as the last-seen id, so opening the demo cannot hijack an install
 app that was set up with a real link.
 
 The percentage toggle changes both the displayed numbers and meter fills between
-used quota and capacity left. Warning colours preserve the same capacity state in
-both modes. The page refetches every 60 seconds and shows how long ago the app last reported.
+used quota and capacity left. The first visit follows the preference uploaded by
+the desktop app; choosing a mode on the page stores a browser-specific override.
+Warning colours preserve the same capacity state in both modes. The page refetches
+every 60 seconds and shows how long ago the app last reported.
 Snapshots expire after about a week without the app running, and the page then
 shows a "no data" message.

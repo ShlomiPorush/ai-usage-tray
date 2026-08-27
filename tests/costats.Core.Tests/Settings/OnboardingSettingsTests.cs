@@ -52,6 +52,25 @@ public sealed class OnboardingSettingsTests : IDisposable
         Assert.Equal(showFallback, settings.ShouldShowOnboardingFallback);
     }
 
+    [Fact]
+    public void Completed_setup_stays_completed_when_shutdown_closes_the_hidden_onboarding_window()
+    {
+        var stateAfterShutdown = OnboardingStates.AfterDismissal(OnboardingStates.Completed);
+
+        Assert.False(OnboardingStates.ShouldPersistDismissal(isWindowVisible: false));
+        Assert.Equal(OnboardingStates.Completed, stateAfterShutdown);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(OnboardingStates.Started)]
+    [InlineData(OnboardingStates.Dismissed)]
+    public void Visible_incomplete_setup_is_persisted_as_dismissed(string? currentState)
+    {
+        Assert.True(OnboardingStates.ShouldPersistDismissal(isWindowVisible: true));
+        Assert.Equal(OnboardingStates.Dismissed, OnboardingStates.AfterDismissal(currentState));
+    }
+
     public void Dispose()
     {
         try

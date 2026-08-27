@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
 using costats.App.ViewModels;
+using costats.Application.Settings;
 using costats.Application.Shell;
 
 namespace costats.App;
@@ -43,6 +44,14 @@ public partial class OnboardingWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
+        // WPF closes every window during application shutdown, including this
+        // singleton after it has been hidden. That is not a user dismissal and
+        // must not rewrite a completed setup back to dismissed.
+        if (!OnboardingStates.ShouldPersistDismissal(IsVisible))
+        {
+            return;
+        }
+
         e.Cancel = true;
         _ = DismissAsync();
     }

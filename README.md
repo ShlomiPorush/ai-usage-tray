@@ -22,7 +22,7 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 <p align="center"><sub>Usage dashboard: cost and tokens over the last 30 days, per provider, model or day.</sub></p>
 
 ## Features
-- Tray icon shows the worst window's percentage as a number; Settings can display either used or remaining quota, with matching numbers and bars across desktop surfaces.
+- Tray icon shows the worst window's percentage as a number; Settings can display either used or remaining quota, with matching numbers and bars across desktop surfaces and the default remote view.
 - **Four usage levels everywhere**, derived from the canonical used percentage: green when capacity is available, yellow and orange as quota runs down, and red near exhaustion. The same state is preserved when remaining quota is displayed.
 - Percentages are shown as quiet tinted pills, so a calm account stays calm and a hot one stands out.
 - Hovering the icon opens a popup next to it listing every account, one line each with a status dot.
