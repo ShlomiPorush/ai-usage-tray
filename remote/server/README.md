@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.0.2
+ghcr.io/shlomiporush/ai-usage-tray:1.0.3
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -51,11 +51,16 @@ The first successful Container workflow creates the GitHub package. Confirm once
 settings that its visibility is **Public**. Public GHCR images can be pulled anonymously. If it is
 kept private, authenticate the server with `docker login ghcr.io` before `docker compose pull`.
 
-The `./data` host directory is mapped to `/data`; no Docker volume is created. On startup, the image
-assigns the mapped directory to UID and GID `10001`, then immediately drops privileges before it
-starts Node. The long-running application process uses the dedicated non-root `remoteview` account
-with a read-only root filesystem and writes only to `/data`. Do not set a Compose `user` override;
-the entrypoint needs its limited startup capabilities to prepare a newly mapped directory.
+The `./data` host directory is mapped to `/data`; no Docker volume is created. On startup, the
+entrypoint prepares the mapped directory (mkdir, chown to UID and GID `10001`, mode fixes, each as
+far as the granted capabilities allow) and verifies with a real write probe that the database files
+can be created and modified. It then picks the most restricted user that works: with
+`CAP_SETUID`/`CAP_SETGID` available it drops to the dedicated non-root `remoteview` account; under
+`cap_drop: ALL` privilege dropping is impossible, so the process keeps running as the started user
+with an empty capability set, a read-only root filesystem, `no-new-privileges`, and write access
+only to `/data`. A Compose `user` override is also supported when the host `data` directory and any
+existing database files are writable by that UID; otherwise the container exits with an error that
+names the exact `chown` to run on the host.
 
 Example Caddy configuration:
 

@@ -1,1 +1,2 @@
 remote/server/docker-entrypoint.sh text eol=lf
+remote/server/healthcheck.sh text eol=lf
