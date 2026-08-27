@@ -1,14 +1,13 @@
 # Remote view server
 
-The remote view server runs as one long-lived Docker container plus a short-lived directory
-initializer. It serves the PWA and the protocol v2 JSON API from the same origin, and stores
-snapshots in SQLite in the mapped `data` directory.
+The remote view server runs as one Docker container. It serves the PWA and the protocol v2 JSON API
+from the same origin, and stores snapshots in SQLite in the mapped `data` directory.
 
 The server has no npm dependencies. It uses the SQLite module built into Node.js 24. GitHub Actions
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.0.1
+ghcr.io/shlomiporush/ai-usage-tray:1.0.2
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -52,10 +51,11 @@ The first successful Container workflow creates the GitHub package. Confirm once
 settings that its visibility is **Public**. Public GHCR images can be pulled anonymously. If it is
 kept private, authenticate the server with `docker login ghcr.io` before `docker compose pull`.
 
-The `./data` host directory is mapped to `/data`; no Docker volume is created. A short-lived
-`data-init` service assigns the mapped directory to UID and GID `10001`, then the application starts
-as the dedicated non-root `remoteview` account with a read-only root filesystem. It writes only to
-`/data`.
+The `./data` host directory is mapped to `/data`; no Docker volume is created. On startup, the image
+assigns the mapped directory to UID and GID `10001`, then immediately drops privileges before it
+starts Node. The long-running application process uses the dedicated non-root `remoteview` account
+with a read-only root filesystem and writes only to `/data`. Do not set a Compose `user` override;
+the entrypoint needs its limited startup capabilities to prepare a newly mapped directory.
 
 Example Caddy configuration:
 
@@ -144,7 +144,7 @@ curl -i -X DELETE "$BASE/u/$WRITE_ID"
 
 SQLite uses `data/usage.db`, `data/usage.db-wal`, and `data/usage.db-shm` while the service is running.
 For a simple consistent backup, stop the container before copying the `data` directory. Restore the
-files into `data`, then start Compose again; `data-init` restores ownership for UID and GID `10001`.
+files into `data`, then start Compose again; the image restores ownership for UID and GID `10001`.
 
 Snapshots are disposable seven-day data, so backup is optional. The write credentials remain on the
 desktop applications and are not stored in this database.
