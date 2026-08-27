@@ -550,12 +550,7 @@ namespace costats.App.Services
             }
             else if (_statusPanelWindow.Update(compactRows))
             {
-                var position = _taskbarPosition.GetWidgetPosition(
-                    _statusPanelWindow.ActualWidth,
-                    _statusPanelWindow.ActualHeight,
-                    12);
-                _statusPanelWindow.Left = position.X;
-                _statusPanelWindow.Top = position.Y;
+                PositionStatusPanel();
             }
         }
 
@@ -603,9 +598,12 @@ namespace costats.App.Services
             {
                 PositionWidget();
             }
-            // Force the next refresh to re-anchor the tray panel to the
-            // (possibly new) bottom-right corner.
-            _lastAppliedStatus = null;
+            if (_statusPanelWindow.IsVisible)
+            {
+                _statusPanelWindow.Dispatcher.BeginInvoke(
+                    new Action(PositionStatusPanel),
+                    System.Windows.Threading.DispatcherPriority.Loaded);
+            }
         }
 
         private void PositionWidget()
@@ -617,6 +615,22 @@ namespace costats.App.Services
             var position = _taskbarPosition.GetWidgetPosition(width, height, 12);
             _widgetWindow.Left = position.X;
             _widgetWindow.Top = position.Y;
+        }
+
+        private void PositionStatusPanel()
+        {
+            if (!_statusPanelWindow.IsVisible)
+            {
+                return;
+            }
+
+            _statusPanelWindow.UpdateLayout();
+            var position = _taskbarPosition.GetWidgetPosition(
+                _statusPanelWindow.ActualWidth,
+                _statusPanelWindow.ActualHeight,
+                12);
+            _statusPanelWindow.Left = position.X;
+            _statusPanelWindow.Top = position.Y;
         }
     }
 }

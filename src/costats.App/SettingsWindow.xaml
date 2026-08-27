@@ -165,7 +165,7 @@
                     <TextBlock Text="Show the floating compact status panel" FontSize="12"
                                Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
                 </CheckBox>
-                <TextBlock Text="Shows the movable dark status bar independently of the main usage window. Use its X to close it."
+                <TextBlock Text="Shows the movable status bar independently of the main usage window. Use its X to close it."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
 
                 <DockPanel Margin="0,0,0,6">

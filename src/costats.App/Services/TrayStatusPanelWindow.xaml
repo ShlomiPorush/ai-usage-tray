@@ -15,11 +15,9 @@
         SnapsToDevicePixels="True"
         MouseLeftButtonDown="OnMouseLeftButtonDown">
 
-    <!-- This intentionally has its own dark palette. It is the compact
-         always-on status bar, not a theme override for the main widget. -->
     <Border CornerRadius="11"
-            Background="#EA2D2F33"
-            BorderBrush="#606B7280"
+            Background="{DynamicResource FloatingPanelBgBrush}"
+            BorderBrush="{DynamicResource FloatingPanelBorderBrush}"
             BorderThickness="1"
             Padding="12,7,8,7">
         <Grid>
@@ -48,16 +46,16 @@
                             <TextBlock Text="&#x00D7;"
                                        FontFamily="Segoe UI"
                                        FontSize="17"
-                                       Foreground="#D1D5DB"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
                                        HorizontalAlignment="Center"
                                        VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="CloseBorder" Property="Background" Value="#35FFFFFF" />
+                                <Setter TargetName="CloseBorder" Property="Background" Value="{DynamicResource FloatingPanelCloseHoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="CloseBorder" Property="Background" Value="#55FFFFFF" />
+                                <Setter TargetName="CloseBorder" Property="Background" Value="{DynamicResource FloatingPanelClosePressedBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

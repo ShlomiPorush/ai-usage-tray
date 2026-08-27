@@ -1,0 +1,8 @@
+# The generated worker embeds these files byte-for-byte. Keep their checkout
+# representation stable on Windows so bundle regeneration is reproducible.
+/web/*.html text eol=lf
+/web/*.css text eol=lf
+/web/*.js text eol=lf
+/web/*.webmanifest text eol=lf
+/remote/worker/*.js text eol=lf
+/remote/worker/*.mjs text eol=lf

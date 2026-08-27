@@ -22,6 +22,13 @@
     <SolidColorBrush x:Key="TextFaintBrush" Color="#706659" />
     <SolidColorBrush x:Key="DividerBrush" Color="#DAD1C2" />
     <SolidColorBrush x:Key="TrackBrush" Color="#DFD6C7" />
+    <SolidColorBrush x:Key="FloatingPanelBgBrush" Color="#F7F3EC" />
+    <SolidColorBrush x:Key="FloatingPanelBorderBrush" Color="#B0A594" />
+    <SolidColorBrush x:Key="FloatingPanelCloseHoverBrush" Color="#14000000" />
+    <SolidColorBrush x:Key="FloatingPanelClosePressedBrush" Color="#22000000" />
+    <SolidColorBrush x:Key="FloatingPanelClaudeBrush" Color="#B91C1C" />
+    <SolidColorBrush x:Key="FloatingPanelCodexBrush" Color="#1D4ED8" />
+    <SolidColorBrush x:Key="FloatingPanelZaiBrush" Color="#4C4234" />
     <SolidColorBrush x:Key="AccentBrush" Color="#B45309" />
 
     <!-- Provider accents (shared shape in both themes, tuned per theme) -->

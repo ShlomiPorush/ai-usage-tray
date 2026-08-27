@@ -56,9 +56,11 @@ public partial class TrayStatusPanelWindow : Window
                     Text = "  |  ",
                     FontFamily = new FontFamily("Segoe UI"),
                     FontSize = 12,
-                    Foreground = new SolidColorBrush(Color.FromRgb(209, 213, 219)),
                     VerticalAlignment = VerticalAlignment.Center
                 });
+                ((TextBlock)line.Children[^1]).SetResourceReference(
+                    TextBlock.ForegroundProperty,
+                    "TextSecondaryBrush");
                 AddAccount(line, materialized[index + 1]);
             }
 
@@ -109,25 +111,27 @@ public partial class TrayStatusPanelWindow : Window
             FontFamily = new FontFamily("Segoe UI"),
             FontSize = 12,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(AccountColour(row)),
             VerticalAlignment = VerticalAlignment.Center
         });
+        ((TextBlock)line.Children[^1]).SetResourceReference(
+            TextBlock.ForegroundProperty,
+            AccountColourResource(row));
     }
 
-    private static Color AccountColour(TrayCompactRow row)
+    private static string AccountColourResource(TrayCompactRow row)
     {
         if (row.Label.StartsWith("Claude", StringComparison.OrdinalIgnoreCase))
         {
-            return Color.FromRgb(248, 113, 113);
+            return "FloatingPanelClaudeBrush";
         }
 
         if (row.Label.Contains("GLM", StringComparison.OrdinalIgnoreCase) ||
             row.Label.Contains("Z.AI", StringComparison.OrdinalIgnoreCase))
         {
-            return Color.FromRgb(229, 231, 235);
+            return "FloatingPanelZaiBrush";
         }
 
-        return Color.FromRgb(96, 165, 250);
+        return "FloatingPanelCodexBrush";
     }
 
     private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
