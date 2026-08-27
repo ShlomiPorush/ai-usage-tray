@@ -1,32 +1,7 @@
 services:
-  data-init:
-    image: ghcr.io/shlomiporush/ai-usage-tray:latest
-    pull_policy: always
-    user: "0:0"
-    entrypoint: ["chown", "-R", "10001:10001", "/data"]
-    volumes:
-      - type: bind
-        source: ./data
-        target: /data
-        bind:
-          create_host_path: false
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - DAC_OVERRIDE
-    restart: "no"
-
   remote-view:
     image: ghcr.io/shlomiporush/ai-usage-tray:latest
     pull_policy: always
-    user: "10001:10001"
-    depends_on:
-      data-init:
-        condition: service_completed_successfully
     restart: unless-stopped
     ports:
       - "127.0.0.1:8080:8080"
@@ -43,9 +18,14 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
     stop_grace_period: 10s
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: ["CMD", "su-exec", "10001:10001", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 3s
       start_period: 5s

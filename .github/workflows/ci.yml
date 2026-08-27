@@ -101,27 +101,22 @@ jobs:
             --mount "type=bind,src=$data_dir,dst=/data" \
             ai-usage-tray-remote-view:ci \
             -c 'touch /data/.root-owned && chown -R 0:0 /data && chmod 755 /data'
-          docker run --rm \
-            --read-only \
-            --user 0:0 \
-            --cap-drop ALL \
-            --cap-add CHOWN \
-            --cap-add DAC_OVERRIDE \
-            --security-opt no-new-privileges:true \
-            --entrypoint chown \
-            --mount "type=bind,src=$data_dir,dst=/data" \
-            ai-usage-tray-remote-view:ci \
-            -R 10001:10001 /data
           docker run -d --name remote-view-ci \
             --read-only \
             --tmpfs /tmp:rw,size=16m \
             --cap-drop ALL \
+            --cap-add CHOWN \
+            --cap-add DAC_OVERRIDE \
+            --cap-add SETGID \
+            --cap-add SETUID \
             --security-opt no-new-privileges:true \
             --mount "type=bind,src=$data_dir,dst=/data" \
             ai-usage-tray-remote-view:ci
           for attempt in $(seq 1 15); do
             health=$(docker inspect --format '{{.State.Health.Status}}' remote-view-ci)
             if [ "$health" = "healthy" ]; then
+              test "$(docker exec --user 0:0 remote-view-ci awk '/^Uid:/ { print $2 }' /proc/1/status)" = "10001"
+              test "$(docker exec --user 0:0 remote-view-ci awk '/^CapEff:/ { print $2 }' /proc/1/status)" = "0000000000000000"
               exit 0
             fi
             sleep 1
