@@ -71,5 +71,8 @@ auth.json
 .env.*
 !.env.example
 
+# Remote-view SQLite data
+remote/server/data/
+
 # Local scratch: prototypes and throwaway experiments, never committed
 local/

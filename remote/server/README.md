@@ -1,13 +1,14 @@
 # Remote view server
 
-The remote view server runs as one Docker container. It serves the PWA and the protocol v2 JSON API
-from the same origin, and stores snapshots in SQLite on a persistent Docker volume.
+The remote view server runs as one long-lived Docker container plus a short-lived directory
+initializer. It serves the PWA and the protocol v2 JSON API from the same origin, and stores
+snapshots in SQLite in the mapped `data` directory.
 
 The server has no npm dependencies. It uses the SQLite module built into Node.js 24. GitHub Actions
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.0.0
+ghcr.io/shlomiporush/ai-usage-tray:1.0.1
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -25,6 +26,7 @@ mkdir -p /opt/ai-usage-tray-remote-view
 cd /opt/ai-usage-tray-remote-view
 curl -fsSLo compose.yaml \
   https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/remote/server/compose.yaml
+mkdir -p data
 docker compose pull
 docker compose up -d
 curl http://127.0.0.1:8080/health
@@ -50,10 +52,10 @@ The first successful Container workflow creates the GitHub package. Confirm once
 settings that its visibility is **Public**. Public GHCR images can be pulled anonymously. If it is
 kept private, authenticate the server with `docker login ghcr.io` before `docker compose pull`.
 
-The persistent volume is named `ai-usage-tray-remote-view-data`. Do not mount the database on
-ephemeral container storage. The container runs as a non-root user with a read-only root filesystem
-and writes only to `/data`. The dedicated container account is `remoteview`, with UID and GID
-`10001`.
+The `./data` host directory is mapped to `/data`; no Docker volume is created. A short-lived
+`data-init` service assigns the mapped directory to UID and GID `10001`, then the application starts
+as the dedicated non-root `remoteview` account with a read-only root filesystem. It writes only to
+`/data`.
 
 Example Caddy configuration:
 
@@ -140,9 +142,9 @@ curl -i -X DELETE "$BASE/u/$WRITE_ID"
 
 ## Backup and restore
 
-SQLite uses `usage.db`, `usage.db-wal`, and `usage.db-shm` while the service is running. For a simple
-consistent volume backup, stop the container before copying the volume contents. Restore all files
-into `/data` with ownership writable by UID and GID `10001`, then start it again.
+SQLite uses `data/usage.db`, `data/usage.db-wal`, and `data/usage.db-shm` while the service is running.
+For a simple consistent backup, stop the container before copying the `data` directory. Restore the
+files into `data`, then start Compose again; `data-init` restores ownership for UID and GID `10001`.
 
 Snapshots are disposable seven-day data, so backup is optional. The write credentials remain on the
 desktop applications and are not stored in this database.
