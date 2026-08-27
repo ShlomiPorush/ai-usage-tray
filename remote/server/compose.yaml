@@ -1,0 +1,25 @@
+services:
+  remote-view:
+    image: ghcr.io/shlomiporush/ai-usage-tray:latest
+    pull_policy: always
+    user: "10001:10001"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - remote-view-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 10s
+    environment:
+      - SNAPSHOT_TTL_SECONDS=604800
+      - CLEANUP_INTERVAL_SECONDS=3600
+
+volumes:
+  remote-view-data:
+    name: ai-usage-tray-remote-view-data

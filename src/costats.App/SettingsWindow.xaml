@@ -263,7 +263,7 @@
                                Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
                     <TextBox Text="{Binding RemoteViewUploadUrl, UpdateSourceTrigger=LostFocus}"
                              Style="{StaticResource SettingsTextBox}" Margin="0,0,0,4" />
-                    <TextBlock Text="Base URL of the worker that stores the snapshot, e.g. https://usage-api.example.com. Must be https."
+                    <TextBlock Text="Base URL of the server that stores the snapshot, e.g. https://usage-api.example.com. Must be https."
                                FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,12" TextWrapping="Wrap" />
 
                     <TextBlock Text="Viewer page URL" FontSize="12"

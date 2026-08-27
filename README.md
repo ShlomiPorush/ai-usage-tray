@@ -86,11 +86,11 @@ Pick a range (7, 30 or 90 days), filter by account, and read the per-provider sp
 ```
 
 ## Remote view (phone / web)
-Optional and off by default. Enable it in Settings → Remote view and press **Copy link**: that's the whole setup. After each refresh the app uploads a small snapshot (provider, account nickname, plan, usage percentages and reset times; never tokens or folder paths) to the built-in relay (a Cloudflare Worker), keyed by a random 128-bit id that doubles as the only credential. Anyone with the link can view the data. Entries expire server-side after 7 days without updates, so data from uninstalled apps cleans itself up. The built-in relay runs at [ai.yaaps.net](https://ai.yaaps.net), and the page can be installed as an app (PWA) straight from the browser.
+Optional and off by default. Enable it in Settings → Remote view and press **Copy link**: that's the whole setup. After each refresh the app uploads a small snapshot (provider, account nickname, plan, usage percentages and reset times; never tokens or folder paths) to the built-in relay. A private write id authorises uploads, while the share link carries a one-way derived read id that cannot overwrite data. Anyone with the link can view the data. Entries expire server-side after 7 days without updates, so data from uninstalled apps cleans itself up. The built-in relay runs at [ai.yaaps.net](https://ai.yaaps.net), and the page can be installed as an app (PWA) straight from the browser.
 
 Live demo: [https://ai.yaaps.net/?id=demo](https://ai.yaaps.net/?id=demo) (sample data, no account needed).
 
-Self-hosting is optional: deploy your own worker ([remote/worker/README.md](remote/worker/README.md), single-file paste in the Cloudflare dashboard, serves both page and API) or host the page separately ([web/README.md](web/README.md)), then override `RemoteViewUploadUrl` / `RemoteViewPageUrl` in `settings.json`.
+Self-hosting is optional: pull the published SQLite-backed container from GitHub Container Registry ([remote/server/README.md](remote/server/README.md), serves both page and API) or host the page separately ([web/README.md](web/README.md)), then override `RemoteViewUploadUrl` / `RemoteViewPageUrl` in `settings.json`. The previous Cloudflare Worker remains documented as a temporary rollback option.
 
 ## Data sources & privacy
 - **OpenAI / Codex**: the official local `codex app-server` JSON-RPC method `account/rateLimits/read`, one short-lived process per account. The app never reads or copies account tokens; Codex owns authentication and refresh.

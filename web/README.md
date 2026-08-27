@@ -2,15 +2,15 @@
 
 The page that shows an AI Usage Tray snapshot from any device. Plain HTML, CSS and
 JavaScript: no build step, no frameworks, no external requests other than the one
-call to your own worker.
+call to your own remote-view server.
 
 ## Install
 
 1. Copy this folder to the server, e.g. `/var/www/ai-usage/`.
-2. Edit `config.js` and set `apiBase` to the worker URL (no trailing slash):
+2. Edit `config.js` and set `apiBase` to the API URL (no trailing slash):
 
    ```js
-   window.REMOTE_VIEW_CONFIG = { apiBase: "https://usage.example.workers.dev" };
+   window.REMOTE_VIEW_CONFIG = { apiBase: "https://usage-api.example.com" };
    ```
 
 3. Serve the folder as static files:
@@ -76,9 +76,9 @@ only fetch the snapshot. The app keeps a separate secret **write id** and never 
 it in a link, so sharing a link cannot let anyone overwrite or delete your data. The
 read id is still a capability, so treat the link as unlisted rather than public.
 Without a valid `id` the page shows a landing view with links to the app's releases
-and repository. See `remote/worker/README.md` for how the two ids relate.
+and repository. See `../remote/server/README.md` for how the two ids relate.
 
-`?id=demo` is the one non-hex id the page accepts: the worker answers it with a
+`?id=demo` is the one non-hex id the page accepts: the server answers it with a
 sample payload, and the page marks it with a "Demo data" badge. It is deliberately
 not remembered as the last-seen id, so opening the demo cannot hijack an installed
 app that was set up with a real link.

@@ -44,3 +44,41 @@ jobs:
         if: matrix.configuration == 'Release'
         shell: powershell
         run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\tests\scripts\InstallChecksum.Tests.ps1
+
+  remote-view:
+    name: Remote View Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Test server
+        run: docker run --rm -v "$PWD:/work" -w /work/remote/server node:24-alpine node --test
+
+      - name: Build container
+        run: docker build -f remote/server/Dockerfile -t ai-usage-tray-remote-view:ci .
+
+      - name: Smoke test container
+        run: |
+          cleanup() {
+            docker rm -f remote-view-ci >/dev/null 2>&1 || true
+            docker volume rm remote-view-ci-data >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker run -d --name remote-view-ci \
+            --read-only \
+            --tmpfs /tmp:rw,size=16m \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            -v remote-view-ci-data:/data \
+            ai-usage-tray-remote-view:ci
+          for attempt in $(seq 1 15); do
+            health=$(docker inspect --format '{{.State.Health.Status}}' remote-view-ci)
+            if [ "$health" = "healthy" ]; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs remote-view-ci
+          exit 1
