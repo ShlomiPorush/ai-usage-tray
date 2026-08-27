@@ -81,7 +81,7 @@ public sealed class AppSettings
     public string? RemoteViewId { get; set; }
 
     /// <summary>
-    /// Base URL of the upload endpoint (a Cloudflare Worker), e.g.
+    /// Base URL of the remote-view upload endpoint, e.g.
     /// <c>https://usage-api.example.com</c>. Snapshots are PUT to
     /// <c>{url}/u/{writeId}</c>. Must be https (or http on a loopback host);
     /// anything else is ignored.

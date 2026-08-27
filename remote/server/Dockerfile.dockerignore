@@ -1,0 +1,10 @@
+.git
+.github
+.github
+**/bin
+**/obj
+**/node_modules
+artifacts
+local
+remote/worker
+tests

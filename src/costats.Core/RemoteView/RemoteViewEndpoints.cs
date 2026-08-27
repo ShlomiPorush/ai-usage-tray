@@ -9,7 +9,7 @@ public static class RemoteViewEndpoints
     /// <summary>
     /// True for an absolute https URL, or for plain http on a loopback host
     /// (<c>localhost</c>, <c>127.0.0.1</c>, <c>::1</c>) so a self-hoster can
-    /// test a worker running on their own machine.
+    /// test a remote-view server running on their own machine.
     /// </summary>
     public static bool IsAllowed(string? url)
     {

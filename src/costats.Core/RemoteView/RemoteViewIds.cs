@@ -9,10 +9,10 @@ namespace costats.Core.RemoteView;
 /// <em>read id</em> derived from it, which can only read.
 /// </summary>
 /// <remarks>
-/// The derivation is the one documented in <c>remote/worker/README.md</c>:
+/// The derivation is the one documented in <c>remote/server/README.md</c>:
 /// SHA-256 over the UTF-8 bytes of the 32 hex <em>characters</em> of the write
 /// id (not over the 16 bytes they encode), first 16 bytes of the digest as
-/// lowercase hex. The worker echoes the id it derived in the
+/// lowercase hex. The server echoes the id it derived in the
 /// <c>X-Read-Id</c> response header, so a mismatch is a client bug.
 /// </remarks>
 public static class RemoteViewIds
@@ -54,7 +54,7 @@ public static class RemoteViewIds
     /// <summary>
     /// The public read id for <paramref name="writeId"/>. Throws when the write
     /// id is not 32 lowercase hex characters, because hashing anything else
-    /// would produce an id the worker never stores under.
+    /// would produce an id the server never stores under.
     /// </summary>
     public static string DeriveReadId(string writeId)
     {
