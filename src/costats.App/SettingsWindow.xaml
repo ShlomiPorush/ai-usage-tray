@@ -155,18 +155,59 @@
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
 
                 <CheckBox IsChecked="{Binding ShowWeeklyBeforeSession}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Show Weekly before Session in compact panels" FontSize="12"
+                    <TextBlock Text="Show Weekly before Session in tray panels" FontSize="12"
                                Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
                 </CheckBox>
                 <TextBlock Text="Enabled by default for the tray hover and floating status panel. Turn it off to restore Session before Weekly."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
 
                 <CheckBox IsChecked="{Binding ShowFloatingStatusPanel}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Show the floating compact status panel" FontSize="12"
+                    <TextBlock Text="Show the floating status panel" FontSize="12"
                                Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
                 </CheckBox>
-                <TextBlock Text="Shows the movable status bar independently of the main usage window. Use its X to close it."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
+                <TextBlock Text="Shows the same status rows as the tray tooltip in a movable always-on panel. Use its X to close it."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,8" TextWrapping="Wrap" />
+
+                <StackPanel Visibility="{Binding ShowFloatingStatusPanel, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <DockPanel Margin="30,0,0,8">
+                        <TextBlock Text="Starting position" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" DockPanel.Dock="Left"
+                                   VerticalAlignment="Center" />
+                        <ComboBox ItemsSource="{Binding FloatingPanelPositionOptions}"
+                                  DisplayMemberPath="Label"
+                                  SelectedValuePath="Value"
+                                  SelectedValue="{Binding FloatingPanelPosition, Mode=TwoWay}"
+                                  DockPanel.Dock="Right" HorizontalAlignment="Right" Width="126" />
+                    </DockPanel>
+                    <TextBlock Text="The panel stays anchored here when its size changes. Dragging moves it for the current app session."
+                               FontSize="10" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,10"
+                               TextWrapping="Wrap" />
+
+                    <TextBlock Text="Accounts shown" FontSize="11" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="30,0,0,6" />
+                    <ItemsControl ItemsSource="{Binding ProviderRows}" Focusable="False" Margin="30,0,0,4">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <CheckBox IsChecked="{Binding IsShownInFloatingPanel, Mode=OneWay}"
+                                          IsEnabled="{Binding CanChangeFloatingPanelSelection}"
+                                          Command="{Binding DataContext.ToggleFloatingPanelAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                          CommandParameter="{Binding}"
+                                          Style="{StaticResource SettingsCheckBox}"
+                                          Margin="0,0,0,5">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontSize="11.5" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}" />
+                                        <TextBlock Text="{Binding KindLabel, StringFormat='  {0}'}" FontSize="10"
+                                                   Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                </CheckBox>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="New accounts are shown automatically. At least one account must remain selected."
+                               FontSize="10" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12"
+                               TextWrapping="Wrap" />
+                </StackPanel>
 
                 <DockPanel Margin="0,0,0,6">
                     <TextBlock Text="Theme" FontSize="12"
@@ -217,32 +258,32 @@
 
                 <CheckBox IsChecked="{Binding AutoStartClaudeFiveHourWindow}"
                           Style="{StaticResource SettingsCheckBox}" Margin="0,14,0,6">
-                    <TextBlock Text="Automatically start Claude's next 5-hour window"
+                    <TextBlock Text="Automatically start new Claude 5-hour windows"
                                FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
                                TextWrapping="Wrap" />
                 </CheckBox>
-                <TextBlock Text="After an observed window expires, sends one 'Reply OK' prompt through Claude Code using Haiku."
+                <TextBlock Text="After an observed window expires, starts the next one with a minimal Claude Code prompt."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
                            Margin="30,0,0,12" TextWrapping="Wrap" />
 
                 <CheckBox IsChecked="{Binding AutoStartCodexFiveHourWindow}"
                           Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Automatically start GPT/Codex's next 5-hour window"
+                    <TextBlock Text="Automatically start new Codex 5-hour windows"
                                FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
                                TextWrapping="Wrap" />
                 </CheckBox>
-                <TextBlock Text="Explicit opt-in: if an account is idle, immediately runs one isolated read-only prompt; then starts each next window after expiry."
+                <TextBlock Text="When an account is idle, starts a window with an isolated read-only Codex prompt, then starts the next one after expiry."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
                            Margin="30,0,0,12" TextWrapping="Wrap" />
 
                 <CheckBox IsChecked="{Binding AutoStartZaiFiveHourWindow}"
                           IsEnabled="{Binding CanAutoStartZaiFiveHourWindow}"
                           Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Automatically start GLM's next 5-hour window"
+                    <TextBlock Text="Automatically start new GLM 5-hour windows"
                                FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
                                TextWrapping="Wrap" />
                 </CheckBox>
-                <TextBlock Text="Requires the GLM coding-plan key and uses GLM-4.5-Air. A failed activation is retried up to three times, every five minutes."
+                <TextBlock Text="When the account is idle, starts a window with a minimal GLM prompt, then starts the next one after expiry. Requires the coding-plan key."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
                            Margin="30,0,0,0" TextWrapping="Wrap" />
 

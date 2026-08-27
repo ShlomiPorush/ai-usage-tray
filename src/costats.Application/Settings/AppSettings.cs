@@ -1,4 +1,5 @@
 using costats.Core.RemoteView;
+using costats.Application.Windowing;
 
 namespace costats.Application.Settings;
 
@@ -69,6 +70,79 @@ public sealed class AppSettings
     /// widget. The panel remains topmost until disabled or closed.
     /// </summary>
     public bool ShowFloatingStatusPanel { get; set; } = false;
+
+    private string floatingPanelPosition = FloatingPanelPlacementCalculator.BottomRightSetting;
+
+    /// <summary>
+    /// Work-area corner used when the floating panel opens and whenever its
+    /// content size changes before the user drags it manually.
+    /// </summary>
+    public string FloatingPanelPosition
+    {
+        get => floatingPanelPosition;
+        set => floatingPanelPosition = FloatingPanelPlacementCalculator.NormalizeSetting(value);
+    }
+
+    private List<string> floatingPanelHiddenProviderIds = [];
+
+    /// <summary>
+    /// Provider ids hidden only from the always-on floating panel. An empty
+    /// list means every configured provider is visible, including providers
+    /// added after the preference was saved.
+    /// </summary>
+    public List<string> FloatingPanelHiddenProviderIds
+    {
+        get => floatingPanelHiddenProviderIds;
+        set => floatingPanelHiddenProviderIds = NormalizeProviderIds(value);
+    }
+
+    public bool IsFloatingPanelProviderVisible(string providerId) =>
+        !string.IsNullOrWhiteSpace(providerId) &&
+        !floatingPanelHiddenProviderIds.Contains(providerId.Trim(), StringComparer.OrdinalIgnoreCase);
+
+    public void SetFloatingPanelProviderVisible(string providerId, bool visible)
+    {
+        if (string.IsNullOrWhiteSpace(providerId))
+        {
+            return;
+        }
+
+        var normalized = providerId.Trim();
+        floatingPanelHiddenProviderIds.RemoveAll(id =>
+            string.Equals(id, normalized, StringComparison.OrdinalIgnoreCase));
+        if (!visible)
+        {
+            floatingPanelHiddenProviderIds.Add(normalized);
+        }
+    }
+
+    /// <summary>
+    /// Repairs a hand-edited selection that hides every currently configured
+    /// provider. Returns true when the selection was reset to show all.
+    /// </summary>
+    public bool EnsureFloatingPanelHasVisibleProvider(IEnumerable<string> providerIds)
+    {
+        ArgumentNullException.ThrowIfNull(providerIds);
+        var current = NormalizeProviderIds(providerIds);
+        if (current.Count == 0 || current.Any(IsFloatingPanelProviderVisible))
+        {
+            return false;
+        }
+
+        foreach (var providerId in current)
+        {
+            SetFloatingPanelProviderVisible(providerId, visible: true);
+        }
+
+        return true;
+    }
+
+    private static List<string> NormalizeProviderIds(IEnumerable<string>? providerIds) =>
+        (providerIds ?? [])
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Select(id => id.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     /// <summary>
     /// Reads the short-lived development setting that incorrectly applied

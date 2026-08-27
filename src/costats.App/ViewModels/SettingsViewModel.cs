@@ -12,6 +12,7 @@ using costats.Application.Pulse;
 using costats.Application.RemoteView;
 using costats.Application.Security;
 using costats.Application.Settings;
+using costats.Application.Windowing;
 using costats.Core.Pulse;
 using costats.Core.RemoteView;
 using costats.Infrastructure.Analytics;
@@ -78,6 +79,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         showRemainingPercentages = settings.ShowRemainingPercentages;
         showWeeklyBeforeSession = settings.ShowWeeklyBeforeSession;
         showFloatingStatusPanel = settings.ShowFloatingStatusPanel;
+        floatingPanelPosition = settings.FloatingPanelPosition;
         autoStartClaudeFiveHourWindow = settings.AutoStartClaudeFiveHourWindow;
         autoStartCodexFiveHourWindow = settings.AutoStartCodexFiveHourWindow;
         if (!settings.HasZaiCodingKey)
@@ -133,6 +135,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool showFloatingStatusPanel;
+
+    [ObservableProperty]
+    private string floatingPanelPosition = FloatingPanelPlacementCalculator.BottomRightSetting;
 
     [ObservableProperty]
     private bool autoStartCodexFiveHourWindow;
@@ -234,6 +239,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         new ThemeOption(Services.ThemeService.SystemTheme, "Follow system"),
         new ThemeOption(Services.ThemeService.LightTheme, "Light"),
         new ThemeOption(Services.ThemeService.DarkTheme, "Dark"),
+    ];
+
+    public static IReadOnlyList<FloatingPanelPositionOption> FloatingPanelPositionOptions { get; } =
+    [
+        new(FloatingPanelPlacementCalculator.BottomRightSetting, "Bottom right"),
+        new(FloatingPanelPlacementCalculator.BottomLeftSetting, "Bottom left"),
+        new(FloatingPanelPlacementCalculator.TopRightSetting, "Top right"),
+        new(FloatingPanelPlacementCalculator.TopLeftSetting, "Top left")
     ];
 
     public ThemeOption SelectedTheme
@@ -376,25 +389,55 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void RebuildProviderRows()
     {
         ProviderRows.Clear();
+        var rows = new List<ProviderRowViewModel>();
         foreach (var account in (_settings.Accounts ?? []).Where(a => a.IsValid))
         {
             var kind = account.IsClaude ? MonitoredAccountSettings.ClaudeType : MonitoredAccountSettings.CodexType;
-            ProviderRows.Add(new ProviderRowViewModel(
+            var providerId = $"{kind}:{account.Id}";
+            rows.Add(new ProviderRowViewModel(
                 kind,
                 account.Id,
                 MonitoredAccountSettings.NormalizeDisplayName(account.DisplayName, account.Id),
                 account.ConfigDir,
-                IsPrimaryProvider($"{kind}:{account.Id}")));
+                IsPrimaryProvider(providerId),
+                _settings.IsFloatingPanelProviderVisible(providerId)));
         }
 
         if (_settings.HasZaiKey)
         {
-            ProviderRows.Add(new ProviderRowViewModel("zai", null, _settings.ZAiDisplayName, "API key configured", IsPrimaryProvider("zai")));
+            rows.Add(new ProviderRowViewModel(
+                "zai",
+                null,
+                _settings.ZAiDisplayName,
+                "API key configured",
+                IsPrimaryProvider("zai"),
+                _settings.IsFloatingPanelProviderVisible("zai")));
         }
 
         if (_settings.CopilotEnabled)
         {
-            ProviderRows.Add(new ProviderRowViewModel("copilot", null, "Copilot", "Token in Windows Credential Manager", IsPrimaryProvider("copilot")));
+            rows.Add(new ProviderRowViewModel(
+                "copilot",
+                null,
+                "Copilot",
+                "Token in Windows Credential Manager",
+                IsPrimaryProvider("copilot"),
+                _settings.IsFloatingPanelProviderVisible("copilot")));
+        }
+
+        if (_settings.EnsureFloatingPanelHasVisibleProvider(rows.Select(row => row.ProviderId)))
+        {
+            rows = rows.Select(row => row with { IsShownInFloatingPanel = true }).ToList();
+            SaveSettingsInBackground();
+        }
+
+        var selectedCount = rows.Count(row => row.IsShownInFloatingPanel);
+        foreach (var row in rows)
+        {
+            ProviderRows.Add(row with
+            {
+                CanChangeFloatingPanelSelection = !row.IsShownInFloatingPanel || selectedCount > 1
+            });
         }
     }
 
@@ -417,6 +460,20 @@ public sealed partial class SettingsViewModel : ObservableObject
         SaveSettingsInBackground();
         RebuildProviderRows();
         AccountsRestartMessage = row.IsPrimary ? "Primary account cleared." : $"{row.Name} set as primary.";
+        _pulseOrchestrator.RepublishLastState();
+    }
+
+    [RelayCommand]
+    private void ToggleFloatingPanelAccount(ProviderRowViewModel? row)
+    {
+        if (row is null || !row.CanChangeFloatingPanelSelection)
+        {
+            return;
+        }
+
+        _settings.SetFloatingPanelProviderVisible(row.ProviderId, !row.IsShownInFloatingPanel);
+        SaveSettingsInBackground();
+        RebuildProviderRows();
         _pulseOrchestrator.RepublishLastState();
     }
 
@@ -509,6 +566,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
+        _settings.SetFloatingPanelProviderVisible(row.ProviderId, visible: true);
+
         switch (row.Kind)
         {
             case "zai":
@@ -583,6 +642,20 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnShowFloatingStatusPanelChanged(bool value)
     {
         _settings.ShowFloatingStatusPanel = value;
+        SaveSettingsInBackground();
+        _pulseOrchestrator.RepublishLastState();
+    }
+
+    partial void OnFloatingPanelPositionChanged(string value)
+    {
+        var normalized = FloatingPanelPlacementCalculator.NormalizeSetting(value);
+        if (!string.Equals(value, normalized, StringComparison.Ordinal))
+        {
+            FloatingPanelPosition = normalized;
+            return;
+        }
+
+        _settings.FloatingPanelPosition = normalized;
         SaveSettingsInBackground();
         _pulseOrchestrator.RepublishLastState();
     }
@@ -1254,6 +1327,11 @@ public sealed record RefreshOption(int Minutes, string Label)
 }
 
 public sealed record ThemeOption(string Value, string Label)
+{
+    public override string ToString() => Label;
+}
+
+public sealed record FloatingPanelPositionOption(string Value, string Label)
 {
     public override string ToString() => Label;
 }

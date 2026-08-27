@@ -139,13 +139,17 @@ public sealed class JsonSettingsStoreTests : IDisposable
         Assert.False(defaults.ShowRemainingPercentages);
         Assert.True(defaults.ShowWeeklyBeforeSession);
         Assert.False(defaults.ShowFloatingStatusPanel);
+        Assert.Equal("bottom-right", defaults.FloatingPanelPosition);
+        Assert.Empty(defaults.FloatingPanelHiddenProviderIds);
 
         await store.SaveAsync(
             new AppSettings
             {
                 ShowRemainingPercentages = true,
                 ShowWeeklyBeforeSession = false,
-                ShowFloatingStatusPanel = true
+                ShowFloatingStatusPanel = true,
+                FloatingPanelPosition = "top-left",
+                FloatingPanelHiddenProviderIds = ["codex:work"]
             },
             CancellationToken.None);
 
@@ -153,6 +157,86 @@ public sealed class JsonSettingsStoreTests : IDisposable
         Assert.True(loaded.ShowRemainingPercentages);
         Assert.False(loaded.ShowWeeklyBeforeSession);
         Assert.True(loaded.ShowFloatingStatusPanel);
+        Assert.Equal("top-left", loaded.FloatingPanelPosition);
+        Assert.Equal(["codex:work"], loaded.FloatingPanelHiddenProviderIds);
+    }
+
+    [Theory]
+    [InlineData(" TOP-RIGHT ", "top-right")]
+    [InlineData("bottom-left", "bottom-left")]
+    [InlineData("unsupported", "bottom-right")]
+    [InlineData(null, "bottom-right")]
+    public void Floating_panel_position_is_normalized_and_falls_back_safely(
+        string? value,
+        string expected)
+    {
+        var settings = new AppSettings { FloatingPanelPosition = value! };
+
+        Assert.Equal(expected, settings.FloatingPanelPosition);
+    }
+
+    [Fact]
+    public void Floating_panel_account_selection_is_case_insensitive_and_defaults_new_accounts_visible()
+    {
+        var settings = new AppSettings
+        {
+            FloatingPanelHiddenProviderIds = [" CODEX:WORK ", "codex:work", "", "   "]
+        };
+
+        Assert.Equal(["CODEX:WORK"], settings.FloatingPanelHiddenProviderIds);
+        Assert.False(settings.IsFloatingPanelProviderVisible("codex:work"));
+        Assert.True(settings.IsFloatingPanelProviderVisible("codex:new-account"));
+
+        settings.SetFloatingPanelProviderVisible("Codex:Work", visible: true);
+        Assert.Empty(settings.FloatingPanelHiddenProviderIds);
+
+        settings.SetFloatingPanelProviderVisible("claude:personal", visible: false);
+        Assert.False(settings.IsFloatingPanelProviderVisible("CLAUDE:PERSONAL"));
+    }
+
+    [Fact]
+    public void Floating_panel_selection_filters_a_subset_without_mutating_the_full_account_list()
+    {
+        string[] providerIds =
+        [
+            "claude:one",
+            "claude:two",
+            "codex:one",
+            "codex:two",
+            "codex:three",
+            "codex:four"
+        ];
+        var settings = new AppSettings
+        {
+            FloatingPanelHiddenProviderIds =
+            [
+                "claude:one",
+                "codex:one",
+                "codex:two",
+                "codex:three"
+            ]
+        };
+
+        var selected = providerIds.Where(settings.IsFloatingPanelProviderVisible).ToArray();
+
+        Assert.Equal(["claude:two", "codex:four"], selected);
+        Assert.Equal(6, providerIds.Length);
+    }
+
+    [Fact]
+    public void Floating_panel_selection_repairs_an_all_hidden_hand_edited_state()
+    {
+        var settings = new AppSettings
+        {
+            FloatingPanelHiddenProviderIds = ["claude:one", "codex:one", "stale:removed"]
+        };
+
+        var changed = settings.EnsureFloatingPanelHasVisibleProvider(["claude:one", "codex:one"]);
+
+        Assert.True(changed);
+        Assert.True(settings.IsFloatingPanelProviderVisible("claude:one"));
+        Assert.True(settings.IsFloatingPanelProviderVisible("codex:one"));
+        Assert.Contains("stale:removed", settings.FloatingPanelHiddenProviderIds);
     }
 
     [Fact]

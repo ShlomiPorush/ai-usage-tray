@@ -15,11 +15,11 @@
         SnapsToDevicePixels="True"
         MouseLeftButtonDown="OnMouseLeftButtonDown">
 
-    <Border CornerRadius="11"
-            Background="{DynamicResource FloatingPanelBgBrush}"
-            BorderBrush="{DynamicResource FloatingPanelBorderBrush}"
+    <Border CornerRadius="8"
+            Background="{DynamicResource PanelBgBrush}"
+            BorderBrush="{DynamicResource WindowBorderBrush}"
             BorderThickness="1"
-            Padding="12,7,8,7">
+            Padding="12,9">
         <Grid>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
@@ -28,7 +28,6 @@
 
             <StackPanel x:Name="StatusRowsPanel"
                         Grid.Column="0"
-                        MaxWidth="520"
                         VerticalAlignment="Center" />
 
             <Button Grid.Column="1"
@@ -52,10 +51,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="CloseBorder" Property="Background" Value="{DynamicResource FloatingPanelCloseHoverBrush}" />
+                                <Setter TargetName="CloseBorder" Property="Background" Value="{DynamicResource ButtonHoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="CloseBorder" Property="Background" Value="{DynamicResource FloatingPanelClosePressedBrush}" />
+                                <Setter TargetName="CloseBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

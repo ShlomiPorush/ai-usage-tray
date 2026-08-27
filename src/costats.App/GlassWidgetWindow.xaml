@@ -33,6 +33,49 @@
         <!-- Remote view icon (globe) -->
         <Geometry x:Key="RemoteViewIconPath">M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,19.93C7.05,19.44 4,16.08 4,12C4,11.38 4.08,10.78 4.21,10.21L9,15V16A2,2 0 0,0 11,18M17.9,17.39C17.64,16.58 16.9,16 16,16H15V13A1,1 0 0,0 14,12H8V10H10A1,1 0 0,0 11,9V7H13A2,2 0 0,0 15,5V4.59C17.93,5.77 20,8.64 20,12C20,14.08 19.2,15.97 17.9,17.39Z</Geometry>
 
+        <!-- Provider identity is intentionally separate from the usage-status dot. -->
+        <DataTemplate x:Key="ClaudeProviderIconTemplate">
+            <Viewbox Stretch="Uniform">
+                <Path Data="{StaticResource ClaudeIconPath}" Fill="{DynamicResource TextSecondaryBrush}" />
+            </Viewbox>
+        </DataTemplate>
+        <DataTemplate x:Key="CodexProviderIconTemplate">
+            <Viewbox Stretch="Uniform">
+                <Path Data="{StaticResource CodexIconPath}" Fill="{DynamicResource TextSecondaryBrush}" />
+            </Viewbox>
+        </DataTemplate>
+        <DataTemplate x:Key="CopilotProviderIconTemplate">
+            <Viewbox Stretch="Uniform">
+                <Path Data="{StaticResource CopilotIconPath}" Fill="{DynamicResource TextSecondaryBrush}" />
+            </Viewbox>
+        </DataTemplate>
+        <DataTemplate x:Key="ZaiProviderIconTemplate">
+            <Border BorderBrush="{DynamicResource TextMutedBrush}" BorderThickness="1" CornerRadius="4">
+                <TextBlock Text="Z" FontSize="10" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextSecondaryBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+            </Border>
+        </DataTemplate>
+        <Style x:Key="ProviderIcon" TargetType="ContentControl">
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="Content" Value="{Binding}" />
+            <Setter Property="ContentTemplate" Value="{StaticResource ZaiProviderIconTemplate}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ProviderKind}" Value="claude">
+                    <Setter Property="ContentTemplate" Value="{StaticResource ClaudeProviderIconTemplate}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ProviderKind}" Value="codex">
+                    <Setter Property="ContentTemplate" Value="{StaticResource CodexProviderIconTemplate}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
+                    <Setter Property="ContentTemplate" Value="{StaticResource CopilotProviderIconTemplate}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- Percent pill: a soft 18 percent band tint behind the number, no
              ring. The sliver of vertical padding replaces the height the
              smaller percent number gave up, so rows keep their old height. -->
@@ -107,7 +150,6 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
             <!-- Header: overview title, or back button + account name in detail view -->
@@ -133,9 +175,66 @@
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
+                <!-- Global actions live together in the header. The first
+                     right-docked item is the rightmost one. -->
+                <Button Style="{StaticResource IconButton}" DockPanel.Dock="Right"
+                        ToolTip="Settings" VerticalAlignment="Center"
+                        Click="OnSettingsClick">
+                    <Path Data="{StaticResource SettingsIconPath}" Fill="{DynamicResource TextSecondaryBrush}"
+                          Stretch="Uniform" Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Button>
+                <Button Style="{StaticResource IconButton}" Command="{Binding RefreshCommand}"
+                        DockPanel.Dock="Right" Margin="6,0,0,0"
+                        ToolTip="Refresh now" VerticalAlignment="Center"
+                        IsEnabled="{Binding IsRefreshing, Converter={StaticResource BoolNegationConverter}}">
+                    <Grid Width="14" Height="14">
+                        <Path Data="{StaticResource RefreshIconPath}" Fill="{DynamicResource TextSecondaryBrush}"
+                              Stretch="Uniform" Width="14" Height="14">
+                            <Path.Style>
+                                <Style TargetType="Path">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsRefreshing}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Path.Style>
+                        </Path>
+                        <Path Data="{StaticResource LoaderIconPath}"
+                              Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.5"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Stretch="Uniform" Width="14" Height="14"
+                              Visibility="{Binding IsRefreshing, Converter={StaticResource BoolToVisibilityConverter}}"
+                              RenderTransformOrigin="0.5,0.5">
+                            <Path.RenderTransform>
+                                <RotateTransform Angle="0" />
+                            </Path.RenderTransform>
+                            <Path.Style>
+                                <Style TargetType="Path">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsRefreshing}" Value="True">
+                                            <DataTrigger.EnterActions>
+                                                <BeginStoryboard x:Name="SpinStoryboard">
+                                                    <Storyboard RepeatBehavior="Forever">
+                                                        <DoubleAnimation Storyboard.TargetProperty="(Path.RenderTransform).(RotateTransform.Angle)"
+                                                                         From="0" To="360" Duration="0:0:1" />
+                                                    </Storyboard>
+                                                </BeginStoryboard>
+                                            </DataTrigger.EnterActions>
+                                            <DataTrigger.ExitActions>
+                                                <StopStoryboard BeginStoryboardName="SpinStoryboard" />
+                                            </DataTrigger.ExitActions>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Path.Style>
+                        </Path>
+                    </Grid>
+                </Button>
                 <!-- One-click remote view: only on the overview, and only once
                      remote view is on and the share link exists. -->
-                <Button DockPanel.Dock="Right" Margin="10,0,0,0" VerticalAlignment="Center"
+                <Button DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center"
                         Command="{Binding OpenRemoteViewCommand}" ToolTip="Open remote view">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource IconButton}">
@@ -155,7 +254,7 @@
                           Stretch="Uniform" Width="15" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Button>
                 <!-- Usage dashboard: overview only, sits left of the globe. -->
-                <Button DockPanel.Dock="Right" Margin="10,0,0,0" VerticalAlignment="Center"
+                <Button DockPanel.Dock="Right" Margin="6,0,0,0" VerticalAlignment="Center"
                         Click="OnUsageStatsClick" ToolTip="Usage stats"
                         Visibility="{Binding IsOverview, Converter={x:Static local:BoolToVisibilityConverter.Instance}}"
                         Style="{StaticResource IconButton}">
@@ -163,18 +262,22 @@
                           Stretch="Uniform" Width="15" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Button>
                 <StackPanel VerticalAlignment="Center">
-                    <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}">
-                        <TextBlock.Style>
-                            <Style TargetType="TextBlock">
-                                <Setter Property="Text" Value="{Binding SelectedAccount.DisplayName}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsOverview}" Value="True">
-                                        <Setter Property="Text" Value="AI usage" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
+                    <StackPanel Orientation="Horizontal">
+                        <ContentControl DataContext="{Binding SelectedAccount}" Style="{StaticResource ProviderIcon}" Margin="0,0,7,0"
+                                        Visibility="{Binding DataContext.IsOverview, RelativeSource={RelativeSource AncestorType=Window}, Converter={x:Static local:BoolToVisibilityConverter.Instance}, ConverterParameter=Invert}" />
+                        <TextBlock FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="{Binding SelectedAccount.DisplayName}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsOverview}" Value="True">
+                                            <Setter Property="Text" Value="AI usage" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </StackPanel>
                     <TextBlock Text="{Binding UpdatedLabel}" FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,2,0,0" />
                 </StackPanel>
             </DockPanel>
@@ -285,13 +388,22 @@
                                                 <SolidColorBrush Color="{Binding OverallStatusColor}" />
                                             </Ellipse.Fill>
                                         </Ellipse>
-                                        <TextBlock DockPanel.Dock="Left" Text="&#x2605;" FontSize="11" Margin="0,0,6,0"
-                                                   Foreground="{DynamicResource SessionAccent}" VerticalAlignment="Center"
-                                                   ToolTip="Primary account"
-                                                   Visibility="{Binding IsPrimary, Converter={StaticResource BoolToVisibilityConverter}}" />
-                                        <TextBlock Text="{Binding DisplayName}" FontSize="13.5" FontWeight="SemiBold"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"
-                                                   TextTrimming="CharacterEllipsis" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <ContentControl Grid.Column="0" Style="{StaticResource ProviderIcon}" Margin="0,0,6,0" />
+                                            <TextBlock Grid.Column="1" Text="{Binding DisplayName}" FontSize="13.5" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" MaxWidth="150" />
+                                            <TextBlock Grid.Column="2" Text="&#x2605;" FontSize="11" Margin="6,0,0,0"
+                                                       Foreground="{DynamicResource SessionAccent}" VerticalAlignment="Center"
+                                                       ToolTip="Primary account"
+                                                       Visibility="{Binding IsPrimary, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                        </Grid>
                                     </DockPanel>
 
                                     <!-- Session row -->
@@ -428,7 +540,11 @@
                 <!-- Provider header -->
                 <DockPanel Margin="0,0,0,14">
                     <StackPanel DockPanel.Dock="Left">
-                        <TextBlock Text="{Binding DisplayName}" FontSize="16" FontWeight="SemiBold" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <StackPanel Orientation="Horizontal">
+                            <ContentControl Style="{StaticResource ProviderIcon}" Margin="0,0,7,0" />
+                            <TextBlock Text="{Binding DisplayName}" FontSize="16" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
                         <TextBlock Text="{Binding StatusSummary}" FontSize="12" Foreground="{DynamicResource TextMutedBrush}" Margin="0,3,0,0" />
                         <StackPanel Orientation="Horizontal" Margin="0,5,0,0"
                                     Visibility="{Binding HasEmail, Converter={StaticResource BoolToVisibilityConverter}}">
@@ -749,66 +865,7 @@
                 </StackPanel>
 
             </StackPanel>
-
-            <!-- Footer: divider plus the right-aligned Refresh / Settings buttons -->
-            <StackPanel Grid.Row="3" Margin="0,16,0,0">
-                <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,0,0,12" />
-                <DockPanel HorizontalAlignment="Right" LastChildFill="False">
-                    <Button Style="{StaticResource IconButton}" DockPanel.Dock="Right"
-                            ToolTip="Settings" VerticalAlignment="Top"
-                            Click="OnSettingsClick">
-                        <Path Data="{StaticResource SettingsIconPath}" Fill="{DynamicResource TextSecondaryBrush}"
-                              Stretch="Uniform" Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Button>
-                    <!-- Refresh button sits to the left of Settings -->
-                    <Button Style="{StaticResource IconButton}" Command="{Binding RefreshCommand}"
-                            DockPanel.Dock="Right" Margin="0,0,6,0"
-                            ToolTip="Refresh now" VerticalAlignment="Top"
-                            IsEnabled="{Binding IsRefreshing, Converter={StaticResource BoolNegationConverter}}">
-                        <Path Data="{StaticResource RefreshIconPath}" Fill="{DynamicResource TextSecondaryBrush}"
-                              Stretch="Uniform" Width="14" Height="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Button>
-                </DockPanel>
-            </StackPanel>
             </Grid>
-
-            <!-- Loading spinner (top-right corner, non-blocking) -->
-            <Path x:Name="LoadingSpinner"
-                  Data="{StaticResource LoaderIconPath}"
-                  Stroke="{DynamicResource TextMutedBrush}"
-                  StrokeThickness="1.5"
-                  StrokeStartLineCap="Round"
-                  StrokeEndLineCap="Round"
-                  Stretch="Uniform"
-                  Width="14" Height="14"
-                  Visibility="{Binding IsRefreshing, Converter={StaticResource BoolToVisibilityConverter}}"
-                  IsHitTestVisible="False"
-                  HorizontalAlignment="Right" VerticalAlignment="Top"
-                  Margin="0,6,6,0"
-                  RenderTransformOrigin="0.5,0.5">
-                <Path.RenderTransform>
-                    <RotateTransform Angle="0" />
-                </Path.RenderTransform>
-                <Path.Style>
-                    <Style TargetType="Path">
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding IsRefreshing}" Value="True">
-                                <DataTrigger.EnterActions>
-                                    <BeginStoryboard x:Name="SpinStoryboard">
-                                        <Storyboard RepeatBehavior="Forever">
-                                            <DoubleAnimation Storyboard.TargetProperty="(Path.RenderTransform).(RotateTransform.Angle)"
-                                                             From="0" To="360" Duration="0:0:1" />
-                                        </Storyboard>
-                                    </BeginStoryboard>
-                                </DataTrigger.EnterActions>
-                                <DataTrigger.ExitActions>
-                                    <StopStoryboard BeginStoryboardName="SpinStoryboard" />
-                                </DataTrigger.ExitActions>
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Path.Style>
-            </Path>
         </Grid>
     </Border>
         </Window>

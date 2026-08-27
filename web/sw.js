@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v8: makes the meter fill follow the persisted % used / % left control.
-var CACHE = "ai-usage-tray-shell-v8";
+// v9: adds provider identity icons to every account card.
+var CACHE = "ai-usage-tray-shell-v9";
 
 var SHELL = [
   "./",

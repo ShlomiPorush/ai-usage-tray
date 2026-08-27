@@ -5,6 +5,46 @@ namespace costats.Core.Tests.Windowing;
 
 public sealed class WindowPlacementCalculatorTests
 {
+    [Theory]
+    [InlineData(FloatingPanelPosition.TopLeft, 112, 62)]
+    [InlineData(FloatingPanelPosition.TopRight, 688, 62)]
+    [InlineData(FloatingPanelPosition.BottomLeft, 112, 438)]
+    [InlineData(FloatingPanelPosition.BottomRight, 688, 438)]
+    public void FloatingPanelPlacement_AnchorsToTheSelectedWorkAreaCorner(
+        FloatingPanelPosition position,
+        double expectedLeft,
+        double expectedTop)
+    {
+        var placement = FloatingPanelPlacementCalculator.Place(
+            new WindowBounds(100, 50, 800, 500),
+            width: 200,
+            height: 100,
+            position);
+
+        Assert.Equal(new WindowBounds(expectedLeft, expectedTop, 200, 100), placement);
+    }
+
+    [Fact]
+    public void FloatingPanelPlacement_ReanchorsBottomEdgeWhenAccountRowsChangeHeight()
+    {
+        var workArea = new WindowBounds(0, 0, 1920, 1080);
+        var initial = FloatingPanelPlacementCalculator.Place(
+            workArea,
+            width: 320,
+            height: 220,
+            FloatingPanelPosition.BottomRight);
+
+        var resized = FloatingPanelPlacementCalculator.ReanchorAfterSizeChange(
+            initial,
+            workArea,
+            width: 320,
+            height: 100,
+            FloatingPanelPosition.BottomRight);
+
+        Assert.Equal(initial.Top + initial.Height, resized.Top + resized.Height);
+        Assert.Equal(initial.Left + initial.Width, resized.Left + resized.Width);
+    }
+
     [Fact]
     public void FitCentered_ShrinksTallWindowAndKeepsEveryEdgeInsideWorkArea()
     {

@@ -321,6 +321,30 @@ h1 {
 .dot.is-orange { background: var(--band-orange); }
 .dot.is-red { background: var(--band-red); }
 
+.provider-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--ink-2);
+  display: inline-grid;
+  place-items: center;
+}
+
+.provider-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  fill: currentColor;
+}
+
+.provider-icon.is-monogram {
+  border: 1px solid var(--ink-3);
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+}
+
 .account-name {
   margin: 0;
   font-size: 15px;

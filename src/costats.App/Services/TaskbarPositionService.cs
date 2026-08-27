@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Windows;
+using costats.Application.Windowing;
 
 namespace costats.App.Services;
 
@@ -24,6 +25,25 @@ public sealed class TaskbarPositionService
 
         var fallback = SystemParameters.WorkArea;
         return new Point(fallback.Right - width - margin, fallback.Bottom - height - margin);
+    }
+
+    public Point GetFloatingPanelPosition(
+        double currentLeft,
+        double currentTop,
+        double width,
+        double height,
+        double margin,
+        string positionSetting)
+    {
+        var workArea = SystemParameters.WorkArea;
+        var bounds = FloatingPanelPlacementCalculator.ReanchorAfterSizeChange(
+            new WindowBounds(currentLeft, currentTop, width, height),
+            new WindowBounds(workArea.Left, workArea.Top, workArea.Width, workArea.Height),
+            width,
+            height,
+            FloatingPanelPlacementCalculator.ParseSetting(positionSetting),
+            margin);
+        return new Point(bounds.Left, bounds.Top);
     }
 
     private static bool TryGetTaskbarEdge(out TaskbarEdge edge, out Rect workArea)

@@ -266,31 +266,7 @@ public sealed class TrayStatusComposerTests
     }
 
     [Fact]
-    public void Compact_rows_match_the_legacy_weekly_then_session_layout()
-    {
-        var accounts = new[]
-        {
-            new AccountUsageStatus(
-                "Claude",
-                SessionRemainingPercent: 0,
-                SessionResetsAt: Now.AddHours(3).AddMinutes(47),
-                WeeklyRemainingPercent: 9,
-                WeeklyResetsAt: Now.AddDays(5.9)),
-            new AccountUsageStatus("GLM", null, null, null, null)
-        };
-
-        var rows = TrayStatusComposer.ComposeCompactRows(
-            accounts,
-            Now,
-            showRemainingPercentages: true,
-            showWeeklyBeforeSession: true);
-
-        Assert.Equal("W 9%-5.9d <> S 0%-3h47m", rows[0].StatusText);
-        Assert.Equal("unavailable", rows[1].StatusText);
-    }
-
-    [Fact]
-    public void Compact_panels_follow_the_weekly_before_session_setting()
+    public void Tray_panels_follow_the_weekly_before_session_setting()
     {
         var account = new AccountUsageStatus(
             "Claude",
@@ -304,25 +280,13 @@ public sealed class TrayStatusComposerTests
             Now,
             showRemainingPercentages: true,
             showWeeklyBeforeSession: true));
-        var weeklyFirstFloating = Assert.Single(TrayStatusComposer.ComposeCompactRows(
-            [account],
-            Now,
-            showRemainingPercentages: true,
-            showWeeklyBeforeSession: true));
         var sessionFirstHover = Assert.Single(TrayStatusComposer.ComposeRows(
-            [account],
-            Now,
-            showRemainingPercentages: true,
-            showWeeklyBeforeSession: false));
-        var sessionFirstFloating = Assert.Single(TrayStatusComposer.ComposeCompactRows(
             [account],
             Now,
             showRemainingPercentages: true,
             showWeeklyBeforeSession: false));
 
         Assert.StartsWith("Weekly 50%", weeklyFirstHover.WindowsText, StringComparison.Ordinal);
-        Assert.StartsWith("W 50%", weeklyFirstFloating.StatusText, StringComparison.Ordinal);
         Assert.StartsWith("Session 75%", sessionFirstHover.WindowsText, StringComparison.Ordinal);
-        Assert.StartsWith("S 75%", sessionFirstFloating.StatusText, StringComparison.Ordinal);
     }
 }

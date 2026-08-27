@@ -1,7 +1,5 @@
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Media;
 using System.Windows.Interop;
 using costats.App.ViewModels;
 using costats.Core.Tray;
@@ -9,7 +7,7 @@ using costats.Core.Tray;
 namespace costats.App.Services;
 
 /// <summary>
-/// Compact, movable status bar that stays above other windows. It is separate
+/// Movable status panel that stays above other windows. It is separate
 /// from both the hover tooltip and the full account widget.
 /// </summary>
 public partial class TrayStatusPanelWindow : Window
@@ -22,6 +20,8 @@ public partial class TrayStatusPanelWindow : Window
 
     private readonly SettingsViewModel _settingsViewModel;
 
+    public bool IsManuallyPositioned { get; private set; }
+
     public TrayStatusPanelWindow(SettingsViewModel settingsViewModel)
     {
         InitializeComponent();
@@ -29,43 +29,12 @@ public partial class TrayStatusPanelWindow : Window
     }
 
     /// <summary>
-    /// Rebuilds the compact rows. Returns true when the panel was newly shown,
+    /// Rebuilds the account rows. Returns true when the panel was newly shown,
     /// allowing the tray host to choose an initial position exactly once.
     /// </summary>
-    public bool Update(IReadOnlyList<TrayCompactRow> rows)
+    public bool Update(IReadOnlyList<TrayAccountRow> rows)
     {
-        StatusRowsPanel.Children.Clear();
-
-        IReadOnlyList<TrayCompactRow> materialized = rows.Count == 0
-            ? [new TrayCompactRow("AI Usage Tray", "no data", null)]
-            : rows;
-
-        for (var index = 0; index < materialized.Count; index += 2)
-        {
-            var line = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, index == 0 ? 0 : 2, 0, 0)
-            };
-
-            AddAccount(line, materialized[index]);
-            if (index + 1 < materialized.Count)
-            {
-                line.Children.Add(new TextBlock
-                {
-                    Text = "  |  ",
-                    FontFamily = new FontFamily("Segoe UI"),
-                    FontSize = 12,
-                    VerticalAlignment = VerticalAlignment.Center
-                });
-                ((TextBlock)line.Children[^1]).SetResourceReference(
-                    TextBlock.ForegroundProperty,
-                    "TextSecondaryBrush");
-                AddAccount(line, materialized[index + 1]);
-            }
-
-            StatusRowsPanel.Children.Add(line);
-        }
+        TrayAccountRowsPresenter.Rebuild(StatusRowsPanel, rows);
 
         var newlyShown = !IsVisible;
         if (newlyShown)
@@ -85,6 +54,8 @@ public partial class TrayStatusPanelWindow : Window
         }
     }
 
+    public void ResetManualPosition() => IsManuallyPositioned = false;
+
     /// <summary>
     /// Raises the panel above other topmost windows without taking keyboard
     /// focus from the application the user is currently working in.
@@ -103,37 +74,6 @@ public partial class TrayStatusPanelWindow : Window
         }
     }
 
-    private static void AddAccount(Panel line, TrayCompactRow row)
-    {
-        line.Children.Add(new TextBlock
-        {
-            Text = $"{row.Label}: {row.StatusText}",
-            FontFamily = new FontFamily("Segoe UI"),
-            FontSize = 12,
-            FontWeight = FontWeights.SemiBold,
-            VerticalAlignment = VerticalAlignment.Center
-        });
-        ((TextBlock)line.Children[^1]).SetResourceReference(
-            TextBlock.ForegroundProperty,
-            AccountColourResource(row));
-    }
-
-    private static string AccountColourResource(TrayCompactRow row)
-    {
-        if (row.Label.StartsWith("Claude", StringComparison.OrdinalIgnoreCase))
-        {
-            return "FloatingPanelClaudeBrush";
-        }
-
-        if (row.Label.Contains("GLM", StringComparison.OrdinalIgnoreCase) ||
-            row.Label.Contains("Z.AI", StringComparison.OrdinalIgnoreCase))
-        {
-            return "FloatingPanelZaiBrush";
-        }
-
-        return "FloatingPanelCodexBrush";
-    }
-
     private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ButtonState != MouseButtonState.Pressed)
@@ -144,6 +84,7 @@ public partial class TrayStatusPanelWindow : Window
         try
         {
             DragMove();
+            IsManuallyPositioned = true;
         }
         catch (InvalidOperationException)
         {

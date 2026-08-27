@@ -7,6 +7,7 @@ using costats.App.ViewModels;
 using costats.App.Services.Updates;
 using costats.Application.Pulse;
 using costats.Application.Settings;
+using costats.Application.Windowing;
 using costats.Core.Pulse;
 using costats.Core.Tray;
 using Microsoft.Win32;
@@ -36,6 +37,7 @@ namespace costats.App.Services
         private TrayStatus? _lastAppliedStatus;
         private bool _lastShowRemainingPercentages;
         private readonly AppSettings _settings;
+        private string? _lastFloatingPanelPosition;
 
         public TrayHost(
             PulseViewModel viewModel,
@@ -135,6 +137,7 @@ namespace costats.App.Services
 
             SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
             _widgetWindow.SizeChanged += OnWidgetSizeChanged;
+            _statusPanelWindow.SizeChanged += OnStatusPanelSizeChanged;
             _settingsWindow.Dismissing += OnSettingsDismissing;
             _onboardingWindow.Dismissing += OnOnboardingDismissing;
         }
@@ -386,7 +389,7 @@ namespace costats.App.Services
 
             var primaryId = _settings.PrimaryAccountId;
 
-            var accounts = state.Providers
+            var accountEntries = state.Providers
                 .Where(pair =>
                     TrayAccountFilter.IsVisible(pair.Key, _settings.HasZaiKey, _settings.CopilotEnabled) ||
                     // The primary account drives the icon, so it must never be
@@ -398,22 +401,24 @@ namespace costats.App.Services
                     var label = displayNames.TryGetValue(pair.Key, out var displayName)
                         ? displayName
                         : pair.Key;
-                    return pair.Value.Usage is { } usage
+                    var account = pair.Value.Usage is { } usage
                         ? AccountUsageStatus.FromUsagePulse(label, usage)
                         : new AccountUsageStatus(label, null, null, null, null);
+                    return (ProviderId: pair.Key, Account: account);
                 })
-                .OrderBy(account => account.Label.StartsWith("Claude", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                .ThenBy(account => account.Label, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(entry => entry.Account.Label.StartsWith("Claude", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(entry => entry.Account.Label, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
             var showRemainingPercentages = _settings.ShowRemainingPercentages;
             var showWeeklyBeforeSession = _settings.ShowWeeklyBeforeSession;
+            var accounts = accountEntries.Select(entry => entry.Account).ToArray();
             var status = TrayStatusComposer.Compose(
                 accounts,
                 DateTimeOffset.UtcNow,
                 showRemainingPercentages,
                 showWeeklyBeforeSession);
-            var orderedAccounts = accounts;
+            var orderedEntries = accountEntries;
 
             // When a primary account is configured, its status drives the icon
             // (colour + number); the tooltip still lists every account, primary first.
@@ -429,9 +434,10 @@ namespace costats.App.Services
                     DateTimeOffset.UtcNow,
                     showRemainingPercentages,
                     showWeeklyBeforeSession);
-                orderedAccounts = accounts
-                    .OrderBy(a => a.Label.Equals(label, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                orderedEntries = accountEntries
+                    .OrderBy(entry => entry.ProviderId.Equals(primaryId, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                     .ToArray();
+                var orderedAccounts = orderedEntries.Select(entry => entry.Account).ToArray();
                 var ordered = TrayStatusComposer.Compose(
                     orderedAccounts,
                     DateTimeOffset.UtcNow,
@@ -443,13 +449,16 @@ namespace costats.App.Services
                 };
             }
 
+            var orderedAccountStatuses = orderedEntries.Select(entry => entry.Account).ToArray();
             var rows = TrayStatusComposer.ComposeRows(
-                orderedAccounts,
+                orderedAccountStatuses,
                 DateTimeOffset.UtcNow,
                 showRemainingPercentages,
                 showWeeklyBeforeSession);
-            var compactRows = TrayStatusComposer.ComposeCompactRows(
-                orderedAccounts,
+            var floatingRows = TrayStatusComposer.ComposeRows(
+                orderedEntries
+                    .Where(entry => _settings.IsFloatingPanelProviderVisible(entry.ProviderId))
+                    .Select(entry => entry.Account),
                 DateTimeOffset.UtcNow,
                 showRemainingPercentages,
                 showWeeklyBeforeSession);
@@ -459,7 +468,7 @@ namespace costats.App.Services
                 return;
             }
 
-            dispatcher.BeginInvoke(() => ApplyTrayStatus(status, rows, compactRows));
+            dispatcher.BeginInvoke(() => ApplyTrayStatus(status, rows, floatingRows));
         }
 
         private void RaiseFloatingPanel()
@@ -479,71 +488,12 @@ namespace costats.App.Services
         {
         }
 
-        private void RebuildTooltipRows(IReadOnlyList<TrayAccountRow> rows)
-        {
-            _tooltipPanel.Children.Clear();
-            if (rows.Count == 0)
-            {
-                var empty = new System.Windows.Controls.TextBlock { FontSize = 12, Text = "No AI usage data available" };
-                empty.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "TextPrimaryBrush");
-                _tooltipPanel.Children.Add(empty);
-                return;
-            }
-
-            foreach (var row in rows)
-            {
-                var line = new System.Windows.Controls.StackPanel
-                {
-                    Orientation = System.Windows.Controls.Orientation.Horizontal,
-                    Margin = new Thickness(0, 2, 0, 2)
-                };
-
-                var dot = new System.Windows.Shapes.Ellipse
-                {
-                    Width = 8,
-                    Height = 8,
-                    Margin = new Thickness(0, 0, 8, 0),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Fill = new System.Windows.Media.SolidColorBrush(
-                        (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
-                            UsedColor(row.WorstUsedPercent)))
-                };
-                line.Children.Add(dot);
-
-                var label = new System.Windows.Controls.TextBlock
-                {
-                    FontSize = 12,
-                    FontWeight = FontWeights.SemiBold,
-                    Text = row.Label,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                label.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "TextPrimaryBrush");
-                line.Children.Add(label);
-
-                var text = new System.Windows.Controls.TextBlock
-                {
-                    FontSize = 12,
-                    Text = "  " + row.WindowsText,
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                text.SetResourceReference(System.Windows.Controls.TextBlock.ForegroundProperty, "TextMutedBrush");
-                line.Children.Add(text);
-
-                _tooltipPanel.Children.Add(line);
-            }
-        }
-
-        // Same bands as the tray icon, in the same four vivid colours.
-        private static string UsedColor(double? usedPercent) => usedPercent is { } used
-            ? BandPalette.Vivid(UsageBands.Of(used))
-            : "#9CA3AF";
-
         private void ApplyTrayStatus(
             TrayStatus status,
             IReadOnlyList<TrayAccountRow> rows,
-            IReadOnlyList<TrayCompactRow> compactRows)
+            IReadOnlyList<TrayAccountRow> floatingRows)
         {
-            RebuildTooltipRows(rows);
+            TrayAccountRowsPresenter.Rebuild(_tooltipPanel, rows);
 
             var showRemainingPercentages = _settings.ShowRemainingPercentages;
             var displayPercent = status.GetDisplayPercent(showRemainingPercentages);
@@ -565,13 +515,26 @@ namespace costats.App.Services
             _lastAppliedStatus = status;
             _lastShowRemainingPercentages = showRemainingPercentages;
 
+            var floatingPanelPosition = FloatingPanelPlacementCalculator.NormalizeSetting(
+                _settings.FloatingPanelPosition);
+            var floatingPanelPositionChanged = !string.Equals(
+                _lastFloatingPanelPosition,
+                floatingPanelPosition,
+                StringComparison.Ordinal);
+            _lastFloatingPanelPosition = floatingPanelPosition;
+
             if (!_settings.ShowFloatingStatusPanel)
             {
                 _statusPanelWindow.HidePanel();
             }
-            else if (_statusPanelWindow.Update(compactRows))
+            else
             {
-                PositionStatusPanel();
+                var newlyShown = _statusPanelWindow.Update(floatingRows);
+                if (newlyShown || floatingPanelPositionChanged)
+                {
+                    _statusPanelWindow.ResetManualPosition();
+                    PositionStatusPanel();
+                }
             }
         }
 
@@ -581,6 +544,7 @@ namespace costats.App.Services
             _hoverTooltipWindow?.Close();
             _pulseSubscription.Dispose();
             _widgetWindow.SizeChanged -= OnWidgetSizeChanged;
+            _statusPanelWindow.SizeChanged -= OnStatusPanelSizeChanged;
             _settingsWindow.Dismissing -= OnSettingsDismissing;
             SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
             _taskbarIcon.Dispose();
@@ -613,6 +577,24 @@ namespace costats.App.Services
                 System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
+        private void OnStatusPanelSizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (!_statusPanelWindow.IsVisible || _statusPanelWindow.IsManuallyPositioned)
+            {
+                return;
+            }
+
+            _statusPanelWindow.Dispatcher.BeginInvoke(
+                new Action(() =>
+                {
+                    if (_statusPanelWindow.IsVisible && !_statusPanelWindow.IsManuallyPositioned)
+                    {
+                        PositionStatusPanel();
+                    }
+                }),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
         private void OnDisplaySettingsChanged(object? sender, EventArgs e)
         {
             if (_widgetWindow.IsVisible)
@@ -621,6 +603,7 @@ namespace costats.App.Services
             }
             if (_statusPanelWindow.IsVisible)
             {
+                _statusPanelWindow.ResetManualPosition();
                 _statusPanelWindow.Dispatcher.BeginInvoke(
                     new Action(PositionStatusPanel),
                     System.Windows.Threading.DispatcherPriority.Loaded);
@@ -646,10 +629,13 @@ namespace costats.App.Services
             }
 
             _statusPanelWindow.UpdateLayout();
-            var position = _taskbarPosition.GetWidgetPosition(
+            var position = _taskbarPosition.GetFloatingPanelPosition(
+                _statusPanelWindow.Left,
+                _statusPanelWindow.Top,
                 _statusPanelWindow.ActualWidth,
                 _statusPanelWindow.ActualHeight,
-                12);
+                12,
+                _settings.FloatingPanelPosition);
             _statusPanelWindow.Left = position.X;
             _statusPanelWindow.Top = position.Y;
         }

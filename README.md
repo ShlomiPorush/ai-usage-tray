@@ -26,6 +26,7 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 - **Four usage levels everywhere**, derived from the canonical used percentage: green when capacity is available, yellow and orange as quota runs down, and red near exhaustion. The same state is preserved when remaining quota is displayed.
 - Percentages are shown as quiet tinted pills, so a calm account stays calm and a hot one stands out.
 - Hovering the icon opens a popup next to it listing every account, one line each with a status dot.
+- An optional always-on floating panel reuses those status rows and lets you choose which accounts stay visible.
 - The widget (click the icon or `Ctrl+Alt+U`) opens on an overview of all accounts, sized to fit them; click a card for details.
 - **Usage dashboard** (tray menu → **Usage stats**, or the chart button in the widget): token and cost analytics read from the local Claude Code and Codex logs, over the last 7, 30 or 90 days. Cost is priced at the published OpenAI and Anthropic API rates, so it answers "what would this have cost without a subscription". Filter by account, break the range down by model or by day, and see an account's cost in its detail view in the widget, with a link that opens the dashboard already filtered to it.
 - **Codex reset credits**: when Codex reports a redeemable usage-limit reset, the widget shows it, along with when it expires.
@@ -71,7 +72,8 @@ Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from up
 | `PrimaryAccountId` | empty | Provider id whose status drives the tray icon |
 | `ShowOverviewResetTimes` | `false` | Reset countdowns on overview cards |
 | `ShowRemainingPercentages` | `false` | Show remaining rather than used quota in desktop numbers and progress bars; colours preserve the same capacity warning state |
-| `ShowFloatingStatusPanel` | `false` | Show the compact movable status panel with an X close button |
+| `ShowFloatingStatusPanel` | `false` | Show the movable always-on status panel with the same row design as the tray tooltip |
+| `FloatingPanelHiddenProviderIds[]` | empty | Provider ids hidden only from the floating panel; new accounts remain visible by default |
 | `AutoStartClaudeFiveHourWindow` / `AutoStartCodexFiveHourWindow` / `AutoStartZaiFiveHourWindow` | `false` | Opt-in activation of the next observed five-hour window through the matching official CLI/profile. GLM requires its coding-plan key. |
 | `RemoteViewEnabled` + `RemoteViewUploadUrl` / `RemoteViewPageUrl` | `false` / empty | Remote view (see below) |
 
