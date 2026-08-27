@@ -79,20 +79,45 @@ jobs:
         run: |
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' ai-usage-tray-remote-view:ci)" = "${{ steps.version.outputs.value }}"
           test "$(docker run --rm --entrypoint cat ai-usage-tray-remote-view:ci server/VERSION)" = "${{ steps.version.outputs.value }}"
+          test "$(docker image inspect --format '{{ json .Config.Volumes }}' ai-usage-tray-remote-view:ci)" = "null"
 
-      - name: Smoke test container
+      - name: Validate Compose configuration
+        run: docker compose -f remote/server/compose.yaml config --quiet
+
+      - name: Smoke test bind-mounted data directory
         run: |
+          data_dir="${RUNNER_TEMP:?}/remote-view-ci-data-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"
           cleanup() {
             docker rm -f remote-view-ci >/dev/null 2>&1 || true
-            docker volume rm remote-view-ci-data >/dev/null 2>&1 || true
+            docker run --rm --user 0:0 --entrypoint sh \
+              --mount "type=bind,src=$data_dir,dst=/data" \
+              ai-usage-tray-remote-view:ci \
+              -c 'rm -rf /data/* /data/.[!.]* /data/..?*' >/dev/null 2>&1 || true
+            rmdir "$data_dir" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
+          mkdir "$data_dir"
+          docker run --rm --user 0:0 --entrypoint sh \
+            --mount "type=bind,src=$data_dir,dst=/data" \
+            ai-usage-tray-remote-view:ci \
+            -c 'touch /data/.root-owned && chown -R 0:0 /data && chmod 755 /data'
+          docker run --rm \
+            --read-only \
+            --user 0:0 \
+            --cap-drop ALL \
+            --cap-add CHOWN \
+            --cap-add DAC_OVERRIDE \
+            --security-opt no-new-privileges:true \
+            --entrypoint chown \
+            --mount "type=bind,src=$data_dir,dst=/data" \
+            ai-usage-tray-remote-view:ci \
+            -R 10001:10001 /data
           docker run -d --name remote-view-ci \
             --read-only \
             --tmpfs /tmp:rw,size=16m \
             --cap-drop ALL \
             --security-opt no-new-privileges:true \
-            -v remote-view-ci-data:/data \
+            --mount "type=bind,src=$data_dir,dst=/data" \
             ai-usage-tray-remote-view:ci
           for attempt in $(seq 1 15); do
             health=$(docker inspect --format '{{.State.Health.Status}}' remote-view-ci)

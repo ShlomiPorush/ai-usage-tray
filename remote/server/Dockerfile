@@ -25,7 +25,6 @@ RUN addgroup -S -g 10001 remoteview \
 USER 10001:10001
 
 EXPOSE 8080
-VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
