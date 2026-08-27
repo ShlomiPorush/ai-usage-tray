@@ -68,7 +68,7 @@ public sealed record TrayStatus(
 
     public double? GetDisplayPercent(bool showRemainingPercentages) =>
         HighestUsedPercent is { } used
-            ? showRemainingPercentages ? 100 - used : used
+            ? UsageDisplay.Percent(used, showRemainingPercentages)
             : null;
 }
 

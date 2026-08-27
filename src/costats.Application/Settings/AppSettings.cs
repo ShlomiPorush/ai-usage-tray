@@ -52,8 +52,9 @@ public sealed class AppSettings
     public bool ShowOverviewResetTimes { get; set; } = false;
 
     /// <summary>
-    /// When true, desktop quota labels show the remaining share instead of the
-    /// used share. Risk colours and progress bars always remain usage-based.
+    /// When true, desktop quota numbers and progress bars show the remaining
+    /// share instead of the used share. Risk colours still describe the same
+    /// quota state, so more capacity is green and near-exhaustion is red.
     /// </summary>
     public bool ShowRemainingPercentages { get; set; } = false;
 

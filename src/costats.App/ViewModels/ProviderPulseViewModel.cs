@@ -215,9 +215,13 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         PopulateScopedLimits(vm, reading, showRemainingPercentages, isDark);
         PopulateResetCredits(vm, reading);
 
-        // Set overall status based on the higher of session or week utilization
-        var sessionPercent = vm.SessionProgress * 100.0;
-        var weekPercent = vm.WeekProgress * 100.0;
+        // Status stays usage-based even when the visible bars show capacity left.
+        var sessionPercent = CalculateUsedPercent(
+            reading.Usage?.SessionUsed,
+            reading.Usage?.SessionLimit);
+        var weekPercent = CalculateUsedPercent(
+            reading.Usage?.WeekUsed,
+            reading.Usage?.WeekLimit);
         var worstPercent = Math.Max(sessionPercent, weekPercent);
         vm.OverallStatusColor = GetUtilizationColor(worstPercent);
         vm.OverallStatusText = GetStatusText(worstPercent);
@@ -248,7 +252,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
 
         vm.HasSessionData = true;
         var usedPercent = CalculateUsedPercent(usage.SessionUsed, usage.SessionLimit);
-        vm.SessionProgress = usedPercent / 100.0;
+        vm.SessionProgress = UsageDisplay.Progress(usedPercent, showRemainingPercentages);
         vm.SessionUsageLabel = FormatUsageLabel(usedPercent, showRemainingPercentages);
 
         // Reset text
@@ -265,7 +269,9 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
             if (pace is not null)
             {
                 vm.SessionPaceText = UsageFormatter.FormatPace(pace) ?? string.Empty;
-                vm.SessionPaceProgress = pace.ExpectedUsedPercent / 100.0;
+                vm.SessionPaceProgress = UsageDisplay.Progress(
+                    pace.ExpectedUsedPercent,
+                    showRemainingPercentages);
                 vm.SessionPaceOnTop = pace.DeltaPercent < 0; // Behind = pace marker above actual
             }
         }
@@ -291,7 +297,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
 
         vm.HasWeekData = true;
         var usedPercent = CalculateUsedPercent(usage.WeekUsed, usage.WeekLimit);
-        vm.WeekProgress = usedPercent / 100.0;
+        vm.WeekProgress = UsageDisplay.Progress(usedPercent, showRemainingPercentages);
         vm.WeekUsageLabel = FormatUsageLabel(usedPercent, showRemainingPercentages);
 
         // Reset text
@@ -308,7 +314,9 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
             if (pace is not null)
             {
                 vm.WeekPaceText = UsageFormatter.FormatPace(pace) ?? string.Empty;
-                vm.WeekPaceProgress = pace.ExpectedUsedPercent / 100.0;
+                vm.WeekPaceProgress = UsageDisplay.Progress(
+                    pace.ExpectedUsedPercent,
+                    showRemainingPercentages);
                 vm.WeekPaceOnTop = pace.DeltaPercent < 0;
             }
         }
@@ -343,7 +351,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
                     q.Label,
                     GroupLabelFor(q.Group),
                     FormatPercent(q.UsedPercent, showRemainingPercentages),
-                    q.UsedPercent / 100.0,
+                    UsageDisplay.Progress(q.UsedPercent, showRemainingPercentages),
                     BandPalette.Ink(band, isDark),
                     BandPalette.Pill(band),
                     BandPalette.Vivid(band),
@@ -457,7 +465,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
 
     private static string FormatPercent(double usedPercent, bool showRemainingPercentages)
     {
-        var displayPercent = showRemainingPercentages ? 100 - usedPercent : usedPercent;
+        var displayPercent = UsageDisplay.Percent(usedPercent, showRemainingPercentages);
         return $"{(int)Math.Round(Math.Clamp(displayPercent, 0, 100))}%";
     }
 

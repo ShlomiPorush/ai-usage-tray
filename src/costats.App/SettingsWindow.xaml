@@ -151,7 +151,7 @@
                     <TextBlock Text="Show remaining percentages instead of used" FontSize="12"
                                Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
                 </CheckBox>
-                <TextBlock Text="Applies to the tray icon, hover panel, floating status panel, and main window. Warning colours still reflect usage."
+                <TextBlock Text="Applies to numbers and bars in the tray, panels, and main window. Colours stay green for available capacity and red near exhaustion."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
 
                 <CheckBox IsChecked="{Binding ShowWeeklyBeforeSession}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">

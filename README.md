@@ -22,8 +22,8 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 <p align="center"><sub>Usage dashboard: cost and tokens over the last 30 days, per provider, model or day.</sub></p>
 
 ## Features
-- Tray icon shows the worst window's percentage as a number; Settings can display either used or remaining quota.
-- **Four usage levels everywhere**, derived from the used percentage alone: green under 50%, yellow 50-74%, orange 75-89%, red 90% and above. Switching desktop labels to remaining never changes these warning colours.
+- Tray icon shows the worst window's percentage as a number; Settings can display either used or remaining quota, with matching numbers and bars across desktop surfaces.
+- **Four usage levels everywhere**, derived from the canonical used percentage: green when capacity is available, yellow and orange as quota runs down, and red near exhaustion. The same state is preserved when remaining quota is displayed.
 - Percentages are shown as quiet tinted pills, so a calm account stays calm and a hot one stands out.
 - Hovering the icon opens a popup next to it listing every account, one line each with a status dot.
 - The widget (click the icon or `Ctrl+Alt+U`) opens on an overview of all accounts, sized to fit them; click a card for details.
@@ -70,7 +70,7 @@ Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from up
 | `Theme` | `system` | `system` / `light` / `dark` |
 | `PrimaryAccountId` | empty | Provider id whose status drives the tray icon |
 | `ShowOverviewResetTimes` | `false` | Reset countdowns on overview cards |
-| `ShowRemainingPercentages` | `false` | Show remaining rather than used quota on desktop surfaces; colours still represent used quota |
+| `ShowRemainingPercentages` | `false` | Show remaining rather than used quota in desktop numbers and progress bars; colours preserve the same capacity warning state |
 | `ShowFloatingStatusPanel` | `false` | Show the compact movable status panel with an X close button |
 | `AutoStartClaudeFiveHourWindow` / `AutoStartCodexFiveHourWindow` / `AutoStartZaiFiveHourWindow` | `false` | Opt-in activation of the next observed five-hour window through the matching official CLI/profile. GLM requires its coding-plan key. |
 | `RemoteViewEnabled` + `RemoteViewUploadUrl` / `RemoteViewPageUrl` | `false` / empty | Remote view (see below) |

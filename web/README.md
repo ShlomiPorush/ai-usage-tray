@@ -83,6 +83,8 @@ sample payload, and the page marks it with a "Demo data" badge. It is deliberate
 not remembered as the last-seen id, so opening the demo cannot hijack an installed
 app that was set up with a real link.
 
-The page refetches every 60 seconds and shows how long ago the app last reported.
+The percentage toggle changes both the displayed numbers and meter fills between
+used quota and capacity left. Warning colours preserve the same capacity state in
+both modes. The page refetches every 60 seconds and shows how long ago the app last reported.
 Snapshots expire after about a week without the app running, and the page then
 shows a "no data" message.

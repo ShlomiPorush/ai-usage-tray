@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v7: adds the persisted % used / % left control to the phone/PWA shell.
-var CACHE = "ai-usage-tray-shell-v7";
+// v8: makes the meter fill follow the persisted % used / % left control.
+var CACHE = "ai-usage-tray-shell-v8";
 
 var SHELL = [
   "./",

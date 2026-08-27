@@ -139,9 +139,9 @@
   }
 
   // --- percentage display ---------------------------------------------
-  // The visible number can show usage or capacity left. The fill and band
-  // colour stay usage-based, matching the Windows app and preserving the
-  // warning meaning of green/yellow/orange/red.
+  // Number and fill show either usage or capacity left. The band still comes
+  // from canonical usage, so green always means capacity is available and red
+  // always means the quota is near exhaustion.
 
   var percentToggle = document.getElementById("percent-toggle");
   var percentButtons = percentToggle
@@ -326,15 +326,17 @@
     return accounts;
   }
 
-  // The number follows the selected view. The fill and band always remain "used"
-  // so the visual warning level does not reverse when the number changes.
+  // Number and fill follow the selected view. The band stays tied to canonical
+  // usage so its warning meaning remains stable in both modes.
   function renderMeterRow(accountName, source, now) {
     var used = clampPercent(source.usedPercent);
     var left = 100 - used;
     var state = classify(used);
     var label = typeof source.label === "string" && source.label ? source.label : "Usage";
     var scope = typeof source.scope === "string" && source.scope ? source.scope : null;
-    var shown = Math.round(percentMode === "left" ? left : used);
+    var displayed = percentMode === "left" ? left : used;
+    var shown = Math.round(displayed);
+    var displayLabel = percentMode === "left" ? "remaining" : "used";
 
     var row = el("div", "meter-row is-" + state);
 
@@ -352,15 +354,12 @@
     track.setAttribute("role", "meter");
     track.setAttribute("aria-valuemin", "0");
     track.setAttribute("aria-valuemax", "100");
-    track.setAttribute("aria-valuenow", String(Math.round(used)));
-    track.setAttribute(
-      "aria-valuetext",
-      Math.round(used) + "% used, " + Math.round(left) + "% left"
-    );
+    track.setAttribute("aria-valuenow", String(shown));
+    track.setAttribute("aria-valuetext", shown + "% " + displayLabel);
     track.setAttribute("aria-label", accountName + ": " + (scope ? scope + " " + label : label));
 
     var fill = el("div", "meter-fill");
-    fill.style.width = used + "%";
+    fill.style.width = displayed + "%";
     track.appendChild(fill);
     row.appendChild(track);
 

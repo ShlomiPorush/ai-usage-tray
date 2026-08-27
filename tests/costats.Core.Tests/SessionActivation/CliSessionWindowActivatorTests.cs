@@ -59,6 +59,7 @@ public sealed class CliSessionWindowActivatorTests : IDisposable
         Assert.Contains("--skip-git-repo-check", arguments);
         Assert.Contains("approval_policy=\"never\"", arguments);
         Assert.Contains("web_search=\"disabled\"", arguments);
+        Assert.Contains("features.shell_tool=false", arguments);
         Assert.Contains("shell_environment_policy.inherit=\"none\"", arguments);
         Assert.Contains("check_for_update_on_startup=false", arguments);
         AssertOption(arguments, "--color", "never");

@@ -179,6 +179,8 @@ public sealed class CliSessionWindowActivator : ISessionWindowActivator
         startInfo.ArgumentList.Add("--config");
         startInfo.ArgumentList.Add("web_search=\"disabled\"");
         startInfo.ArgumentList.Add("--config");
+        startInfo.ArgumentList.Add("features.shell_tool=false");
+        startInfo.ArgumentList.Add("--config");
         startInfo.ArgumentList.Add("shell_environment_policy.inherit=\"none\"");
         startInfo.ArgumentList.Add("--config");
         startInfo.ArgumentList.Add("check_for_update_on_startup=false");
