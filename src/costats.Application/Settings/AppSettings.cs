@@ -4,6 +4,34 @@ namespace costats.Application.Settings;
 
 public sealed class AppSettings
 {
+    /// <summary>
+    /// Persisted first-run state. Null in settings written before onboarding
+    /// existed, which is deliberately treated as an existing completed setup.
+    /// </summary>
+    public string? OnboardingState { get; set; }
+
+    /// <summary>
+    /// True only when the settings file did not exist at startup. This is
+    /// runtime metadata and is never written to user settings.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsFirstRun { get; set; }
+
+    /// <summary>
+    /// Shows the guided window on a genuinely fresh install, or resumes a flow
+    /// that was interrupted after it started. Legacy settings with a null state
+    /// do not opt existing users into onboarding.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool ShouldShowInitialOnboarding =>
+        string.Equals(OnboardingState, OnboardingStates.Started, StringComparison.OrdinalIgnoreCase) ||
+        (IsFirstRun && string.IsNullOrWhiteSpace(OnboardingState));
+
+    /// <summary>Shows the compact setup prompt inside the widget after dismissal.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool ShouldShowOnboardingFallback =>
+        string.Equals(OnboardingState, OnboardingStates.Dismissed, StringComparison.OrdinalIgnoreCase);
+
     public int RefreshMinutes { get; set; } = 5;
     public bool HotkeyEnabled { get; set; } = true;
     public string Hotkey { get; set; } = "Ctrl+Alt+U";
@@ -109,7 +137,7 @@ public sealed class AppSettings
     public string? RemoteViewId { get; set; }
 
     /// <summary>
-    /// Base URL of the upload endpoint (a Cloudflare Worker), e.g.
+    /// Base URL of the remote-view upload endpoint, e.g.
     /// <c>https://usage-api.example.com</c>. Snapshots are PUT to
     /// <c>{url}/u/{writeId}</c>. Must be https (or http on a loopback host);
     /// anything else is ignored.
@@ -252,7 +280,7 @@ public sealed class AppSettings
     /// </summary>
     public IReadOnlyList<MonitoredAccountSettings> GetEffectiveAccounts()
     {
-        if (Accounts is { Count: > 0 })
+        if (Accounts is not null)
         {
             return Accounts.Where(a => a.IsValid).ToList();
         }

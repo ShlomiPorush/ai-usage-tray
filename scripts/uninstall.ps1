@@ -182,12 +182,12 @@ if (-not $Silent -and -not $purgeUserData) {
     try {
         Add-Type -AssemblyName System.Windows.Forms
         $answer = [System.Windows.Forms.MessageBox]::Show(
-            "Also delete saved accounts, settings, logs and the local usage cache?`n`nChoose No to keep them for a future reinstall.",
+            "Keep your saved data for a future reinstall?",
             "Uninstall AI Usage Tray",
             [System.Windows.Forms.MessageBoxButtons]::YesNo,
             [System.Windows.Forms.MessageBoxIcon]::Question,
-            [System.Windows.Forms.MessageBoxDefaultButton]::Button2)
-        $purgeUserData = ($answer -eq [System.Windows.Forms.DialogResult]::Yes)
+            [System.Windows.Forms.MessageBoxDefaultButton]::Button1)
+        $purgeUserData = ($answer -eq [System.Windows.Forms.DialogResult]::No)
     } catch {
         Write-Step "Could not show the data-removal choice. User data will be kept." "Yellow"
     }

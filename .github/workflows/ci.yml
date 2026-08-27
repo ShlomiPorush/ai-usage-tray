@@ -39,3 +39,87 @@ jobs:
 
       - name: Test
         run: dotnet test costats.sln --configuration ${{ matrix.configuration }} --no-build --verbosity normal
+
+      - name: Test installer checksum parsing
+        if: matrix.configuration == 'Release'
+        shell: powershell
+        run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\tests\scripts\InstallChecksum.Tests.ps1
+
+  remote-view:
+    name: Remote View Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Read container version
+        id: version
+        shell: bash
+        run: |
+          version="$(< remote/server/VERSION)"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Container version must use major.minor.patch. Received: $version" >&2
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Test server
+        run: docker run --rm -v "$PWD:/work" -w /work/remote/server node:24-alpine node --test
+
+      - name: Build container
+        run: |
+          docker build \
+            --build-arg VERSION=${{ steps.version.outputs.value }} \
+            -f remote/server/Dockerfile \
+            -t ai-usage-tray-remote-view:ci \
+            .
+
+      - name: Verify container version
+        run: |
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' ai-usage-tray-remote-view:ci)" = "${{ steps.version.outputs.value }}"
+          test "$(docker run --rm --entrypoint cat ai-usage-tray-remote-view:ci server/VERSION)" = "${{ steps.version.outputs.value }}"
+          test "$(docker image inspect --format '{{ json .Config.Volumes }}' ai-usage-tray-remote-view:ci)" = "null"
+
+      - name: Validate Compose configuration
+        run: docker compose -f remote/server/compose.yaml config --quiet
+
+      - name: Smoke test bind-mounted data directory
+        run: |
+          data_dir="${RUNNER_TEMP:?}/remote-view-ci-data-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"
+          cleanup() {
+            docker rm -f remote-view-ci >/dev/null 2>&1 || true
+            docker run --rm --user 0:0 --entrypoint sh \
+              --mount "type=bind,src=$data_dir,dst=/data" \
+              ai-usage-tray-remote-view:ci \
+              -c 'rm -rf /data/* /data/.[!.]* /data/..?*' >/dev/null 2>&1 || true
+            rmdir "$data_dir" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          mkdir "$data_dir"
+          docker run --rm --user 0:0 --entrypoint sh \
+            --mount "type=bind,src=$data_dir,dst=/data" \
+            ai-usage-tray-remote-view:ci \
+            -c 'touch /data/.root-owned && chown -R 0:0 /data && chmod 755 /data'
+          docker run -d --name remote-view-ci \
+            --read-only \
+            --tmpfs /tmp:rw,size=16m \
+            --cap-drop ALL \
+            --cap-add CHOWN \
+            --cap-add DAC_OVERRIDE \
+            --cap-add SETGID \
+            --cap-add SETUID \
+            --security-opt no-new-privileges:true \
+            --mount "type=bind,src=$data_dir,dst=/data" \
+            ai-usage-tray-remote-view:ci
+          for attempt in $(seq 1 15); do
+            health=$(docker inspect --format '{{.State.Health.Status}}' remote-view-ci)
+            if [ "$health" = "healthy" ]; then
+              test "$(docker exec --user 0:0 remote-view-ci awk '/^Uid:/ { print $2 }' /proc/1/status)" = "10001"
+              test "$(docker exec --user 0:0 remote-view-ci awk '/^CapEff:/ { print $2 }' /proc/1/status)" = "0000000000000000"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs remote-view-ci
+          exit 1

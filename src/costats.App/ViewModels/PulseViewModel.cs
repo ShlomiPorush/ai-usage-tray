@@ -66,6 +66,13 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     private bool showResetTimes;
 
     /// <summary>
+    /// True after the first-run window was deliberately dismissed, so the
+    /// overview keeps a compact path back into setup.
+    /// </summary>
+    [ObservableProperty]
+    private bool showOnboardingFallback;
+
+    /// <summary>
     /// The remote view link, or null while remote view is off or unconfigured.
     /// Mirrors AppSettings so the overview button follows the Settings toggle.
     /// </summary>
@@ -86,7 +93,11 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     {
         ShowResetTimes = _settings.ShowOverviewResetTimes;
         RemoteViewLink = _settings.RemoteViewShareLink;
+        ShowOnboardingFallback = _settings.ShouldShowOnboardingFallback;
     }
+
+    /// <summary>Applies onboarding changes immediately, without waiting for a pulse.</summary>
+    public void NotifyOnboardingStateChanged() => ApplySettings();
 
     [RelayCommand]
     private void OpenRemoteView()

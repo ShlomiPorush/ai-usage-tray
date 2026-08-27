@@ -61,7 +61,10 @@ public sealed class JsonSettingsStore : ISettingsStore
         var path = _settingsPath;
         if (!File.Exists(path))
         {
-            return await FinishLoadAsync(new AppSettings(), null, cancellationToken).ConfigureAwait(false);
+            return await FinishLoadAsync(
+                new AppSettings { IsFirstRun = true },
+                null,
+                cancellationToken).ConfigureAwait(false);
         }
 
         string text;

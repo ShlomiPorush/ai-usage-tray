@@ -160,7 +160,7 @@ namespace costats.App.Services
         /// <summary>
         /// Removes the snapshot stored under <paramref name="writeId"/>. Best
         /// effort: returns false instead of throwing, because the caller is a UI
-        /// toggle that must not fail. The worker answers 204 whether or not
+        /// toggle that must not fail. The server answers 204 whether or not
         /// anything was stored.
         /// </summary>
         public async Task<bool> DeleteAsync(string? writeId)

@@ -1,5 +1,9 @@
 # Remote view worker
 
+> Legacy rollback option. The preferred replacement is the SQLite-backed Docker server documented
+> in [`../server/README.md`](../server/README.md). Keep this Worker until the origin cutover is
+> verified.
+
 Host your own remote view: one Cloudflare Worker that serves **both** the viewer page and the tiny
 JSON API behind it, from a single URL.
 
