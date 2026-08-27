@@ -3,14 +3,19 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { createRemoteViewServer, deriveReadId, SnapshotStore } from "./server.mjs";
+
+const require = createRequire(import.meta.url);
+const { resolvePercentMode } = require("../../web/app.js");
 
 const WRITE_ID = "0123456789abcdef0123456789abcdef";
 const READ_ID = "3eb1bd439947eb762998e566ccc2e099";
 const PAYLOAD = JSON.stringify({
   version: 2,
   generatedAt: "2026-08-27T12:00:00Z",
+  displayMode: "remaining",
   accounts: [{ id: "codex:test", provider: "codex", windows: [] }],
 });
 
@@ -46,6 +51,17 @@ afterEach(async () => {
 
 test("derives the protocol v2 read id", () => {
   assert.equal(deriveReadId(WRITE_ID), READ_ID);
+});
+
+test("viewer defaults to the desktop percentage preference without a browser override", () => {
+  assert.equal(resolvePercentMode(null, "remaining"), "left");
+  assert.equal(resolvePercentMode(null, "used"), "used");
+  assert.equal(resolvePercentMode("invalid", "remaining"), "left");
+});
+
+test("viewer keeps an explicit browser percentage override", () => {
+  assert.equal(resolvePercentMode("used", "remaining"), "used");
+  assert.equal(resolvePercentMode("left", "used"), "left");
 });
 
 test("stores, reads, and deletes an unchanged JSON payload", async () => {
@@ -149,7 +165,9 @@ test("serves the viewer, same-origin config, demo, and health endpoint", async (
 
   const demo = await fetch(`${fixture.baseUrl}/u/demo`);
   assert.equal(demo.status, 200);
-  assert.equal((await demo.json()).version, 2);
+  const demoPayload = await demo.json();
+  assert.equal(demoPayload.version, 2);
+  assert.equal(demoPayload.displayMode, "used");
   assert.equal((await fetch(`${fixture.baseUrl}/u/demo`, { method: "DELETE" })).status, 405);
 
   const health = await fetch(`${fixture.baseUrl}/health`);

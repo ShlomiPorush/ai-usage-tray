@@ -54,7 +54,8 @@ public sealed record RemoteSnapshot(
     int Version,
     DateTimeOffset GeneratedAt,
     string? Primary,
-    IReadOnlyList<RemoteAccountSnapshot> Accounts);
+    IReadOnlyList<RemoteAccountSnapshot> Accounts,
+    string DisplayMode);
 
 /// <summary>
 /// Builds the remote-view payload. Deliberately free of clocks and I/O: the
@@ -67,11 +68,14 @@ public static class RemoteSnapshotComposer
 
     public const string SessionLabel = "Session";
     public const string WeeklyLabel = "Weekly";
+    public const string UsedDisplayMode = "used";
+    public const string RemainingDisplayMode = "remaining";
 
     public static RemoteSnapshot Compose(
         string? primaryProviderId,
         IEnumerable<RemoteSnapshotEntry> entries,
-        DateTimeOffset generatedAt)
+        DateTimeOffset generatedAt,
+        bool showRemainingPercentages = false)
     {
         var accounts = entries.Select(ToAccount).ToList();
 
@@ -79,7 +83,8 @@ public static class RemoteSnapshotComposer
             SchemaVersion,
             generatedAt.ToUniversalTime(),
             string.IsNullOrWhiteSpace(primaryProviderId) ? null : primaryProviderId,
-            accounts);
+            accounts,
+            showRemainingPercentages ? RemainingDisplayMode : UsedDisplayMode);
     }
 
     private static RemoteAccountSnapshot ToAccount(RemoteSnapshotEntry entry)

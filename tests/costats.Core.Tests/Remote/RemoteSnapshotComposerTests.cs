@@ -172,6 +172,22 @@ public sealed class RemoteSnapshotComposerTests
         Assert.Equal(local.UtcDateTime, snapshot.GeneratedAt.UtcDateTime);
     }
 
+    [Theory]
+    [InlineData(false, RemoteSnapshotComposer.UsedDisplayMode)]
+    [InlineData(true, RemoteSnapshotComposer.RemainingDisplayMode)]
+    public void Compose_carries_the_desktop_percentage_preference(
+        bool showRemainingPercentages,
+        string expectedDisplayMode)
+    {
+        var snapshot = RemoteSnapshotComposer.Compose(
+            null,
+            [],
+            Now,
+            showRemainingPercentages);
+
+        Assert.Equal(expectedDisplayMode, snapshot.DisplayMode);
+    }
+
     [Fact]
     public void Serialized_snapshot_uses_the_camel_case_json_contract()
     {
@@ -193,6 +209,7 @@ public sealed class RemoteSnapshotComposerTests
         Assert.Equal(2, root.GetProperty("version").GetInt32());
         Assert.Equal(JsonValueKind.String, root.GetProperty("generatedAt").ValueKind);
         Assert.Equal("claude:claude-1", root.GetProperty("primary").GetString());
+        Assert.Equal("used", root.GetProperty("displayMode").GetString());
 
         var account = Assert.Single(root.GetProperty("accounts").EnumerateArray().ToList());
         Assert.Equal("claude:claude-1", account.GetProperty("id").GetString());

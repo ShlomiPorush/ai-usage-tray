@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v9: adds provider identity icons to every account card.
-var CACHE = "ai-usage-tray-shell-v9";
+// v10: defaults percentage display to the preference uploaded by the desktop app.
+var CACHE = "ai-usage-tray-shell-v10";
 
 var SHELL = [
   "./",

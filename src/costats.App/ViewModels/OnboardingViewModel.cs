@@ -198,7 +198,7 @@ public sealed partial class OnboardingViewModel : ObservableObject, IObserver<Pu
     public async Task DismissAsync()
     {
         CancelCheck();
-        await SaveSelectionAsync(OnboardingStates.Dismissed).ConfigureAwait(true);
+        await SaveSelectionAsync(OnboardingStates.AfterDismissal(_settings.OnboardingState)).ConfigureAwait(true);
         RefreshInBackground();
     }
 

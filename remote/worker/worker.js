@@ -166,6 +166,7 @@ function demoSnapshot() {
     version: 2,
     generatedAt: new Date(now).toISOString(),
     primary: "claude:demo-personal",
+    displayMode: "used",
     accounts: [
       {
         id: "claude:demo-personal",

@@ -4,8 +4,22 @@
 // Without an id it shows a landing page (see start()).
 // ?id=demo is the one exception: a public sample payload built by the worker.
 
+// The payload uses the product terms "used" and "remaining". The browser
+// keeps its older "left" storage value so existing explicit overrides survive.
+function resolvePercentMode(storedMode, remoteDisplayMode) {
+  if (storedMode === "left" || storedMode === "used") return storedMode;
+  return remoteDisplayMode === "remaining" ? "left" : "used";
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { resolvePercentMode: resolvePercentMode };
+}
+
 (function () {
   "use strict";
+
+  // Node loads this file to test the pure preference resolver above.
+  if (typeof window === "undefined" || typeof document === "undefined") return;
 
   var CONFIG = window.REMOTE_VIEW_CONFIG || {};
   var API_BASE = String(CONFIG.apiBase || "").replace(/\/+$/, "");
@@ -186,8 +200,9 @@
     ? percentToggle.querySelectorAll("[data-percent-mode]")
     : [];
   var percentMode = "used";
+  var hasPercentModeOverride = false;
 
-  function applyPercentMode(mode) {
+  function applyPercentMode(mode, renderPayload) {
     percentMode = mode === "left" ? "left" : "used";
 
     for (var i = 0; i < percentButtons.length; i++) {
@@ -198,17 +213,20 @@
       );
     }
 
-    if (payload) render();
+    if (payload && renderPayload !== false) render();
   }
 
   function setupPercentToggle() {
-    applyPercentMode(readStored(PERCENT_MODE_KEY) || "used");
+    var storedMode = readStored(PERCENT_MODE_KEY);
+    hasPercentModeOverride = storedMode === "left" || storedMode === "used";
+    applyPercentMode(resolvePercentMode(storedMode, null), false);
     if (!percentToggle) return;
 
     percentToggle.hidden = false;
     for (var i = 0; i < percentButtons.length; i++) {
       percentButtons[i].addEventListener("click", function () {
         var next = this.getAttribute("data-percent-mode");
+        hasPercentModeOverride = true;
         applyPercentMode(next);
         writeStored(PERCENT_MODE_KEY, percentMode);
       });
@@ -553,6 +571,9 @@
       .then(function (data) {
         if (!data || typeof data !== "object") throw new Error("bad_payload");
         payload = data;
+        if (!hasPercentModeOverride) {
+          applyPercentMode(resolvePercentMode(null, data.displayMode), false);
+        }
         lastFetchAt = Date.now();
         hide(connectionEl);
         render();

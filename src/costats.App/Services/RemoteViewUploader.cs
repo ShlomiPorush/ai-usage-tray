@@ -119,7 +119,11 @@ namespace costats.App.Services
                 .OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            return RemoteSnapshotComposer.Compose(_settings.PrimaryAccountId, entries, generatedAt);
+            return RemoteSnapshotComposer.Compose(
+                _settings.PrimaryAccountId,
+                entries,
+                generatedAt,
+                _settings.ShowRemainingPercentages);
         }
 
         /// <summary>
