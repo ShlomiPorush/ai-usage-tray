@@ -26,6 +26,17 @@ jobs:
       - name: Test server
         run: docker run --rm -v "$PWD:/work" -w /work/remote/server node:24-alpine node --test
 
+      - name: Read container version
+        id: version
+        shell: bash
+        run: |
+          version="$(< remote/server/VERSION)"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Container version must use major.minor.patch. Received: $version" >&2
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
@@ -45,8 +56,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            type=raw,value=${{ steps.version.outputs.value }}
             type=raw,value=latest,enable={{is_default_branch}}
-            type=semver,pattern={{version}}
             type=sha,prefix=sha-
 
       - name: Build and publish image
@@ -57,7 +68,11 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.version=${{ steps.version.outputs.value }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.value }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: mode=max
