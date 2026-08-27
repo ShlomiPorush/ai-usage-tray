@@ -1,8 +1,11 @@
 FROM node:24-alpine
 
+ARG VERSION=dev
+
 LABEL org.opencontainers.image.source="https://github.com/ShlomiPorush/ai-usage-tray" \
       org.opencontainers.image.description="AI Usage Tray remote-view server" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.version="${VERSION}"
 
 WORKDIR /app
 
@@ -11,7 +14,7 @@ ENV NODE_ENV=production \
     DATABASE_PATH=/data/usage.db \
     WEB_ROOT=/app/web
 
-COPY remote/server/package.json remote/server/server.mjs ./server/
+COPY remote/server/package.json remote/server/server.mjs remote/server/VERSION ./server/
 COPY web ./web
 
 RUN addgroup -S -g 10001 remoteview \

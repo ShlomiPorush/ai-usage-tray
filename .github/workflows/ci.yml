@@ -53,11 +53,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Read container version
+        id: version
+        shell: bash
+        run: |
+          version="$(< remote/server/VERSION)"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Container version must use major.minor.patch. Received: $version" >&2
+            exit 1
+          fi
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+
       - name: Test server
         run: docker run --rm -v "$PWD:/work" -w /work/remote/server node:24-alpine node --test
 
       - name: Build container
-        run: docker build -f remote/server/Dockerfile -t ai-usage-tray-remote-view:ci .
+        run: |
+          docker build \
+            --build-arg VERSION=${{ steps.version.outputs.value }} \
+            -f remote/server/Dockerfile \
+            -t ai-usage-tray-remote-view:ci \
+            .
+
+      - name: Verify container version
+        run: |
+          test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' ai-usage-tray-remote-view:ci)" = "${{ steps.version.outputs.value }}"
+          test "$(docker run --rm --entrypoint cat ai-usage-tray-remote-view:ci server/VERSION)" = "${{ steps.version.outputs.value }}"
 
       - name: Smoke test container
         run: |

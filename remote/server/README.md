@@ -7,8 +7,12 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
+ghcr.io/shlomiporush/ai-usage-tray:1.0.0
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
+
+The container version is maintained in `VERSION`. Each published image receives that version tag
+and OCI version label. `latest` points to the image most recently published from `main`.
 
 The production server pulls this image. It does not clone the repository or build the container.
 
@@ -38,6 +42,9 @@ docker compose up -d
 
 Compose uses `pull_policy: always`, so `up` also checks the registry. The explicit `pull` keeps the
 operation and any registry error visible before the running container is replaced.
+
+The image and Compose service define the same health check. Compose reports the container as
+`healthy` or `unhealthy` in `docker compose ps`.
 
 The first successful Container workflow creates the GitHub package. Confirm once in the package
 settings that its visibility is **Public**. Public GHCR images can be pulled anonymously. If it is
