@@ -21,6 +21,7 @@ namespace costats.App
     public partial class SettingsWindow : Window
     {
         private readonly IGlassBackdropService _backdropService;
+        private UpdateAvailableWindow? _updateAvailableWindow;
 
         public SettingsWindow(SettingsViewModel viewModel, IGlassBackdropService backdropService)
         {
@@ -29,6 +30,7 @@ namespace costats.App
             _backdropService = backdropService;
             SourceInitialized += OnSourceInitialized;
             MouseLeftButtonDown += OnMouseLeftButtonDown;
+            viewModel.ManualUpdateAvailable += OnManualUpdateAvailable;
         }
 
         /// <summary>
@@ -172,6 +174,33 @@ namespace costats.App
         private void OnCloseClick(object sender, RoutedEventArgs e)
         {
             Dismiss();
+        }
+
+        private void OnManualUpdateAvailable(object? sender, EventArgs e)
+        {
+            if (_updateAvailableWindow is { IsVisible: true } existingDialog)
+            {
+                existingDialog.Activate();
+                return;
+            }
+
+            if (DataContext is not SettingsViewModel viewModel)
+            {
+                return;
+            }
+
+            var dialog = new UpdateAvailableWindow(viewModel) { Owner = this };
+            _updateAvailableWindow = dialog;
+            dialog.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_updateAvailableWindow, dialog))
+                {
+                    _updateAvailableWindow = null;
+                }
+
+                Activate();
+            };
+            dialog.ShowDialog();
         }
 
         private void OnAddAccountClick(object sender, RoutedEventArgs e)
