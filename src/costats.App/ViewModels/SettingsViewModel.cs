@@ -190,6 +190,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     partial void OnIsInstallingUpdateChanged(bool value) => OnPropertyChanged(nameof(IsUpdateBusy));
 
+    public event EventHandler? ManualUpdateAvailable;
+
     [ObservableProperty]
     private bool copilotEnabled;
 
@@ -1003,11 +1005,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         IsUpdateProgressIndeterminate = true;
         UpdateProgressPercent = 0;
         UpdateStatusText = "Checking for updates...";
+        var promptForAvailableUpdate = false;
 
         try
         {
             var result = await _updateCoordinator.CheckForUpdateAsync(ct, forceCheck: true);
             ApplyUpdateCheckResult(result);
+            promptForAvailableUpdate = result.Status == UpdateCheckStatus.UpdateAvailable &&
+                result.Update is not null;
         }
         catch (OperationCanceledException)
         {
@@ -1022,6 +1027,11 @@ public sealed partial class SettingsViewModel : ObservableObject
             IsCheckingForUpdates = false;
             IsUpdateProgressVisible = false;
             IsUpdateProgressIndeterminate = false;
+        }
+
+        if (promptForAvailableUpdate)
+        {
+            ManualUpdateAvailable?.Invoke(this, EventArgs.Empty);
         }
     }
 
