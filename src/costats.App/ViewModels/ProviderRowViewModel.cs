@@ -12,7 +12,9 @@ public sealed record ProviderRowViewModel(
     string Detail,
     bool IsPrimary = false,
     bool IsShownInFloatingPanel = true,
-    bool CanChangeFloatingPanelSelection = true)
+    bool CanChangeFloatingPanelSelection = true,
+    bool UsageAlertsEnabled = false,
+    int UsageAlertThreshold = 90)
 {
     /// <summary>The pulse provider id this row maps to ("claude:x", "codex:x", "zai", "copilot").</summary>
     public string ProviderId => AccountId is null ? Kind : $"{Kind}:{AccountId}";

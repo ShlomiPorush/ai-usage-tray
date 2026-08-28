@@ -80,6 +80,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         showWeeklyBeforeSession = settings.ShowWeeklyBeforeSession;
         showFloatingStatusPanel = settings.ShowFloatingStatusPanel;
         floatingPanelPosition = settings.FloatingPanelPosition;
+        usageAlertsEnabled = settings.UsageAlertsEnabled;
         autoStartClaudeFiveHourWindow = settings.AutoStartClaudeFiveHourWindow;
         autoStartCodexFiveHourWindow = settings.AutoStartCodexFiveHourWindow;
         if (!settings.HasZaiCodingKey)
@@ -138,6 +139,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private string floatingPanelPosition = FloatingPanelPlacementCalculator.BottomRightSetting;
+
+    [ObservableProperty]
+    private bool usageAlertsEnabled;
 
     [ObservableProperty]
     private bool autoStartCodexFiveHourWindow;
@@ -400,7 +404,9 @@ public sealed partial class SettingsViewModel : ObservableObject
                 MonitoredAccountSettings.NormalizeDisplayName(account.DisplayName, account.Id),
                 account.ConfigDir,
                 IsPrimaryProvider(providerId),
-                _settings.IsFloatingPanelProviderVisible(providerId)));
+                _settings.IsFloatingPanelProviderVisible(providerId),
+                UsageAlertsEnabled: _settings.IsUsageAlertProviderEnabled(providerId),
+                UsageAlertThreshold: _settings.GetUsageAlertThreshold(providerId)));
         }
 
         if (_settings.HasZaiKey)
@@ -411,7 +417,9 @@ public sealed partial class SettingsViewModel : ObservableObject
                 _settings.ZAiDisplayName,
                 "API key configured",
                 IsPrimaryProvider("zai"),
-                _settings.IsFloatingPanelProviderVisible("zai")));
+                _settings.IsFloatingPanelProviderVisible("zai"),
+                UsageAlertsEnabled: _settings.IsUsageAlertProviderEnabled("zai"),
+                UsageAlertThreshold: _settings.GetUsageAlertThreshold("zai")));
         }
 
         if (_settings.CopilotEnabled)
@@ -422,7 +430,9 @@ public sealed partial class SettingsViewModel : ObservableObject
                 "Copilot",
                 "Token in Windows Credential Manager",
                 IsPrimaryProvider("copilot"),
-                _settings.IsFloatingPanelProviderVisible("copilot")));
+                _settings.IsFloatingPanelProviderVisible("copilot"),
+                UsageAlertsEnabled: _settings.IsUsageAlertProviderEnabled("copilot"),
+                UsageAlertThreshold: _settings.GetUsageAlertThreshold("copilot")));
         }
 
         if (_settings.EnsureFloatingPanelHasVisibleProvider(rows.Select(row => row.ProviderId)))
@@ -472,6 +482,36 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         _settings.SetFloatingPanelProviderVisible(row.ProviderId, !row.IsShownInFloatingPanel);
+        SaveSettingsInBackground();
+        RebuildProviderRows();
+        _pulseOrchestrator.RepublishLastState();
+    }
+
+    [RelayCommand]
+    private void ToggleUsageAlertAccount(ProviderRowViewModel? row)
+    {
+        if (row is null)
+        {
+            return;
+        }
+
+        _settings.SetUsageAlertRule(
+            row.ProviderId,
+            !row.UsageAlertsEnabled,
+            row.UsageAlertThreshold);
+        SaveSettingsInBackground();
+        RebuildProviderRows();
+        _pulseOrchestrator.RepublishLastState();
+    }
+
+    public void SetUsageAlertThreshold(ProviderRowViewModel row, string? text)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        var threshold = int.TryParse(text, out var parsed)
+            ? Math.Clamp(parsed, 1, 100)
+            : row.UsageAlertThreshold;
+        _settings.SetUsageAlertRule(row.ProviderId, row.UsageAlertsEnabled, threshold);
         SaveSettingsInBackground();
         RebuildProviderRows();
         _pulseOrchestrator.RepublishLastState();
@@ -567,6 +607,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         _settings.SetFloatingPanelProviderVisible(row.ProviderId, visible: true);
+        _settings.RemoveUsageAlertRule(row.ProviderId);
 
         switch (row.Kind)
         {
@@ -642,6 +683,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnShowFloatingStatusPanelChanged(bool value)
     {
         _settings.ShowFloatingStatusPanel = value;
+        SaveSettingsInBackground();
+        _pulseOrchestrator.RepublishLastState();
+    }
+
+    partial void OnUsageAlertsEnabledChanged(bool value)
+    {
+        _settings.UsageAlertsEnabled = value;
         SaveSettingsInBackground();
         _pulseOrchestrator.RepublishLastState();
     }

@@ -308,4 +308,53 @@ public sealed class RemoteSnapshotComposerTests
             .GetProperty("windows").EnumerateArray().First();
         Assert.Equal(JsonValueKind.Null, window.GetProperty("resetsAt").ValueKind);
     }
+
+    [Fact]
+    public void Compose_carries_and_clamps_each_accounts_effective_alert_rule()
+    {
+        var snapshot = RemoteSnapshotComposer.Compose(
+            null,
+            [
+                new RemoteSnapshotEntry(
+                    "claude:work",
+                    "Claude Work",
+                    "Max",
+                    Pulse(weekUsed: 10),
+                    new RemoteAlertSettings(true, 80)),
+                new RemoteSnapshotEntry(
+                    "codex:personal",
+                    "Codex",
+                    "Plus",
+                    Pulse(weekUsed: 20),
+                    new RemoteAlertSettings(false, 120))
+            ],
+            Now);
+
+        Assert.Equal(new RemoteAlertSettings(true, 80), snapshot.Accounts[0].Alert);
+        Assert.Equal(new RemoteAlertSettings(false, 100), snapshot.Accounts[1].Alert);
+    }
+
+    [Fact]
+    public void Serialized_snapshot_omits_alert_rule_only_for_legacy_entries()
+    {
+        var snapshot = RemoteSnapshotComposer.Compose(
+            null,
+            [
+                new RemoteSnapshotEntry("claude:work", "Claude Work", "Max", Pulse(weekUsed: 10)),
+                new RemoteSnapshotEntry(
+                    "codex:personal",
+                    "Codex",
+                    "Plus",
+                    Pulse(weekUsed: 20),
+                    new RemoteAlertSettings(true, 95))
+            ],
+            Now);
+
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(snapshot, WebOptions));
+        var accounts = document.RootElement.GetProperty("accounts").EnumerateArray().ToList();
+
+        Assert.False(accounts[0].TryGetProperty("alert", out _));
+        Assert.True(accounts[1].GetProperty("alert").GetProperty("enabled").GetBoolean());
+        Assert.Equal(95, accounts[1].GetProperty("alert").GetProperty("thresholdPercent").GetInt32());
+    }
 }

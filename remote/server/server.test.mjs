@@ -6,9 +6,10 @@ import { afterEach, beforeEach, test } from "node:test";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { createRemoteViewServer, deriveReadId, SnapshotStore } from "./server.mjs";
+import { base64UrlEncode } from "../shared/web-push.mjs";
 
 const require = createRequire(import.meta.url);
-const { resolvePercentMode } = require("../../web/app.js");
+const { hasEnabledAlertAccounts, resolvePercentMode } = require("../../web/app.js");
 
 const WRITE_ID = "0123456789abcdef0123456789abcdef";
 const READ_ID = "3eb1bd439947eb762998e566ccc2e099";
@@ -25,12 +26,28 @@ beforeEach(async () => {
   const directory = await mkdtemp(join(tmpdir(), "ai-usage-remote-view-"));
   let currentTime = Date.parse("2026-08-27T12:00:00Z");
   const webRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "web");
+  const vapidKeys = await crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"],
+  );
+  const vapidPrivate = await crypto.subtle.exportKey("jwk", vapidKeys.privateKey);
+  const pushCalls = [];
   const app = createRemoteViewServer({
     databasePath: join(directory, "usage.db"),
     webRoot,
     now: () => currentTime,
     ttlMs: 1000,
     cleanupIntervalMs: 0,
+    vapidConfiguration: {
+      publicKey: base64UrlEncode(await crypto.subtle.exportKey("raw", vapidKeys.publicKey)),
+      privateKey: vapidPrivate.d,
+      subject: "mailto:test@example.com",
+    },
+    pushSender: async (subscription, message) => {
+      pushCalls.push({ subscription, message });
+      return new Response(null, { status: 201 });
+    },
   });
   await new Promise((resolveListen) => app.server.listen(0, "127.0.0.1", resolveListen));
   const address = app.server.address();
@@ -38,6 +55,7 @@ beforeEach(async () => {
     app,
     directory,
     baseUrl: `http://127.0.0.1:${address.port}`,
+    pushCalls,
     advance(milliseconds) {
       currentTime += milliseconds;
     },
@@ -172,4 +190,111 @@ test("serves the viewer, same-origin config, demo, and health endpoint", async (
 
   const health = await fetch(`${fixture.baseUrl}/health`);
   assert.deepEqual(await health.json(), { status: "ok" });
+});
+
+test("viewer exposes browser alerts only when an account opted in", () => {
+  assert.equal(hasEnabledAlertAccounts({ accounts: [] }), false);
+  assert.equal(hasEnabledAlertAccounts({
+    accounts: [{ alert: { enabled: false } }, { alert: { enabled: true, thresholdPercent: 80 } }],
+  }), true);
+});
+
+test("registers browser subscriptions and pushes only new per-window crossings", async () => {
+  const subscriberKeys = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"],
+  );
+  const subscription = {
+    endpoint: "https://push.example.test/subscription-1",
+    keys: {
+      p256dh: base64UrlEncode(await crypto.subtle.exportKey("raw", subscriberKeys.publicKey)),
+      auth: base64UrlEncode(crypto.getRandomValues(new Uint8Array(16))),
+    },
+  };
+  const usage = (session, weekly) => JSON.stringify({
+    version: 2,
+    generatedAt: "2026-08-27T12:00:00Z",
+    displayMode: "remaining",
+    accounts: [{
+      id: "claude:work",
+      provider: "claude",
+      name: "Claude Work",
+      alert: { enabled: true, thresholdPercent: 80 },
+      windows: [
+        { label: "Session", usedPercent: session },
+        { label: "Weekly", usedPercent: weekly },
+      ],
+    }],
+  });
+
+  await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: usage(79, 82),
+  });
+  const vapid = await fetch(`${fixture.baseUrl}/push/vapid-public-key`);
+  assert.equal(vapid.status, 200);
+  assert.equal(typeof (await vapid.json()).publicKey, "string");
+
+  const register = await fetch(`${fixture.baseUrl}/u/${READ_ID}/push-subscription`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(subscription),
+  });
+  assert.equal(register.status, 204);
+
+  await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: usage(81, 83),
+  });
+  assert.equal(fixture.pushCalls.length, 1);
+  assert.equal(fixture.pushCalls[0].message.displayMode, "remaining");
+  assert.equal(fixture.pushCalls[0].message.alerts.length, 1);
+  assert.equal(fixture.pushCalls[0].message.alerts[0].windowKey, "session");
+
+  await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: usage(90, 84),
+  });
+  assert.equal(fixture.pushCalls.length, 1);
+
+  const unregister = await fetch(`${fixture.baseUrl}/u/${READ_ID}/push-subscription`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint: subscription.endpoint }),
+  });
+  assert.equal(unregister.status, 204);
+  assert.deepEqual(fixture.app.store.listSubscriptions(READ_ID), []);
+});
+
+test("deleting a remote view also removes its browser subscriptions", async () => {
+  await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: PAYLOAD,
+  });
+  const subscriberKeys = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"],
+  );
+  const subscription = {
+    endpoint: "https://push.example.test/subscription-delete",
+    keys: {
+      p256dh: base64UrlEncode(await crypto.subtle.exportKey("raw", subscriberKeys.publicKey)),
+      auth: base64UrlEncode(crypto.getRandomValues(new Uint8Array(16))),
+    },
+  };
+  await fetch(`${fixture.baseUrl}/u/${READ_ID}/push-subscription`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(subscription),
+  });
+
+  await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, { method: "DELETE" });
+
+  assert.deepEqual(fixture.app.store.listSubscriptions(READ_ID), []);
 });

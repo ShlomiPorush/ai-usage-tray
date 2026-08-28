@@ -115,7 +115,10 @@ namespace costats.App.Services
                     pair.Key,
                     displayNames.TryGetValue(pair.Key, out var displayName) ? displayName : pair.Key,
                     pair.Value.Identity?.Plan ?? string.Empty,
-                    pair.Value.Usage))
+                    pair.Value.Usage,
+                    new RemoteAlertSettings(
+                        _settings.UsageAlertsEnabled && _settings.IsUsageAlertProviderEnabled(pair.Key),
+                        _settings.GetUsageAlertThreshold(pair.Key))))
                 .OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 

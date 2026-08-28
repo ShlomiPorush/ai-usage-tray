@@ -34,6 +34,17 @@ curl http://127.0.0.1:8080/health
 The Compose file binds only to `127.0.0.1:8080`. Put Caddy, nginx, Traefik, or another HTTPS reverse
 proxy in front of it.
 
+Browser notifications require a persistent VAPID key pair. Generate one once from the repository:
+
+```sh
+npm run generate-vapid-keys --prefix remote/server
+```
+
+Put the three printed values in the deployment shell or a Compose `.env` file before starting the
+container. Keep `VAPID_PRIVATE_KEY` secret and back it up. `VAPID_SUBJECT` must be a `mailto:` or
+`https:` contact value. If the variables are absent, remote viewing still works but the browser
+notification control reports that Web Push is unavailable.
+
 To update later:
 
 ```sh
@@ -85,6 +96,12 @@ CREATE TABLE snapshots (
     payload TEXT NOT NULL,
     expires_at INTEGER NOT NULL
 ) STRICT;
+
+CREATE TABLE push_subscriptions (
+    endpoint TEXT PRIMARY KEY,
+    read_id TEXT NOT NULL,
+    subscription TEXT NOT NULL
+) STRICT;
 ```
 
 The JSON is stored unchanged. The server does not extract account data into columns.
@@ -95,9 +112,12 @@ The JSON is stored unchanged. The server does not extract account data into colu
 | --- | --- | --- |
 | `GET` | `/`, viewer assets | Serves the installable viewer. |
 | `GET` | `/health` | Checks that the process and SQLite connection are healthy. |
+| `GET` | `/push/vapid-public-key` | Returns the public VAPID key, or `503` when Web Push is not configured. |
 | `PUT` | `/u/{writeId}` | Validates and stores a snapshot. Returns `204` and `X-Read-Id`. |
 | `DELETE` | `/u/{writeId}` | Deletes a snapshot. Always returns `204` for a valid ID. |
 | `GET` | `/u/{readId}` | Returns unexpired JSON or `404 {"error":"not_found"}`. |
+| `POST` | `/u/{readId}/push-subscription` | Registers this browser for the shared view. |
+| `DELETE` | `/u/{readId}/push-subscription` | Removes this browser subscription. |
 | `GET` | `/u/demo` | Returns the generated read-only demo snapshot. |
 | `OPTIONS` | any path | Handles CORS preflight. |
 

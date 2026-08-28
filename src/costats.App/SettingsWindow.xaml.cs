@@ -6,6 +6,18 @@ using costats.Application.Shell;
 
 namespace costats.App
 {
+    public enum SettingsCategory
+    {
+        General,
+        Automation,
+        Display,
+        Alerts,
+        Accounts,
+        RemoteView,
+        Updates,
+        LocalUsageData
+    }
+
     public partial class SettingsWindow : Window
     {
         private readonly IGlassBackdropService _backdropService;
@@ -34,7 +46,9 @@ namespace costats.App
         /// <summary>
         /// Centres the window on the work area and brings it to the front.
         /// </summary>
-        public void ShowCentered(bool returnToWidgetOnDismiss)
+        public void ShowCentered(
+            bool returnToWidgetOnDismiss,
+            SettingsCategory? initialCategory = null)
         {
             ReturnToWidgetOnDismiss = returnToWidgetOnDismiss;
             if (DataContext is SettingsViewModel viewModel)
@@ -43,16 +57,84 @@ namespace costats.App
                 viewModel.RefreshUsageCacheInfo();
             }
 
-            var workArea = SystemParameters.WorkArea;
-            Left = (workArea.Width - Width) / 2 + workArea.Left;
-            Top = (workArea.Height - Height) / 2 + workArea.Top;
+            CollapseSettingsCategories();
+            var category = initialCategory is { } selectedCategory
+                ? ExpanderOf(selectedCategory)
+                : null;
+            if (category is not null)
+            {
+                category.IsExpanded = true;
+            }
 
+            var workArea = SystemParameters.WorkArea;
+            MaxHeight = workArea.Height;
             if (!IsVisible)
             {
                 Show();
             }
 
+            UpdateLayout();
+            Left = (workArea.Width - ActualWidth) / 2 + workArea.Left;
+            Top = (workArea.Height - ActualHeight) / 2 + workArea.Top;
+            if (category is not null)
+            {
+                category.BringIntoView();
+            }
+
             Activate();
+        }
+
+        private IEnumerable<System.Windows.Controls.Expander> SettingsCategoryExpanders()
+        {
+            yield return GeneralCategory;
+            yield return AutomationCategory;
+            yield return DisplayCategory;
+            yield return AlertsCategory;
+            yield return AccountsCategory;
+            yield return RemoteViewCategory;
+            yield return UpdatesCategory;
+            yield return LocalUsageDataCategory;
+        }
+
+        private System.Windows.Controls.Expander ExpanderOf(SettingsCategory category) => category switch
+        {
+            SettingsCategory.General => GeneralCategory,
+            SettingsCategory.Automation => AutomationCategory,
+            SettingsCategory.Display => DisplayCategory,
+            SettingsCategory.Alerts => AlertsCategory,
+            SettingsCategory.Accounts => AccountsCategory,
+            SettingsCategory.RemoteView => RemoteViewCategory,
+            SettingsCategory.Updates => UpdatesCategory,
+            SettingsCategory.LocalUsageData => LocalUsageDataCategory,
+            _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+        };
+
+        private void CollapseSettingsCategories()
+        {
+            foreach (var category in SettingsCategoryExpanders())
+            {
+                category.IsExpanded = false;
+            }
+
+            SettingsScrollViewer.ScrollToTop();
+        }
+
+        private void OnSettingsCategoryExpanded(object sender, RoutedEventArgs e)
+        {
+            if (sender is not System.Windows.Controls.Expander expanded)
+            {
+                return;
+            }
+
+            foreach (var category in SettingsCategoryExpanders())
+            {
+                if (!ReferenceEquals(category, expanded))
+                {
+                    category.IsExpanded = false;
+                }
+            }
+
+            Dispatcher.BeginInvoke(() => expanded.BringIntoView());
         }
 
         /// <summary>
@@ -146,6 +228,20 @@ namespace costats.App
                     viewModel.UpdateAccountFromDialog(row.AccountId!, dialog.AccountName, dialog.ConfigDir);
                     break;
             }
+        }
+
+        private void OnUsageAlertThresholdLostFocus(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not ViewModels.SettingsViewModel viewModel ||
+                sender is not System.Windows.Controls.TextBox
+                {
+                    DataContext: ViewModels.ProviderRowViewModel row
+                } textBox)
+            {
+                return;
+            }
+
+            viewModel.SetUsageAlertThreshold(row, textBox.Text);
         }
     }
 }

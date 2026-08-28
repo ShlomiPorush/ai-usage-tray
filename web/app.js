@@ -11,8 +11,17 @@ function resolvePercentMode(storedMode, remoteDisplayMode) {
   return remoteDisplayMode === "remaining" ? "left" : "used";
 }
 
+function hasEnabledAlertAccounts(data) {
+  return Array.isArray(data && data.accounts) && data.accounts.some(function (account) {
+    return account && account.alert && account.alert.enabled === true;
+  });
+}
+
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { resolvePercentMode: resolvePercentMode };
+  module.exports = {
+    resolvePercentMode: resolvePercentMode,
+    hasEnabledAlertAccounts: hasEnabledAlertAccounts
+  };
 }
 
 (function () {
@@ -59,11 +68,18 @@ if (typeof module !== "undefined" && module.exports) {
   var updatedEl = document.getElementById("updated");
   var staleEl = document.getElementById("staleness");
   var connectionEl = document.getElementById("connection");
+  var notificationEl = document.getElementById("notifications");
+  var notificationButton = document.getElementById("notification-toggle");
+  var notificationLabel = document.getElementById("notification-label");
 
   var id = null;
   var payload = null; // last payload we managed to render
   var loading = false;
   var lastFetchAt = 0;
+  var serviceWorkerPromise = null;
+  var pushSubscription = null;
+  var notificationBusy = false;
+  var associatedPushReadId = null;
 
   // --- small helpers ---------------------------------------------------
 
@@ -129,6 +145,181 @@ if (typeof module !== "undefined" && module.exports) {
     try {
       window.localStorage.setItem(key, value);
     } catch (error) { /* nothing we can do, and nothing depends on it */ }
+  }
+
+  function pushSupported() {
+    return window.isSecureContext &&
+      "Notification" in window &&
+      "PushManager" in window &&
+      "serviceWorker" in navigator;
+  }
+
+  function applicationServerKey(value) {
+    var padding = "=".repeat((4 - value.length % 4) % 4);
+    var binary = atob((value + padding).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from(binary, function (character) { return character.charCodeAt(0); });
+  }
+
+  function setNotificationButton(state, label, title, disabled) {
+    if (!notificationButton) return;
+    notificationButton.hidden = false;
+    notificationButton.disabled = Boolean(disabled);
+    notificationButton.setAttribute("data-state", state);
+    notificationButton.setAttribute("aria-label", title);
+    notificationButton.title = title;
+    if (notificationLabel) notificationLabel.textContent = label;
+  }
+
+  function syncNotificationControl() {
+    if (!notificationButton || id === DEMO_ID || !pushSupported() || !payload) {
+      if (notificationButton) notificationButton.hidden = true;
+      return Promise.resolve();
+    }
+
+    var alertsConfigured = hasEnabledAlertAccounts(payload);
+    return (serviceWorkerPromise || Promise.reject(new Error("service_worker_unavailable")))
+      .then(function (registration) {
+        if (!registration) throw new Error("service_worker_unavailable");
+        return registration.pushManager.getSubscription();
+      })
+      .then(function (subscription) {
+        pushSubscription = subscription;
+        if (subscription) {
+          var association = associatedPushReadId === id
+            ? Promise.resolve()
+            : fetch(API_BASE + "/u/" + id + "/push-subscription", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(subscription.toJSON())
+            }).then(function (response) {
+              if (!response.ok) throw new Error("subscription_rejected");
+              associatedPushReadId = id;
+            });
+          return association.then(function () {
+            setNotificationButton(
+              "on",
+              alertsConfigured ? "Alerts on" : "Alerts paused",
+              alertsConfigured
+                ? "Browser alerts are on. Click to turn them off."
+                : "Browser alerts are subscribed but no desktop account alert is enabled. Click to turn them off.",
+              false
+            );
+          });
+        } else if (!alertsConfigured) {
+          notificationButton.hidden = true;
+        } else if (Notification.permission === "denied") {
+          setNotificationButton(
+            "blocked",
+            "Alerts blocked",
+            "Notifications are blocked in this browser's site settings.",
+            true
+          );
+        } else {
+          setNotificationButton(
+            "off",
+            "Enable alerts",
+            "Enable browser alerts on this device.",
+            false
+          );
+        }
+      })
+      .catch(function () {
+        if (hasEnabledAlertAccounts(payload)) {
+          setNotificationButton(
+            "unavailable",
+            "Alerts unavailable",
+            "Browser alerts are unavailable on this device.",
+            true
+          );
+        }
+      });
+  }
+
+  function unregisterBrowserAlerts() {
+    if (!pushSubscription) return Promise.resolve();
+    var subscription = pushSubscription;
+    return fetch(API_BASE + "/u/" + id + "/push-subscription", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: subscription.endpoint })
+    })
+      .catch(function () { /* unsubscribe locally even if server cleanup fails */ })
+      .then(function () { return subscription.unsubscribe(); })
+      .then(function () {
+        pushSubscription = null;
+        associatedPushReadId = null;
+        show(notificationEl, "Browser alerts are off on this device.");
+      });
+  }
+
+  function registerBrowserAlerts() {
+    if (!hasEnabledAlertAccounts(payload)) return Promise.resolve();
+    return Notification.requestPermission()
+      .then(function (permission) {
+        if (permission !== "granted") throw new Error("permission_denied");
+        return Promise.all([
+          serviceWorkerPromise,
+          fetch(API_BASE + "/push/vapid-public-key", {
+            cache: "no-store",
+            headers: { Accept: "application/json" }
+          }).then(function (response) {
+            if (!response.ok) throw new Error("push_not_configured");
+            return response.json();
+          })
+        ]);
+      })
+      .then(function (results) {
+        var registration = results[0];
+        var configuration = results[1];
+        if (!registration) throw new Error("service_worker_unavailable");
+        return registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: applicationServerKey(configuration.publicKey)
+        }).then(function (subscription) {
+          return fetch(API_BASE + "/u/" + id + "/push-subscription", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(subscription.toJSON())
+          }).then(function (response) {
+            if (!response.ok) {
+              return subscription.unsubscribe().then(function () {
+                throw new Error("subscription_rejected");
+              });
+            }
+            pushSubscription = subscription;
+            associatedPushReadId = id;
+            return registration.showNotification("Browser alerts are ready", {
+              body: "This device will notify you when a selected quota crosses its threshold.",
+              icon: "icon-192.png",
+              badge: "icon-192.png",
+              tag: "usage-alert-test",
+              data: { url: window.location.href }
+            });
+          });
+        });
+      })
+      .then(function () {
+        show(notificationEl, "Browser alerts are on for this device.");
+      });
+  }
+
+  function setupNotifications() {
+    if (!notificationButton || !pushSupported()) return;
+    notificationButton.addEventListener("click", function () {
+      if (notificationBusy) return;
+      notificationBusy = true;
+      notificationButton.disabled = true;
+      var action = pushSubscription ? unregisterBrowserAlerts() : registerBrowserAlerts();
+      action.catch(function (error) {
+        var message = error && error.message === "permission_denied"
+          ? "Notifications were not allowed. You can change this in the browser's site settings."
+          : "Browser alerts could not be changed. Try again.";
+        show(notificationEl, message);
+      }).then(function () {
+        notificationBusy = false;
+        return syncNotificationControl();
+      });
+    });
   }
 
   // --- theme -----------------------------------------------------------
@@ -577,6 +768,7 @@ if (typeof module !== "undefined" && module.exports) {
         lastFetchAt = Date.now();
         hide(connectionEl);
         render();
+        syncNotificationControl();
       })
       .catch(function (error) {
         if (error && error.code === 404) {
@@ -610,11 +802,10 @@ if (typeof module !== "undefined" && module.exports) {
 
   // Offline shell only; it needs a secure context and is never required.
   function registerServiceWorker() {
-    if (window.location.protocol !== "https:") return;
-    if (!navigator.serviceWorker) return;
-    window.addEventListener("load", function () {
-      navigator.serviceWorker.register("sw.js").catch(function () { /* optional */ });
-    });
+    if (!window.isSecureContext || !navigator.serviceWorker) return;
+    serviceWorkerPromise = navigator.serviceWorker.register("sw.js")
+      .then(function () { return navigator.serviceWorker.ready; })
+      .catch(function () { return null; });
   }
 
   function resolveId() {
@@ -634,6 +825,7 @@ if (typeof module !== "undefined" && module.exports) {
   function start() {
     setupTheme();
     registerServiceWorker();
+    setupNotifications();
 
     var resolved = resolveId();
     if (!resolved) {

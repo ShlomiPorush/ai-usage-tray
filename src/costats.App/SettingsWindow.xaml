@@ -96,6 +96,102 @@
                 </Setter.Value>
             </Setter>
         </Style>
+
+        <Style x:Key="SettingsCategoryIcon" TargetType="Path">
+            <Setter Property="Width" Value="17" />
+            <Setter Property="Height" Value="17" />
+            <Setter Property="Stretch" Value="Uniform" />
+            <Setter Property="Stroke" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="StrokeThickness" Value="1.7" />
+            <Setter Property="StrokeStartLineCap" Value="Round" />
+            <Setter Property="StrokeEndLineCap" Value="Round" />
+            <Setter Property="StrokeLineJoin" Value="Round" />
+            <Setter Property="Margin" Value="0,0,10,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <Style x:Key="SettingsCategoryHeader" TargetType="ToggleButton">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="HeaderBorder" Background="{TemplateBinding Background}"
+                                Padding="13,12" CornerRadius="8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter Grid.Column="0" VerticalAlignment="Center" />
+                                <Path x:Name="Chevron" Grid.Column="1" Data="M1,3 L6,8 L11,3"
+                                      Width="12" Height="9" Stretch="Uniform"
+                                      Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.7"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                      StrokeLineJoin="Round" VerticalAlignment="Center"
+                                      RenderTransformOrigin="0.5,0.5">
+                                    <Path.RenderTransform>
+                                        <RotateTransform Angle="0" />
+                                    </Path.RenderTransform>
+                                </Path>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="HeaderBorder" Property="Background" Value="{DynamicResource ButtonHoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="HeaderBorder" Property="Background" Value="{DynamicResource ButtonPressedBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Chevron" Property="RenderTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="180" />
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SettingsCategoryExpander" TargetType="Expander">
+            <Setter Property="Background" Value="{DynamicResource InputBgBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Expander">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="9" ClipToBounds="True">
+                            <DockPanel>
+                                <ToggleButton DockPanel.Dock="Top"
+                                              Content="{TemplateBinding Header}"
+                                              IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                              Style="{StaticResource SettingsCategoryHeader}" />
+                                <Border x:Name="ContentBorder" BorderBrush="{DynamicResource DividerBrush}"
+                                        BorderThickness="0,1,0,0" Visibility="Collapsed">
+                                    <ContentPresenter ContentSource="Content" Margin="14,14,14,16" />
+                                </Border>
+                            </DockPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsExpanded" Value="True">
+                                <Setter TargetName="ContentBorder" Property="Visibility" Value="Visible" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource WindowBorderBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Border CornerRadius="16" BorderBrush="{DynamicResource WindowBorderBrush}" BorderThickness="1"
@@ -125,176 +221,251 @@
                  draws the bar; the negative right margin lets it sit out in the
                  window's own padding, and the matching Padding keeps a gap so no
                  text ever runs into it. -->
-            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="640"
-                          Margin="0,0,-14,0" Padding="0,0,14,0">
-            <StackPanel>
+            <ScrollViewer x:Name="SettingsScrollViewer" Grid.Row="2" VerticalScrollBarVisibility="Auto"
+                          Height="424" MaxHeight="424" Margin="0,0,-14,0" Padding="0,0,14,0">
+            <StackPanel x:Name="SettingsCategories">
 
-                <!-- System Section -->
-                <TextBlock Text="SYSTEM" FontSize="10" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,12" />
+                <Expander x:Name="GeneralCategory" Style="{StaticResource SettingsCategoryExpander}"
+                          Expanded="OnSettingsCategoryExpanded">
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource SettingsCategoryIcon}" Data="M2,3 H15 M5,1 V5 M2,9 H15 M11,7 V11 M2,15 H15 M7,13 V17" />
+                            <TextBlock Text="General" FontSize="13.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel>
+                        <CheckBox IsChecked="{Binding StartAtLogin}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Start at login" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        </CheckBox>
+                        <TextBlock Text="Automatically launch AI Usage Tray when Windows starts."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12"
+                                   TextWrapping="Wrap" />
 
-                <CheckBox IsChecked="{Binding StartAtLogin}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Start at login" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
-                </CheckBox>
-                <TextBlock Text="Automatically launch AI Usage Tray when Windows starts."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12"
-                           TextWrapping="Wrap" />
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="Refresh interval" FontSize="12"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" DockPanel.Dock="Left"
+                                       VerticalAlignment="Center" />
+                            <ComboBox ItemsSource="{Binding RefreshOptions}"
+                                      SelectedItem="{Binding SelectedRefreshOption}"
+                                      DockPanel.Dock="Right" HorizontalAlignment="Right" Width="120" />
+                        </DockPanel>
+                        <TextBlock Text="How often AI Usage Tray polls for usage data in the background."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,12"
+                                   TextWrapping="Wrap" />
 
-                <CheckBox IsChecked="{Binding ShowOverviewResetTimes}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Show &quot;Resets in...&quot; times on the main page" FontSize="12"
-                               Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
-                </CheckBox>
-                <TextBlock Text="Adds the reset countdown next to each usage bar in the account overview."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
+                        <CheckBox IsChecked="{Binding HotkeyEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Enable global shortcut" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        </CheckBox>
+                        <DockPanel Margin="30,0,0,4" IsEnabled="{Binding HotkeyEnabled}">
+                            <TextBlock Text="Shortcut" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       DockPanel.Dock="Left" VerticalAlignment="Center" />
+                            <TextBox Text="{Binding Hotkey, UpdateSourceTrigger=LostFocus}"
+                                     Style="{StaticResource SettingsTextBox}" Width="145"
+                                     DockPanel.Dock="Right" HorizontalAlignment="Right" />
+                        </DockPanel>
+                        <TextBlock Text="Use a modifier and one key, for example Ctrl+Alt+U."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,3"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding HotkeyStatus}" FontSize="11" Foreground="#F97316" Margin="30,0,0,12"
+                                   TextWrapping="Wrap"
+                                   Visibility="{Binding HotkeyStatus, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                    </StackPanel>
+                </Expander>
 
-                <CheckBox IsChecked="{Binding ShowRemainingPercentages}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Show remaining percentages instead of used" FontSize="12"
-                               Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
-                </CheckBox>
-                <TextBlock Text="Applies to numbers and bars in the tray, panels, and main window. Colours stay green for available capacity and red near exhaustion."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
+                <Expander x:Name="AutomationCategory" Style="{StaticResource SettingsCategoryExpander}"
+                          Expanded="OnSettingsCategoryExpanded">
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource SettingsCategoryIcon}" Data="M9,1 A8,8 0 1 0 9,17 A8,8 0 1 0 9,1 M9,5 V9 L12,11" />
+                            <TextBlock Text="Automation" FontSize="13.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel>
 
-                <CheckBox IsChecked="{Binding ShowWeeklyBeforeSession}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Show Weekly before Session in tray panels" FontSize="12"
-                               Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
-                </CheckBox>
-                <TextBlock Text="Enabled by default for the tray hover and floating status panel. Turn it off to restore Session before Weekly."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
+                        <CheckBox IsChecked="{Binding AutoStartClaudeFiveHourWindow}"
+                                  Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Automatically start new Claude 5-hour windows"
+                                       FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                        </CheckBox>
+                        <TextBlock Text="After an observed window expires, starts the next one with a minimal Claude Code prompt."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
+                                   Margin="30,0,0,12" TextWrapping="Wrap" />
 
-                <CheckBox IsChecked="{Binding ShowFloatingStatusPanel}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Show the floating status panel" FontSize="12"
-                               Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
-                </CheckBox>
-                <TextBlock Text="Shows the same status rows as the tray tooltip in a movable always-on panel. Use its X to close it."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,8" TextWrapping="Wrap" />
+                        <CheckBox IsChecked="{Binding AutoStartCodexFiveHourWindow}"
+                                  Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Automatically start new Codex 5-hour windows"
+                                       FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                        </CheckBox>
+                        <TextBlock Text="When an account is idle, starts a window with an isolated read-only Codex prompt, then starts the next one after expiry."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
+                                   Margin="30,0,0,12" TextWrapping="Wrap" />
 
-                <StackPanel Visibility="{Binding ShowFloatingStatusPanel, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
-                    <DockPanel Margin="30,0,0,8">
-                        <TextBlock Text="Starting position" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{DynamicResource TextSecondaryBrush}" DockPanel.Dock="Left"
-                                   VerticalAlignment="Center" />
-                        <ComboBox ItemsSource="{Binding FloatingPanelPositionOptions}"
-                                  DisplayMemberPath="Label"
-                                  SelectedValuePath="Value"
-                                  SelectedValue="{Binding FloatingPanelPosition, Mode=TwoWay}"
-                                  DockPanel.Dock="Right" HorizontalAlignment="Right" Width="126" />
-                    </DockPanel>
-                    <TextBlock Text="The panel stays anchored here when its size changes. Dragging moves it for the current app session."
-                               FontSize="10" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,10"
-                               TextWrapping="Wrap" />
+                        <CheckBox IsChecked="{Binding AutoStartZaiFiveHourWindow}"
+                                  IsEnabled="{Binding CanAutoStartZaiFiveHourWindow}"
+                                  Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Automatically start new GLM 5-hour windows"
+                                       FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                        </CheckBox>
+                        <TextBlock Text="When the account is idle, starts a window with a minimal GLM prompt, then starts the next one after expiry. Requires the coding-plan key."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
+                                   Margin="30,0,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Expander>
 
-                    <TextBlock Text="Accounts shown" FontSize="11" FontWeight="SemiBold"
-                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="30,0,0,6" />
-                    <ItemsControl ItemsSource="{Binding ProviderRows}" Focusable="False" Margin="30,0,0,4">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <CheckBox IsChecked="{Binding IsShownInFloatingPanel, Mode=OneWay}"
-                                          IsEnabled="{Binding CanChangeFloatingPanelSelection}"
-                                          Command="{Binding DataContext.ToggleFloatingPanelAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                                          CommandParameter="{Binding}"
-                                          Style="{StaticResource SettingsCheckBox}"
-                                          Margin="0,0,0,5">
-                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="{Binding Name}" FontSize="11.5" FontWeight="SemiBold"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}" />
-                                        <TextBlock Text="{Binding KindLabel, StringFormat='  {0}'}" FontSize="10"
-                                                   Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                </CheckBox>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock Text="New accounts are shown automatically. At least one account must remain selected."
-                               FontSize="10" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12"
-                               TextWrapping="Wrap" />
-                </StackPanel>
+                <Expander x:Name="DisplayCategory" Style="{StaticResource SettingsCategoryExpander}"
+                          Expanded="OnSettingsCategoryExpanded">
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource SettingsCategoryIcon}" Data="M1,9 C4,3 13,3 16,9 C13,15 4,15 1,9 Z M6,9 A3,3 0 1 0 12,9 A3,3 0 1 0 6,9" />
+                            <TextBlock Text="Display" FontSize="13.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel>
+                        <CheckBox IsChecked="{Binding ShowOverviewResetTimes}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Show &quot;Resets in...&quot; times on the main page" FontSize="12"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                        </CheckBox>
+                        <TextBlock Text="Adds the reset countdown next to each usage bar in the account overview."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
 
-                <DockPanel Margin="0,0,0,6">
-                    <TextBlock Text="Theme" FontSize="12"
-                               Foreground="{DynamicResource TextPrimaryBrush}" DockPanel.Dock="Left"
-                               VerticalAlignment="Center" />
-                    <ComboBox ItemsSource="{Binding ThemeOptions}"
-                              SelectedItem="{Binding SelectedTheme}"
-                              DockPanel.Dock="Right" HorizontalAlignment="Right" Width="140" />
-                </DockPanel>
-                <TextBlock Text="Follow system tracks the Windows app theme; Light and Dark are fixed."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
+                        <CheckBox IsChecked="{Binding ShowRemainingPercentages}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Show remaining percentages instead of used" FontSize="12"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                        </CheckBox>
+                        <TextBlock Text="Applies to numbers and bars in the tray, panels, and main window. Colours stay green for available capacity and red near exhaustion."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
 
-                <!-- Divider -->
-                <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,0,0,16" />
+                        <CheckBox IsChecked="{Binding ShowWeeklyBeforeSession}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Show Weekly before Session in tray panels" FontSize="12"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                        </CheckBox>
+                        <TextBlock Text="Enabled by default for the tray hover and floating status panel. Turn it off to restore Session before Weekly."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
 
-                <!-- Automation Section -->
-                <TextBlock Text="AUTOMATION" FontSize="10" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,12" />
+                        <CheckBox IsChecked="{Binding ShowFloatingStatusPanel}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Show the floating status panel" FontSize="12"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                        </CheckBox>
+                        <TextBlock Text="Shows the same status rows as the tray tooltip in a movable always-on panel. Use its X to close it."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,8" TextWrapping="Wrap" />
 
-                <DockPanel Margin="0,0,0,6">
-                    <TextBlock Text="Refresh interval" FontSize="12"
-                               Foreground="{DynamicResource TextPrimaryBrush}" DockPanel.Dock="Left"
-                               VerticalAlignment="Center" />
-                    <ComboBox ItemsSource="{Binding RefreshOptions}"
-                              SelectedItem="{Binding SelectedRefreshOption}"
-                              DockPanel.Dock="Right" HorizontalAlignment="Right" Width="120" />
-                </DockPanel>
-                <TextBlock Text="How often AI Usage Tray polls for usage data in the background."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,12"
-                           TextWrapping="Wrap" />
+                        <StackPanel Visibility="{Binding ShowFloatingStatusPanel, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                            <DockPanel Margin="30,0,0,8">
+                                <TextBlock Text="Starting position" FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" DockPanel.Dock="Left"
+                                           VerticalAlignment="Center" />
+                                <ComboBox ItemsSource="{Binding FloatingPanelPositionOptions}"
+                                          DisplayMemberPath="Label" SelectedValuePath="Value"
+                                          SelectedValue="{Binding FloatingPanelPosition, Mode=TwoWay}"
+                                          DockPanel.Dock="Right" HorizontalAlignment="Right" Width="126" />
+                            </DockPanel>
+                            <TextBlock Text="The panel stays anchored here when its size changes. Dragging moves it for the current app session."
+                                       FontSize="10" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,10" TextWrapping="Wrap" />
+                            <TextBlock Text="Accounts shown" FontSize="11" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="30,0,0,6" />
+                            <ItemsControl ItemsSource="{Binding ProviderRows}" Focusable="False" Margin="30,0,0,4">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding IsShownInFloatingPanel, Mode=OneWay}"
+                                                  IsEnabled="{Binding CanChangeFloatingPanelSelection}"
+                                                  Command="{Binding DataContext.ToggleFloatingPanelAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                  CommandParameter="{Binding}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,5">
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Name}" FontSize="11.5" FontWeight="SemiBold"
+                                                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                                                <TextBlock Text="{Binding KindLabel, StringFormat='  {0}'}" FontSize="10"
+                                                           Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
+                                            </StackPanel>
+                                        </CheckBox>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="New accounts are shown automatically. At least one account must remain selected."
+                                       FontSize="10" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
+                        </StackPanel>
 
-                <CheckBox IsChecked="{Binding HotkeyEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,14,0,6">
-                    <TextBlock Text="Enable global shortcut" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
-                </CheckBox>
-                <DockPanel Margin="30,0,0,4" IsEnabled="{Binding HotkeyEnabled}">
-                    <TextBlock Text="Shortcut" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
-                               DockPanel.Dock="Left" VerticalAlignment="Center" />
-                    <TextBox Text="{Binding Hotkey, UpdateSourceTrigger=LostFocus}"
-                             Style="{StaticResource SettingsTextBox}" Width="145"
-                             DockPanel.Dock="Right" HorizontalAlignment="Right" />
-                </DockPanel>
-                <TextBlock Text="Use a modifier and one key, for example Ctrl+Alt+U."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,3"
-                           TextWrapping="Wrap" />
-                <TextBlock Text="{Binding HotkeyStatus}" FontSize="11" Foreground="#F97316" Margin="30,0,0,0"
-                           TextWrapping="Wrap"
-                           Visibility="{Binding HotkeyStatus, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="Theme" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
+                                       DockPanel.Dock="Left" VerticalAlignment="Center" />
+                            <ComboBox ItemsSource="{Binding ThemeOptions}" SelectedItem="{Binding SelectedTheme}"
+                                      DockPanel.Dock="Right" HorizontalAlignment="Right" Width="140" />
+                        </DockPanel>
+                        <TextBlock Text="Follow system tracks the Windows app theme; Light and Dark are fixed."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Expander>
 
-                <CheckBox IsChecked="{Binding AutoStartClaudeFiveHourWindow}"
-                          Style="{StaticResource SettingsCheckBox}" Margin="0,14,0,6">
-                    <TextBlock Text="Automatically start new Claude 5-hour windows"
-                               FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
-                               TextWrapping="Wrap" />
-                </CheckBox>
-                <TextBlock Text="After an observed window expires, starts the next one with a minimal Claude Code prompt."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
-                           Margin="30,0,0,12" TextWrapping="Wrap" />
+                <Expander x:Name="AlertsCategory" Style="{StaticResource SettingsCategoryExpander}"
+                          Expanded="OnSettingsCategoryExpanded">
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource SettingsCategoryIcon}" Data="M4,7 A5,5 0 0 1 14,7 V11 L16,14 H2 L4,11 Z M7,16 H11" />
+                            <TextBlock Text="Alerts" FontSize="13.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel>
+                        <CheckBox IsChecked="{Binding UsageAlertsEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Enable usage alerts" FontSize="12"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                        </CheckBox>
+                        <TextBlock Text="Shows a notification once when a selected account window crosses its threshold. Each window rearms after it drops below the threshold or resets."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,8" TextWrapping="Wrap" />
+                        <StackPanel Visibility="{Binding UsageAlertsEnabled, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                            <TextBlock Text="Accounts notified" FontSize="11" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="30,0,0,6" />
+                            <ItemsControl ItemsSource="{Binding ProviderRows}" Focusable="False" Margin="30,0,0,4">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,5">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <CheckBox Grid.Column="0" IsChecked="{Binding UsageAlertsEnabled, Mode=OneWay}"
+                                                      Command="{Binding DataContext.ToggleUsageAlertAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                      CommandParameter="{Binding}" Style="{StaticResource SettingsCheckBox}">
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Name}" FontSize="11.5" FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                                                    <TextBlock Text="{Binding KindLabel, StringFormat='  {0}'}" FontSize="10"
+                                                               Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
+                                                </StackPanel>
+                                            </CheckBox>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                                                        IsEnabled="{Binding UsageAlertsEnabled}" Margin="8,0,0,0">
+                                                <TextBox Text="{Binding UsageAlertThreshold, Mode=OneWay}"
+                                                         LostFocus="OnUsageAlertThresholdLostFocus"
+                                                         Style="{StaticResource SettingsTextBox}" Width="44" MaxLength="3"
+                                                         Padding="6,3" HorizontalContentAlignment="Right" />
+                                                <TextBlock Text="%" FontSize="11" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                           Foreground="{DynamicResource TextSecondaryBrush}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="New accounts start with alerts off and a 90% threshold. The threshold is applied independently to every quota window on that account."
+                                       FontSize="10" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,0" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+                </Expander>
 
-                <CheckBox IsChecked="{Binding AutoStartCodexFiveHourWindow}"
-                          Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Automatically start new Codex 5-hour windows"
-                               FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
-                               TextWrapping="Wrap" />
-                </CheckBox>
-                <TextBlock Text="When an account is idle, starts a window with an isolated read-only Codex prompt, then starts the next one after expiry."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
-                           Margin="30,0,0,12" TextWrapping="Wrap" />
-
-                <CheckBox IsChecked="{Binding AutoStartZaiFiveHourWindow}"
-                          IsEnabled="{Binding CanAutoStartZaiFiveHourWindow}"
-                          Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
-                    <TextBlock Text="Automatically start new GLM 5-hour windows"
-                               FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
-                               TextWrapping="Wrap" />
-                </CheckBox>
-                <TextBlock Text="When the account is idle, starts a window with a minimal GLM prompt, then starts the next one after expiry. Requires the coding-plan key."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
-                           Margin="30,0,0,0" TextWrapping="Wrap" />
-
-                <!-- Divider -->
-                <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,16,0,16" />
-
-                <!-- Monitored accounts -->
-                <TextBlock Text="ACCOUNTS" FontSize="10" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,12" />
-                <TextBlock Text="Each account points at the local profile folder its login lives in (CLAUDE_CONFIG_DIR for Claude, CODEX_HOME for Codex). Sign in with the official CLI inside that folder; this app never stores provider passwords."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                <Expander x:Name="AccountsCategory" Style="{StaticResource SettingsCategoryExpander}"
+                          Expanded="OnSettingsCategoryExpanded">
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource SettingsCategoryIcon}" Data="M6,8 A3,3 0 1 0 6,2 A3,3 0 1 0 6,8 M1,16 V14 C1,11 3,10 6,10 C9,10 11,11 11,14 V16 M13,7 A2.5,2.5 0 1 0 13,2 M12,10 C15,10 17,11 17,14 V16" />
+                            <TextBlock Text="Accounts" FontSize="13.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel>
+                        <TextBlock Text="Each account points at the local profile folder its login lives in (CLAUDE_CONFIG_DIR for Claude, CODEX_HOME for Codex). Sign in with the official CLI inside that folder; this app never stores provider passwords."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,0,0,10" />
 
                 <ItemsControl ItemsSource="{Binding ProviderRows}" Focusable="False">
                     <ItemsControl.ItemTemplate>
@@ -334,16 +505,21 @@
                 <Button Content="+ Add account" Click="OnAddAccountClick"
                         Style="{StaticResource SettingsButton}" HorizontalAlignment="Left" Margin="0,4,0,0" />
 
-                <TextBlock Text="{Binding AccountsRestartMessage}" FontSize="11" Foreground="#F97316" Margin="0,8,0,0"
-                           Visibility="{Binding AccountsRestartMessage, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                        <TextBlock Text="{Binding AccountsRestartMessage}" FontSize="11" Foreground="#F97316" Margin="0,8,0,0"
+                                   Visibility="{Binding AccountsRestartMessage, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                    </StackPanel>
+                </Expander>
 
-                <!-- Divider -->
-                <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,16,0,16" />
-
-                <!-- Remote View Section -->
-                <TextBlock Text="REMOTE VIEW" FontSize="10" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,12" />
-
+                <Expander x:Name="RemoteViewCategory" Style="{StaticResource SettingsCategoryExpander}"
+                          Expanded="OnSettingsCategoryExpanded">
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource SettingsCategoryIcon}" Data="M9,1 A8,8 0 1 0 9,17 A8,8 0 1 0 9,1 M1,9 H17 M9,1 C6,5 6,13 9,17 M9,1 C12,5 12,13 9,17" />
+                            <TextBlock Text="Remote view" FontSize="13.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel>
                 <CheckBox IsChecked="{Binding RemoteViewEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
                     <TextBlock Text="Enable remote view" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
                 </CheckBox>
@@ -402,17 +578,22 @@
                                FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,0" TextWrapping="Wrap" />
                 </StackPanel>
 
-                <TextBlock Text="{Binding RemoteViewMessage}" FontSize="11" Foreground="#F97316"
-                           Margin="0,8,0,0" TextWrapping="Wrap"
-                           Visibility="{Binding RemoteViewMessage, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                        <TextBlock Text="{Binding RemoteViewMessage}" FontSize="11" Foreground="#F97316"
+                                   Margin="0,8,0,0" TextWrapping="Wrap"
+                                   Visibility="{Binding RemoteViewMessage, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                    </StackPanel>
+                </Expander>
 
-                <!-- Divider -->
-                <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,16,0,16" />
-
-                <!-- Updates Section -->
-                <TextBlock Text="UPDATES" FontSize="10" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,12" />
-
+                <Expander x:Name="UpdatesCategory" Style="{StaticResource SettingsCategoryExpander}"
+                          Expanded="OnSettingsCategoryExpanded">
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource SettingsCategoryIcon}" Data="M16,5 V1 L12,5 H16 C17,7 17,10 16,12 C14,16 9,18 5,16 M2,13 V17 L6,13 H2 C1,11 1,8 2,6 C4,2 9,0 13,2" />
+                            <TextBlock Text="Updates" FontSize="13.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel>
                 <CheckBox IsChecked="{Binding AutomaticUpdateChecksEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
                     <TextBlock Text="Check for updates automatically" FontSize="12"
                                Foreground="{DynamicResource TextPrimaryBrush}" />
@@ -420,26 +601,6 @@
                 <TextBlock Text="Runs a background GitHub check every six hours. Manual checks always remain available."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12"
                            TextWrapping="Wrap" />
-
-                <DockPanel Margin="0,0,0,8">
-                    <Button Content="Check for updates"
-                            Command="{Binding CheckForUpdatesCommand}"
-                            IsEnabled="{Binding IsUpdateBusy, Converter={x:Static local:BoolNegationConverter.Instance}}"
-                            Style="{StaticResource SettingsButton}"
-                            DockPanel.Dock="Right" HorizontalAlignment="Right" />
-                    <TextBlock Text="{Binding UpdateStatusText}"
-                                FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
-                                VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0"
-                                Visibility="{Binding UpdateStatusText, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
-                </DockPanel>
-
-                <ProgressBar Height="5" Minimum="0" Maximum="100"
-                             Value="{Binding UpdateProgressPercent}"
-                             IsIndeterminate="{Binding IsUpdateProgressIndeterminate}"
-                             Foreground="{DynamicResource AccentBrush}"
-                             Background="{DynamicResource InputBgBrush}"
-                             BorderThickness="0" Margin="0,0,0,10"
-                             Visibility="{Binding IsUpdateProgressVisible, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
 
                 <Border CornerRadius="8" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
                         Background="{DynamicResource InputBgBrush}" Padding="12"
@@ -462,14 +623,20 @@
                                 Style="{StaticResource SettingsButton}"
                                 HorizontalAlignment="Right" />
                     </StackPanel>
-                </Border>
+                        </Border>
+                    </StackPanel>
+                </Expander>
 
-                <!-- Divider -->
-                <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,16,0,16" />
-
-                <!-- Local usage cache -->
-                <TextBlock Text="LOCAL USAGE DATA" FontSize="10" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,12" />
+                <Expander x:Name="LocalUsageDataCategory" Style="{StaticResource SettingsCategoryExpander}"
+                          Expanded="OnSettingsCategoryExpanded">
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource SettingsCategoryIcon}" Data="M1,4 C1,1 17,1 17,4 V14 C17,17 1,17 1,14 Z M1,4 C1,7 17,7 17,4 M1,9 C1,12 17,12 17,9" />
+                            <TextBlock Text="Local usage data" FontSize="13.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel>
                 <TextBlock Text="Usage reports read local Claude and Codex logs and estimate their API list-price value. This is not your subscription bill. Parsed files are cached locally to make later reports fast."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,0,0,10" />
                 <DockPanel>
@@ -480,9 +647,11 @@
                                Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
                                TextWrapping="Wrap" Margin="0,0,10,0" />
                 </DockPanel>
-                <TextBlock Text="After clearing, the next usage report performs a slower full scan."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,6,0,0"
-                           TextWrapping="Wrap" />
+                        <TextBlock Text="After clearing, the next usage report performs a slower full scan."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,6,0,0"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </Expander>
 
             </StackPanel>
             </ScrollViewer>
@@ -490,19 +659,42 @@
             <!-- Footer -->
             <StackPanel Grid.Row="3" Margin="0,16,0,0">
                 <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,0,0,12" />
-                <DockPanel>
-                    <TextBlock Text="{Binding Version, StringFormat='v{0}'}"
-                               FontSize="11" Foreground="{DynamicResource TextMutedBrush}"
-                               DockPanel.Dock="Right" HorizontalAlignment="Right"
-                               VerticalAlignment="Center" />
-                    <Button Content="Restart app" Command="{Binding RestartAppCommand}"
-                            ToolTip="Restart AI Usage Tray"
-                            Style="{StaticResource SettingsButton}" Padding="10,5" FontSize="11"
-                            DockPanel.Dock="Left" HorizontalAlignment="Left" />
-                    <TextBlock Text="Changes are saved automatically."
-                               FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
-                               Margin="10,0,0,0" VerticalAlignment="Center" />
-                </DockPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left"
+                                VerticalAlignment="Center">
+                        <Button Content="Restart app" Command="{Binding RestartAppCommand}"
+                                ToolTip="Restart AI Usage Tray"
+                                Style="{StaticResource SettingsButton}" Padding="10,5" FontSize="11" />
+                        <Button Content="Check for updates"
+                                Command="{Binding CheckForUpdatesCommand}"
+                                IsEnabled="{Binding IsUpdateBusy, Converter={x:Static local:BoolNegationConverter.Instance}}"
+                                Style="{StaticResource SettingsButton}" Padding="10,5" FontSize="11"
+                                Margin="8,0,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="10,0,0,0" HorizontalAlignment="Right"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Version, StringFormat='v{0}'}"
+                                   FontSize="11" Foreground="{DynamicResource TextMutedBrush}"
+                                   HorizontalAlignment="Right" />
+                        <TextBlock Text="{Binding UpdateStatusText}"
+                                   FontSize="10" Foreground="{DynamicResource TextFaintBrush}"
+                                   MaxWidth="112" HorizontalAlignment="Right"
+                                   TextAlignment="Right" TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding UpdateStatusText}"
+                                   Visibility="{Binding UpdateStatusText, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                    </StackPanel>
+                </Grid>
+                <ProgressBar Height="5" Minimum="0" Maximum="100"
+                             Value="{Binding UpdateProgressPercent}"
+                             IsIndeterminate="{Binding IsUpdateProgressIndeterminate}"
+                             Foreground="{DynamicResource AccentBrush}"
+                             Background="{DynamicResource InputBgBrush}"
+                             BorderThickness="0" Margin="0,8,0,0"
+                             Visibility="{Binding IsUpdateProgressVisible, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
             </StackPanel>
         </Grid>
     </Border>

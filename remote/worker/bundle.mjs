@@ -23,9 +23,19 @@ const read = (path) => readFileSync(path, "utf8");
 const readBase64 = (path) => readFileSync(path).toString("base64");
 
 // --- API section -------------------------------------------------------------
-// worker.js is reused verbatim (minus its `export default`) so the bundled API
-// behaviour can never drift from the standalone one.
-const workerSource = read(join(here, "worker.js"));
+// Shared Web Push and threshold logic is inlined before worker.js. Imports and
+// named exports are removed because the dashboard bundle must remain one file.
+const sharedSource = [
+  read(join(here, "..", "shared", "usage-alerts.mjs")),
+  read(join(here, "..", "shared", "web-push.mjs")),
+].join("\n\n").replace(/^export /gm, "");
+const workerSource = read(join(here, "worker.js")).replace(
+  /^import[\s\S]*?from "\.\.\/shared\/web-push\.mjs";\r?\n/m,
+  "",
+).replace(
+  /^import \{ findThresholdCrossings \} from "\.\.\/shared\/usage-alerts\.mjs";\r?\n/m,
+  "",
+);
 const EXPORT_MARKER = "export default {";
 const markerCount = workerSource.split(EXPORT_MARKER).length - 1;
 if (markerCount !== 1) {
@@ -34,7 +44,7 @@ if (markerCount !== 1) {
       "update bundle.mjs to match.",
   );
 }
-const apiSection = workerSource.replace(EXPORT_MARKER, "const api = {").trimEnd();
+const apiSection = `${sharedSource}\n\n${workerSource.replace(EXPORT_MARKER, "const api = {")}`.trimEnd();
 
 // --- Static assets -----------------------------------------------------------
 const CONFIG_BODY = 'window.REMOTE_VIEW_CONFIG = { apiBase: "" };\n';

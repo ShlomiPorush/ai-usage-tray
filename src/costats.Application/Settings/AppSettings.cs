@@ -66,6 +66,85 @@ public sealed class AppSettings
     public bool ShowWeeklyBeforeSession { get; set; } = true;
 
     /// <summary>
+    /// Master opt-in for local and remote usage alerts. Account selections and
+    /// thresholds are retained while this is off so the feature can be paused
+    /// without losing its configuration.
+    /// </summary>
+    public bool UsageAlertsEnabled { get; set; } = false;
+
+    private List<UsageAlertRuleSettings> usageAlertRules = [];
+
+    /// <summary>
+    /// Per-provider alert choices. Missing providers are disabled and use the
+    /// 90 percent default when first configured, so adding an account never
+    /// silently opts it into notifications.
+    /// </summary>
+    public List<UsageAlertRuleSettings> UsageAlertRules
+    {
+        get => usageAlertRules;
+        set => usageAlertRules = NormalizeUsageAlertRules(value);
+    }
+
+    public bool IsUsageAlertProviderEnabled(string providerId) =>
+        FindUsageAlertRule(providerId)?.Enabled ?? false;
+
+    public int GetUsageAlertThreshold(string providerId) =>
+        FindUsageAlertRule(providerId)?.ThresholdPercent ?? UsageAlertRuleSettings.DefaultThresholdPercent;
+
+    public void SetUsageAlertRule(string providerId, bool enabled, int thresholdPercent)
+    {
+        if (string.IsNullOrWhiteSpace(providerId))
+        {
+            return;
+        }
+
+        var normalized = providerId.Trim();
+        var rule = FindUsageAlertRule(normalized);
+        if (rule is null)
+        {
+            rule = new UsageAlertRuleSettings { ProviderId = normalized };
+            usageAlertRules.Add(rule);
+        }
+
+        rule.Enabled = enabled;
+        rule.ThresholdPercent = thresholdPercent;
+    }
+
+    public void RemoveUsageAlertRule(string providerId)
+    {
+        if (string.IsNullOrWhiteSpace(providerId))
+        {
+            return;
+        }
+
+        usageAlertRules.RemoveAll(rule =>
+            string.Equals(rule.ProviderId, providerId.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
+    private UsageAlertRuleSettings? FindUsageAlertRule(string providerId) =>
+        string.IsNullOrWhiteSpace(providerId)
+            ? null
+            : usageAlertRules.FirstOrDefault(rule =>
+                string.Equals(rule.ProviderId, providerId.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private static List<UsageAlertRuleSettings> NormalizeUsageAlertRules(
+        IEnumerable<UsageAlertRuleSettings>? rules) =>
+        (rules ?? [])
+            .Where(rule => !string.IsNullOrWhiteSpace(rule.ProviderId))
+            .GroupBy(rule => rule.ProviderId.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var source = group.Last();
+                return new UsageAlertRuleSettings
+                {
+                    ProviderId = group.Key,
+                    Enabled = source.Enabled,
+                    ThresholdPercent = source.ThresholdPercent
+                };
+            })
+            .ToList();
+
+    /// <summary>
     /// Shows the compact movable status panel independently of the main tray
     /// widget. The panel remains topmost until disabled or closed.
     /// </summary>
@@ -378,6 +457,24 @@ public sealed class AppSettings
                 ConfigDir = Path.Combine(home, ".codex")
             }
         ];
+    }
+}
+
+/// <summary>One provider's opt-in usage alert configuration.</summary>
+public sealed class UsageAlertRuleSettings
+{
+    public const int DefaultThresholdPercent = 90;
+
+    private int thresholdPercent = DefaultThresholdPercent;
+
+    public string ProviderId { get; set; } = string.Empty;
+
+    public bool Enabled { get; set; }
+
+    public int ThresholdPercent
+    {
+        get => thresholdPercent;
+        set => thresholdPercent = Math.Clamp(value, 1, 100);
     }
 }
 
