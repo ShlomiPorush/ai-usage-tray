@@ -4,6 +4,9 @@ name = "ai-usage-tray-view"
 main = "worker.bundle.js"
 compatibility_date = "2026-08-01"
 
+# Configure VAPID_PUBLIC_KEY and VAPID_SUBJECT as variables, and store
+# VAPID_PRIVATE_KEY with `wrangler secret put VAPID_PRIVATE_KEY`.
+
 [[kv_namespaces]]
 binding = "USAGE"
 # Replace this placeholder with the id printed by:

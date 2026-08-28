@@ -12,7 +12,11 @@ public sealed record RemoteSnapshotEntry(
     string ProviderId,
     string DisplayName,
     string Plan,
-    UsagePulse? Usage);
+    UsagePulse? Usage,
+    RemoteAlertSettings? Alert = null);
+
+/// <summary>The effective alert choice published for one account.</summary>
+public sealed record RemoteAlertSettings(bool Enabled, int ThresholdPercent);
 
 /// <summary>
 /// A single quota window as published to the remote viewer. <c>Scope</c> is the
@@ -44,7 +48,9 @@ public sealed record RemoteAccountSnapshot(
     // Additive on top of schema v2: the key is absent entirely for the accounts
     // and providers that have nothing to redeem, so old viewers are unaffected.
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    RemoteResetCredits? ResetCredits = null);
+    RemoteResetCredits? ResetCredits = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    RemoteAlertSettings? Alert = null);
 
 /// <summary>
 /// The whole payload uploaded to the remote endpoint. Serialized with
@@ -132,8 +138,14 @@ public static class RemoteSnapshotComposer
             entry.Plan,
             windows,
             entry.Usage?.IsBlocked ?? false,
-            ResetCreditsOf(entry.Usage));
+            ResetCreditsOf(entry.Usage),
+            NormalizeAlert(entry.Alert));
     }
+
+    private static RemoteAlertSettings? NormalizeAlert(RemoteAlertSettings? alert) =>
+        alert is null
+            ? null
+            : new RemoteAlertSettings(alert.Enabled, Math.Clamp(alert.ThresholdPercent, 1, 100));
 
     /// <summary>
     /// Only publish reset credits there is something to redeem: an account with

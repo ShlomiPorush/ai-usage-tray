@@ -209,6 +209,55 @@
                                TextWrapping="Wrap" />
                 </StackPanel>
 
+                <CheckBox IsChecked="{Binding UsageAlertsEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                    <TextBlock Text="Enable usage alerts" FontSize="12"
+                               Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                </CheckBox>
+                <TextBlock Text="Shows a notification once when a selected account window crosses its threshold. Each window rearms after it drops below the threshold or resets."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,8" TextWrapping="Wrap" />
+
+                <StackPanel Visibility="{Binding UsageAlertsEnabled, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <TextBlock Text="Accounts notified" FontSize="11" FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="30,0,0,6" />
+                    <ItemsControl ItemsSource="{Binding ProviderRows}" Focusable="False" Margin="30,0,0,4">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,5">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox Grid.Column="0"
+                                              IsChecked="{Binding UsageAlertsEnabled, Mode=OneWay}"
+                                              Command="{Binding DataContext.ToggleUsageAlertAccountCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                              CommandParameter="{Binding}"
+                                              Style="{StaticResource SettingsCheckBox}">
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding Name}" FontSize="11.5" FontWeight="SemiBold"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}" />
+                                            <TextBlock Text="{Binding KindLabel, StringFormat='  {0}'}" FontSize="10"
+                                                       Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                    </CheckBox>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"
+                                                IsEnabled="{Binding UsageAlertsEnabled}" Margin="8,0,0,0">
+                                        <TextBox Text="{Binding UsageAlertThreshold, Mode=OneWay}"
+                                                 LostFocus="OnUsageAlertThresholdLostFocus"
+                                                 Style="{StaticResource SettingsTextBox}"
+                                                 Width="44" MaxLength="3" Padding="6,3"
+                                                 HorizontalContentAlignment="Right" />
+                                        <TextBlock Text="%" FontSize="11" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" />
+                                    </StackPanel>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="New accounts start with alerts off and a 90% threshold. The threshold is applied independently to every quota window on that account."
+                               FontSize="10" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+
                 <DockPanel Margin="0,0,0,6">
                     <TextBlock Text="Theme" FontSize="12"
                                Foreground="{DynamicResource TextPrimaryBrush}" DockPanel.Dock="Left"

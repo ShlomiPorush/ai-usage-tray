@@ -147,5 +147,19 @@ namespace costats.App
                     break;
             }
         }
+
+        private void OnUsageAlertThresholdLostFocus(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not ViewModels.SettingsViewModel viewModel ||
+                sender is not System.Windows.Controls.TextBox
+                {
+                    DataContext: ViewModels.ProviderRowViewModel row
+                } textBox)
+            {
+                return;
+            }
+
+            viewModel.SetUsageAlertThreshold(row, textBox.Text);
+        }
     }
 }

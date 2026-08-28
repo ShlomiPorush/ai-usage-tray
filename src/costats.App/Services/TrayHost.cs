@@ -8,6 +8,7 @@ using costats.App.Services.Updates;
 using costats.Application.Pulse;
 using costats.Application.Settings;
 using costats.Application.Windowing;
+using costats.Core.Alerts;
 using costats.Core.Pulse;
 using costats.Core.Tray;
 using Microsoft.Win32;
@@ -38,6 +39,8 @@ namespace costats.App.Services
         private bool _lastShowRemainingPercentages;
         private readonly AppSettings _settings;
         private string? _lastFloatingPanelPosition;
+        private readonly UsageAlertTracker _usageAlertTracker = new();
+        private Action? _notificationClickAction;
 
         public TrayHost(
             PulseViewModel viewModel,
@@ -131,7 +134,8 @@ namespace costats.App.Services
             _taskbarIcon.TrayMouseMove += OnTrayMouseMove;
             _taskbarIcon.ContextMenu = BuildContextMenu();
             _taskbarIcon.TrayLeftMouseUp += OnTrayLeftClick;
-            _taskbarIcon.TrayBalloonTipClicked += (_, _) => ShowSettings();
+            _taskbarIcon.TrayBalloonTipClicked += (_, _) =>
+                (_notificationClickAction ?? ShowWidget).Invoke();
             _taskbarIcon.ForceCreate(enablesEfficiencyMode: false);
             _pulseSubscription = pulseOrchestrator.PulseStream.Subscribe(this);
 
@@ -301,6 +305,7 @@ namespace costats.App.Services
                 return;
             }
 
+            _notificationClickAction = ShowSettings;
             _taskbarIcon.ShowNotification(
                 "AI Usage Tray update available",
                 $"Version {result.Update.Version} is ready to review. Click to see what's new.",
@@ -412,6 +417,13 @@ namespace costats.App.Services
 
             var showRemainingPercentages = _settings.ShowRemainingPercentages;
             var showWeeklyBeforeSession = _settings.ShowWeeklyBeforeSession;
+            var usageAlertRules = _settings.UsageAlertsEnabled
+                ? _settings.UsageAlertRules
+                    .Where(rule => rule.Enabled)
+                    .Select(rule => new UsageAlertRule(rule.ProviderId, rule.ThresholdPercent))
+                    .ToArray()
+                : [];
+            var usageAlerts = _usageAlertTracker.Observe(state, usageAlertRules);
             var accounts = accountEntries.Select(entry => entry.Account).ToArray();
             var status = TrayStatusComposer.Compose(
                 accounts,
@@ -468,7 +480,42 @@ namespace costats.App.Services
                 return;
             }
 
-            dispatcher.BeginInvoke(() => ApplyTrayStatus(status, rows, floatingRows));
+            dispatcher.BeginInvoke(() =>
+            {
+                ApplyTrayStatus(status, rows, floatingRows);
+                ShowUsageAlerts(usageAlerts, displayNames, showRemainingPercentages);
+            });
+        }
+
+        private void ShowUsageAlerts(
+            IReadOnlyList<UsageThresholdAlert> alerts,
+            IReadOnlyDictionary<string, string> displayNames,
+            bool showRemainingPercentages)
+        {
+            foreach (var alert in alerts)
+            {
+                var accountName = displayNames.TryGetValue(alert.ProviderId, out var displayName)
+                    ? displayName
+                    : alert.ProviderId;
+                var windowName = string.IsNullOrWhiteSpace(alert.Scope)
+                    ? alert.WindowLabel
+                    : $"{alert.WindowLabel} · {alert.Scope}";
+                var displayPercent = (long)Math.Round(
+                    UsageDisplay.Percent(alert.UsedPercent, showRemainingPercentages));
+                var displayMode = showRemainingPercentages ? "remaining" : "used";
+
+                _notificationClickAction = ShowWidget;
+                _taskbarIcon.ShowNotification(
+                    $"{accountName} usage alert",
+                    $"{windowName} is at {displayPercent}% {displayMode}.",
+                    NotificationIcon.Warning,
+                    customIconHandle: null,
+                    largeIcon: true,
+                    sound: true,
+                    respectQuietTime: true,
+                    realtime: false,
+                    timeout: TimeSpan.FromSeconds(10));
+            }
         }
 
         private void RaiseFloatingPanel()

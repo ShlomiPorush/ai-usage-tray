@@ -22,6 +22,9 @@ Everything you paste lives in one file: **`worker.bundle.js`**.
 | PUT     | `/u/{writeId}`                      | Stores the snapshot the app uploads. `204` on success.    |
 | DELETE  | `/u/{writeId}`                      | Removes the snapshot. Always `204`, present or not.       |
 | GET     | `/u/{readId}`                       | Returns the stored JSON, or `404 {"error":"not_found"}`.  |
+| GET     | `/push/vapid-public-key`            | Returns the Web Push public key when configured.             |
+| POST    | `/u/{readId}/push-subscription`     | Registers browser notifications for that shared view.        |
+| DELETE  | `/u/{readId}/push-subscription`     | Removes one browser notification subscription.               |
 | GET     | `/u/demo`                           | A built-in sample payload, generated per request.         |
 | OPTIONS | any                                 | CORS preflight.                                           |
 
@@ -152,7 +155,19 @@ until the next step.
 5. KV namespace: pick the one you just created.
 6. Click **Deploy** / **Save**. If Cloudflare offers to re-deploy the worker, accept.
 
-### 5. Check it works
+### 5. Configure browser notifications
+
+Generate a persistent VAPID key pair from the repository:
+
+```sh
+npm run generate-vapid-keys --prefix remote/server
+```
+
+In the Worker settings, add `VAPID_PUBLIC_KEY` and `VAPID_SUBJECT` as text variables. Add
+`VAPID_PRIVATE_KEY` as an encrypted secret. Keep the private value secret and backed up. If these
+bindings are absent, the remote viewer still works but Web Push stays unavailable.
+
+### 6. Check it works
 
 Open `https://ai-usage-tray-view.<your-subdomain>.workers.dev/` in a browser. You should see the
 "AI usage" page saying no id was provided - that means the page, the code and the storage are all
@@ -160,13 +175,13 @@ wired up correctly.
 
 Write that URL down; it is the only thing you need.
 
-### 6. Point the app at it
+### 7. Point the app at it
 
 In AI Usage Tray: **Settings -> Remote view**, and enter that same base URL (no trailing slash).
 The app uploads there with its private write id, and the share link it generates is that URL plus
 `?id=<read id>`.
 
-### 7. Add rate limiting (recommended)
+### 8. Add rate limiting (recommended)
 
 The worker itself cannot rate limit: that lives in the Cloudflare dashboard, not in this repository.
 Without it, anyone who learns a write id can hammer `PUT` on your account's request budget, and

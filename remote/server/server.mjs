@@ -4,6 +4,12 @@ import { createServer } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { findThresholdCrossings } from "../shared/usage-alerts.mjs";
+import {
+  sendWebPush,
+  validatePushSubscription,
+  validateVapidConfiguration,
+} from "../shared/web-push.mjs";
 
 export const ID_RE = /^[a-f0-9]{32}$/;
 export const MAX_BODY = 16 * 1024;
@@ -13,13 +19,14 @@ const MAX_ACCOUNTS = 32;
 const MAX_WINDOWS = 32;
 const MAX_STRING = 256;
 const MAX_DEPTH = 8;
+const MAX_PUSH_SUBSCRIPTIONS = 8;
 const DEMO_ID = "demo";
 const STATIC_CACHE = "public, max-age=300";
 const CONFIG_BODY = 'window.REMOTE_VIEW_CONFIG = { apiBase: "" };\n';
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, PUT, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
   "Access-Control-Expose-Headers": "X-Read-Id",
 };
@@ -96,6 +103,12 @@ export class SnapshotStore {
         expires_at INTEGER NOT NULL
       ) STRICT;
       CREATE INDEX IF NOT EXISTS snapshots_expiry ON snapshots (expires_at);
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        endpoint TEXT PRIMARY KEY,
+        read_id TEXT NOT NULL,
+        subscription TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS push_subscriptions_read_id ON push_subscriptions (read_id);
     `);
 
     this.upsertStatement = this.database.prepare(`
@@ -110,6 +123,32 @@ export class SnapshotStore {
     );
     this.deleteStatement = this.database.prepare("DELETE FROM snapshots WHERE read_id = ?");
     this.deleteExpiredStatement = this.database.prepare("DELETE FROM snapshots WHERE expires_at <= ?");
+    this.upsertSubscriptionStatement = this.database.prepare(`
+      INSERT INTO push_subscriptions (endpoint, read_id, subscription)
+      VALUES (?, ?, ?)
+      ON CONFLICT (endpoint) DO UPDATE SET
+        read_id = excluded.read_id,
+        subscription = excluded.subscription
+    `);
+    this.countSubscriptionsStatement = this.database.prepare(
+      "SELECT COUNT(*) AS count FROM push_subscriptions WHERE read_id = ?",
+    );
+    this.findSubscriptionStatement = this.database.prepare(
+      "SELECT read_id FROM push_subscriptions WHERE endpoint = ?",
+    );
+    this.listSubscriptionsStatement = this.database.prepare(
+      "SELECT subscription FROM push_subscriptions WHERE read_id = ? ORDER BY endpoint",
+    );
+    this.deleteSubscriptionStatement = this.database.prepare(
+      "DELETE FROM push_subscriptions WHERE read_id = ? AND endpoint = ?",
+    );
+    this.deleteSubscriptionsStatement = this.database.prepare(
+      "DELETE FROM push_subscriptions WHERE read_id = ?",
+    );
+    this.deleteExpiredSubscriptionsStatement = this.database.prepare(`
+      DELETE FROM push_subscriptions
+      WHERE read_id IN (SELECT read_id FROM snapshots WHERE expires_at <= ?)
+    `);
     this.pingStatement = this.database.prepare("SELECT 1 AS healthy");
   }
 
@@ -122,11 +161,39 @@ export class SnapshotStore {
   }
 
   delete(readId) {
+    this.deleteSubscriptionsStatement.run(readId);
     this.deleteStatement.run(readId);
   }
 
   deleteExpired(now) {
+    this.deleteExpiredSubscriptionsStatement.run(now);
     return Number(this.deleteExpiredStatement.run(now).changes);
+  }
+
+  putSubscription(readId, subscription) {
+    const existing = this.findSubscriptionStatement.get(subscription.endpoint);
+    const count = Number(this.countSubscriptionsStatement.get(readId)?.count ?? 0);
+    if (existing?.read_id !== readId && count >= MAX_PUSH_SUBSCRIPTIONS) return false;
+    this.upsertSubscriptionStatement.run(
+      subscription.endpoint,
+      readId,
+      JSON.stringify(subscription),
+    );
+    return true;
+  }
+
+  listSubscriptions(readId) {
+    return this.listSubscriptionsStatement.all(readId).flatMap((row) => {
+      try {
+        return [JSON.parse(row.subscription)];
+      } catch {
+        return [];
+      }
+    });
+  }
+
+  deleteSubscription(readId, endpoint) {
+    this.deleteSubscriptionStatement.run(readId, endpoint);
   }
 
   ping() {
@@ -278,6 +345,8 @@ export function createRemoteViewServer({
   now = () => Date.now(),
   ttlMs = TTL_MS,
   cleanupIntervalMs = 60 * 60 * 1000,
+  vapidConfiguration = null,
+  pushSender = sendWebPush,
 } = {}) {
   if (!databasePath) throw new Error("databasePath is required");
   if (!webRoot || !existsSync(join(webRoot, "index.html"))) {
@@ -287,6 +356,60 @@ export function createRemoteViewServer({
   const store = new SnapshotStore(databasePath);
   const { assets, csp } = loadAssets(webRoot);
   store.deleteExpired(now());
+
+  if (vapidConfiguration !== null && !validateVapidConfiguration(vapidConfiguration)) {
+    throw new Error("Invalid VAPID configuration");
+  }
+
+  async function readJsonRequest(request, response) {
+    const contentType = request.headers["content-type"] ?? "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      sendJson(response, 415, { error: "unsupported_media_type" });
+      return null;
+    }
+
+    const declaredLength = Number(request.headers["content-length"]);
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY) {
+      request.resume();
+      sendJson(response, 413, { error: "too_large" });
+      return null;
+    }
+
+    const body = await readRequestBody(request);
+    if (body === null) {
+      sendJson(response, 413, { error: "too_large" });
+      return null;
+    }
+    try {
+      return { body, data: JSON.parse(body) };
+    } catch {
+      sendJson(response, 400, { error: "invalid_json" });
+      return null;
+    }
+  }
+
+  async function deliverAlerts(readId, data, crossings) {
+    if (vapidConfiguration === null || crossings.length === 0) return;
+    const message = {
+      type: "usage-alerts",
+      readId,
+      displayMode: data.displayMode === "remaining" ? "remaining" : "used",
+      alerts: crossings,
+    };
+    const subscriptions = store.listSubscriptions(readId);
+    await Promise.all(subscriptions.map(async (subscription) => {
+      try {
+        const result = await pushSender(subscription, message, vapidConfiguration);
+        if (result.status === 404 || result.status === 410) {
+          store.deleteSubscription(readId, subscription.endpoint);
+        } else if (!result.ok) {
+          console.error("Web Push delivery failed", result.status);
+        }
+      } catch (error) {
+        console.error("Web Push delivery failed", error);
+      }
+    }));
+  }
 
   const server = createServer(async (request, response) => {
     try {
@@ -298,6 +421,12 @@ export function createRemoteViewServer({
         return sendJson(response, 200, { status: "ok" });
       }
 
+      if (request.method === "GET" && path === "/push/vapid-public-key") {
+        return vapidConfiguration === null
+          ? sendJson(response, 503, { error: "push_not_configured" })
+          : sendJson(response, 200, { publicKey: vapidConfiguration.publicKey });
+      }
+
       if (request.method === "GET") {
         const assetPath = path === "/" ? "/index.html" : path;
         const entry = assets.get(assetPath);
@@ -305,6 +434,38 @@ export function createRemoteViewServer({
       }
 
       if (request.method === "OPTIONS") return sendEmpty(response, 204);
+
+      const subscriptionMatch = /^\/u\/([^/]+)\/push-subscription\/?$/.exec(path);
+      if (subscriptionMatch) {
+        if (request.method !== "POST" && request.method !== "DELETE") {
+          return sendJson(response, 405, { error: "method_not_allowed" });
+        }
+        const readId = subscriptionMatch[1];
+        if (!ID_RE.test(readId)) return sendJson(response, 400, { error: "invalid_id" });
+        if (vapidConfiguration === null) {
+          return sendJson(response, 503, { error: "push_not_configured" });
+        }
+
+        const parsed = await readJsonRequest(request, response);
+        if (parsed === null) return;
+        if (request.method === "POST") {
+          if (store.get(readId, now()) === null) {
+            return sendJson(response, 404, { error: "not_found" });
+          }
+          if (!validatePushSubscription(parsed.data)) {
+            return sendJson(response, 422, { error: "invalid_subscription" });
+          }
+          return store.putSubscription(readId, parsed.data)
+            ? sendEmpty(response, 204)
+            : sendJson(response, 429, { error: "too_many_subscriptions" });
+        }
+
+        if (typeof parsed.data?.endpoint !== "string") {
+          return sendJson(response, 422, { error: "invalid_subscription" });
+        }
+        store.deleteSubscription(readId, parsed.data.endpoint);
+        return sendEmpty(response, 204);
+      }
 
       const match = /^\/u\/([^/]+)\/?$/.exec(path);
       if (!match) return sendJson(response, 404, { error: "not_found" });
@@ -340,33 +501,27 @@ export function createRemoteViewServer({
         return sendEmpty(response, 204, { "X-Read-Id": readId });
       }
 
-      const contentType = request.headers["content-type"] ?? "";
-      if (!contentType.toLowerCase().includes("application/json")) {
-        return sendJson(response, 415, { error: "unsupported_media_type" });
-      }
-
-      const declaredLength = Number(request.headers["content-length"]);
-      if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY) {
-        request.resume();
-        return sendJson(response, 413, { error: "too_large" });
-      }
-
-      const body = await readRequestBody(request);
-      if (body === null) return sendJson(response, 413, { error: "too_large" });
-
-      let data;
-      try {
-        data = JSON.parse(body);
-      } catch {
-        return sendJson(response, 400, { error: "invalid_json" });
-      }
+      const parsed = await readJsonRequest(request, response);
+      if (parsed === null) return;
+      const { body, data } = parsed;
 
       const reason = validatePayload(data);
       if (reason !== null) {
         return sendJson(response, 422, { error: "invalid_payload", reason });
       }
 
+      const previousBody = store.get(readId, now());
+      let previous = null;
+      if (previousBody !== null) {
+        try {
+          previous = JSON.parse(previousBody);
+        } catch {
+          previous = null;
+        }
+      }
+      const crossings = findThresholdCrossings(previous, data);
       store.put(readId, body, now() + ttlMs);
+      await deliverAlerts(readId, data, crossings);
       return sendEmpty(response, 204, { "X-Read-Id": readId });
     } catch (error) {
       console.error("Remote-view request failed", error);
@@ -417,6 +572,18 @@ function readPositiveInteger(name, fallback) {
   return value;
 }
 
+function readVapidConfiguration() {
+  const publicKey = process.env.VAPID_PUBLIC_KEY;
+  const privateKey = process.env.VAPID_PRIVATE_KEY;
+  const subject = process.env.VAPID_SUBJECT;
+  if (publicKey === undefined && privateKey === undefined && subject === undefined) return null;
+  const configuration = { publicKey, privateKey, subject };
+  if (!validateVapidConfiguration(configuration)) {
+    throw new Error("VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT must form a valid configuration");
+  }
+  return configuration;
+}
+
 async function startFromEnvironment() {
   const here = dirname(fileURLToPath(import.meta.url));
   const port = readPositiveInteger("PORT", 8080);
@@ -424,7 +591,14 @@ async function startFromEnvironment() {
   const webRoot = resolve(process.env.WEB_ROOT ?? join(here, "..", "..", "web"));
   const ttlMs = readPositiveInteger("SNAPSHOT_TTL_SECONDS", TTL_MS / 1000) * 1000;
   const cleanupIntervalMs = readPositiveInteger("CLEANUP_INTERVAL_SECONDS", 3600) * 1000;
-  const app = createRemoteViewServer({ databasePath, webRoot, ttlMs, cleanupIntervalMs });
+  const vapidConfiguration = readVapidConfiguration();
+  const app = createRemoteViewServer({
+    databasePath,
+    webRoot,
+    ttlMs,
+    cleanupIntervalMs,
+    vapidConfiguration,
+  });
 
   await new Promise((resolveListen, rejectListen) => {
     app.server.once("error", rejectListen);
