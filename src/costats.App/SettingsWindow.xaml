@@ -222,7 +222,7 @@
                  window's own padding, and the matching Padding keeps a gap so no
                  text ever runs into it. -->
             <ScrollViewer x:Name="SettingsScrollViewer" Grid.Row="2" VerticalScrollBarVisibility="Auto"
-                          Height="640" MaxHeight="640" Margin="0,0,-14,0" Padding="0,0,14,0">
+                          Height="424" MaxHeight="424" Margin="0,0,-14,0" Padding="0,0,14,0">
             <StackPanel x:Name="SettingsCategories">
 
                 <Expander x:Name="GeneralCategory" Style="{StaticResource SettingsCategoryExpander}"
@@ -270,6 +270,19 @@
                         <TextBlock Text="{Binding HotkeyStatus}" FontSize="11" Foreground="#F97316" Margin="30,0,0,12"
                                    TextWrapping="Wrap"
                                    Visibility="{Binding HotkeyStatus, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                    </StackPanel>
+                </Expander>
+
+                <Expander x:Name="AutomationCategory" Style="{StaticResource SettingsCategoryExpander}"
+                          Expanded="OnSettingsCategoryExpanded">
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal">
+                            <Path Style="{StaticResource SettingsCategoryIcon}" Data="M9,1 A8,8 0 1 0 9,17 A8,8 0 1 0 9,1 M9,5 V9 L12,11" />
+                            <TextBlock Text="Automation" FontSize="13.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Expander.Header>
+                    <StackPanel>
 
                         <CheckBox IsChecked="{Binding AutoStartClaudeFiveHourWindow}"
                                   Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
@@ -589,26 +602,6 @@
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12"
                            TextWrapping="Wrap" />
 
-                <DockPanel Margin="0,0,0,8">
-                    <Button Content="Check for updates"
-                            Command="{Binding CheckForUpdatesCommand}"
-                            IsEnabled="{Binding IsUpdateBusy, Converter={x:Static local:BoolNegationConverter.Instance}}"
-                            Style="{StaticResource SettingsButton}"
-                            DockPanel.Dock="Right" HorizontalAlignment="Right" />
-                    <TextBlock Text="{Binding UpdateStatusText}"
-                                FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
-                                VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,10,0"
-                                Visibility="{Binding UpdateStatusText, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
-                </DockPanel>
-
-                <ProgressBar Height="5" Minimum="0" Maximum="100"
-                             Value="{Binding UpdateProgressPercent}"
-                             IsIndeterminate="{Binding IsUpdateProgressIndeterminate}"
-                             Foreground="{DynamicResource AccentBrush}"
-                             Background="{DynamicResource InputBgBrush}"
-                             BorderThickness="0" Margin="0,0,0,10"
-                             Visibility="{Binding IsUpdateProgressVisible, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
-
                 <Border CornerRadius="8" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
                         Background="{DynamicResource InputBgBrush}" Padding="12"
                         Visibility="{Binding HasAvailableUpdate, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
@@ -666,19 +659,42 @@
             <!-- Footer -->
             <StackPanel Grid.Row="3" Margin="0,16,0,0">
                 <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,0,0,12" />
-                <DockPanel>
-                    <TextBlock Text="{Binding Version, StringFormat='v{0}'}"
-                               FontSize="11" Foreground="{DynamicResource TextMutedBrush}"
-                               DockPanel.Dock="Right" HorizontalAlignment="Right"
-                               VerticalAlignment="Center" />
-                    <Button Content="Restart app" Command="{Binding RestartAppCommand}"
-                            ToolTip="Restart AI Usage Tray"
-                            Style="{StaticResource SettingsButton}" Padding="10,5" FontSize="11"
-                            DockPanel.Dock="Left" HorizontalAlignment="Left" />
-                    <TextBlock Text="Changes are saved automatically."
-                               FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
-                               Margin="10,0,0,0" VerticalAlignment="Center" />
-                </DockPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Left"
+                                VerticalAlignment="Center">
+                        <Button Content="Restart app" Command="{Binding RestartAppCommand}"
+                                ToolTip="Restart AI Usage Tray"
+                                Style="{StaticResource SettingsButton}" Padding="10,5" FontSize="11" />
+                        <Button Content="Check for updates"
+                                Command="{Binding CheckForUpdatesCommand}"
+                                IsEnabled="{Binding IsUpdateBusy, Converter={x:Static local:BoolNegationConverter.Instance}}"
+                                Style="{StaticResource SettingsButton}" Padding="10,5" FontSize="11"
+                                Margin="8,0,0,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Margin="10,0,0,0" HorizontalAlignment="Right"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="{Binding Version, StringFormat='v{0}'}"
+                                   FontSize="11" Foreground="{DynamicResource TextMutedBrush}"
+                                   HorizontalAlignment="Right" />
+                        <TextBlock Text="{Binding UpdateStatusText}"
+                                   FontSize="10" Foreground="{DynamicResource TextFaintBrush}"
+                                   MaxWidth="112" HorizontalAlignment="Right"
+                                   TextAlignment="Right" TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding UpdateStatusText}"
+                                   Visibility="{Binding UpdateStatusText, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                    </StackPanel>
+                </Grid>
+                <ProgressBar Height="5" Minimum="0" Maximum="100"
+                             Value="{Binding UpdateProgressPercent}"
+                             IsIndeterminate="{Binding IsUpdateProgressIndeterminate}"
+                             Foreground="{DynamicResource AccentBrush}"
+                             Background="{DynamicResource InputBgBrush}"
+                             BorderThickness="0" Margin="0,8,0,0"
+                             Visibility="{Binding IsUpdateProgressVisible, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
             </StackPanel>
         </Grid>
     </Border>

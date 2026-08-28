@@ -9,6 +9,7 @@ namespace costats.App
     public enum SettingsCategory
     {
         General,
+        Automation,
         Display,
         Alerts,
         Accounts,
@@ -86,6 +87,7 @@ namespace costats.App
         private IEnumerable<System.Windows.Controls.Expander> SettingsCategoryExpanders()
         {
             yield return GeneralCategory;
+            yield return AutomationCategory;
             yield return DisplayCategory;
             yield return AlertsCategory;
             yield return AccountsCategory;
@@ -97,6 +99,7 @@ namespace costats.App
         private System.Windows.Controls.Expander ExpanderOf(SettingsCategory category) => category switch
         {
             SettingsCategory.General => GeneralCategory,
+            SettingsCategory.Automation => AutomationCategory,
             SettingsCategory.Display => DisplayCategory,
             SettingsCategory.Alerts => AlertsCategory,
             SettingsCategory.Accounts => AccountsCategory,
