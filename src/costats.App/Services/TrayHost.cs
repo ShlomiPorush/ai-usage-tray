@@ -286,9 +286,16 @@ namespace costats.App.Services
 
         public void ShowSettings()
         {
+            ShowSettings(initialCategory: null);
+        }
+
+        private void ShowSettings(SettingsCategory? initialCategory)
+        {
             // Settings returns the user to wherever they came from: the widget
             // only comes back if it was on screen when settings was opened.
-            _settingsWindow.ShowCentered(returnToWidgetOnDismiss: _widgetWindow.IsVisible);
+            _settingsWindow.ShowCentered(
+                returnToWidgetOnDismiss: _widgetWindow.IsVisible,
+                initialCategory: initialCategory);
         }
 
         public void HandleBackgroundUpdateResult(UpdateCheckResult result)
@@ -305,7 +312,7 @@ namespace costats.App.Services
                 return;
             }
 
-            _notificationClickAction = ShowSettings;
+            _notificationClickAction = () => ShowSettings(SettingsCategory.Updates);
             _taskbarIcon.ShowNotification(
                 "AI Usage Tray update available",
                 $"Version {result.Update.Version} is ready to review. Click to see what's new.",
