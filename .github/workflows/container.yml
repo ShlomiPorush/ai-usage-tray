@@ -3,8 +3,16 @@ name: Container
 on:
   push:
     branches: [main]
-    tags:
-      - 'v*.*.*'
+    paths:
+      - 'remote/server/Dockerfile'
+      - 'remote/server/package.json'
+      - 'remote/server/server.mjs'
+      - 'remote/server/generate-vapid-keys.mjs'
+      - 'remote/server/docker-entrypoint.sh'
+      - 'remote/server/healthcheck.sh'
+      - 'remote/server/VERSION'
+      - 'remote/shared/**'
+      - 'web/**'
   workflow_dispatch:
 
 env:
