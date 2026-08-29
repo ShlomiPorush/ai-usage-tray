@@ -11,6 +11,7 @@ using costats.App.Services.Updates;
 using costats.Application.Pulse;
 using costats.Application.RemoteView;
 using costats.Application.Security;
+using costats.Application.SessionActivation;
 using costats.Application.Settings;
 using costats.Application.Windowing;
 using costats.Core.Pulse;
@@ -83,6 +84,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         usageAlertsEnabled = settings.UsageAlertsEnabled;
         autoStartClaudeFiveHourWindow = settings.AutoStartClaudeFiveHourWindow;
         autoStartCodexFiveHourWindow = settings.AutoStartCodexFiveHourWindow;
+        sessionActivationScheduleEnabled = settings.SessionActivationScheduleEnabled;
         if (!settings.HasZaiCodingKey)
         {
             // Never let a previously saved toggle become active later merely
@@ -148,6 +150,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool autoStartZaiFiveHourWindow;
+
+    [ObservableProperty]
+    private bool sessionActivationScheduleEnabled;
 
     public bool CanAutoStartZaiFiveHourWindow => _settings.HasZaiCodingKey;
 
@@ -254,6 +259,54 @@ public sealed partial class SettingsViewModel : ObservableObject
         new(FloatingPanelPlacementCalculator.TopRightSetting, "Top right"),
         new(FloatingPanelPlacementCalculator.TopLeftSetting, "Top left")
     ];
+
+    public static IReadOnlyList<SessionActivationHourOption> SessionActivationHourOptions { get; } =
+        Enumerable.Range(0, 24)
+            .Select(hour => new SessionActivationHourOption(hour, $"{hour:D2}:00"))
+            .ToArray();
+
+    public SessionActivationHourOption SelectedSessionActivationScheduleStart
+    {
+        get => FindSessionActivationHour(_settings.SessionActivationScheduleStartHour, fallbackHour: 6);
+        set
+        {
+            if (value is null || _settings.SessionActivationScheduleStartHour == value.Hour)
+            {
+                return;
+            }
+
+            _settings.SessionActivationScheduleStartHour = value.Hour;
+            SaveSettingsInBackground();
+            OnPropertyChanged();
+            NotifySessionActivationScheduleDescriptionChanged();
+        }
+    }
+
+    public SessionActivationHourOption SelectedSessionActivationScheduleEnd
+    {
+        get => FindSessionActivationHour(_settings.SessionActivationScheduleEndHour, fallbackHour: 18);
+        set
+        {
+            if (value is null || _settings.SessionActivationScheduleEndHour == value.Hour)
+            {
+                return;
+            }
+
+            _settings.SessionActivationScheduleEndHour = value.Hour;
+            SaveSettingsInBackground();
+            OnPropertyChanged();
+            NotifySessionActivationScheduleDescriptionChanged();
+        }
+    }
+
+    public string SessionActivationScheduleDescription =>
+        $"New windows may start from {SelectedSessionActivationScheduleStart.Label} until {SelectedSessionActivationScheduleEnd.Label}, using this PC's local time.";
+
+    public bool HasInvalidSessionActivationSchedule =>
+        SessionActivationScheduleEnabled &&
+        (!SessionActivationSchedule.IsValidHour(_settings.SessionActivationScheduleStartHour) ||
+         !SessionActivationSchedule.IsValidHour(_settings.SessionActivationScheduleEndHour) ||
+         _settings.SessionActivationScheduleStartHour == _settings.SessionActivationScheduleEndHour);
 
     public ThemeOption SelectedTheme
     {
@@ -726,6 +779,23 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         _settings.AutoStartZaiFiveHourWindow = value;
         SaveSettingsInBackground();
+    }
+
+    partial void OnSessionActivationScheduleEnabledChanged(bool value)
+    {
+        _settings.SessionActivationScheduleEnabled = value;
+        SaveSettingsInBackground();
+        NotifySessionActivationScheduleDescriptionChanged();
+    }
+
+    private SessionActivationHourOption FindSessionActivationHour(int hour, int fallbackHour) =>
+        SessionActivationHourOptions.FirstOrDefault(option => option.Hour == hour) ??
+        SessionActivationHourOptions[fallbackHour];
+
+    private void NotifySessionActivationScheduleDescriptionChanged()
+    {
+        OnPropertyChanged(nameof(SessionActivationScheduleDescription));
+        OnPropertyChanged(nameof(HasInvalidSessionActivationSchedule));
     }
 
     partial void OnRemoteViewEnabledChanged(bool value)
@@ -1390,6 +1460,11 @@ public sealed record ThemeOption(string Value, string Label)
 }
 
 public sealed record FloatingPanelPositionOption(string Value, string Label)
+{
+    public override string ToString() => Label;
+}
+
+public sealed record SessionActivationHourOption(int Hour, string Label)
 {
     public override string ToString() => Label;
 }

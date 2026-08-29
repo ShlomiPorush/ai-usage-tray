@@ -242,16 +242,15 @@ public sealed class AppSettings
     }
 
     /// <summary>
-    /// After a previously observed Claude five-hour window expires, send one
-    /// minimal Haiku prompt through the official Claude Code CLI to start the
-    /// next window. Off by default because this consumes subscription quota.
+    /// Explicitly opts in to starting idle or expired Claude five-hour windows
+    /// with a minimal Haiku prompt through the official Claude Code CLI. Off by
+    /// default because this consumes subscription quota.
     /// </summary>
     public bool AutoStartClaudeFiveHourWindow { get; set; } = false;
 
     /// <summary>
-    /// Explicitly opts in to starting an idle OpenAI/Codex five-hour window
-    /// immediately, then starting each next window after expiry through the
-    /// matching account's official Codex CLI.
+    /// Explicitly opts in to starting idle or expired OpenAI/Codex five-hour
+    /// windows through the matching account's official Codex CLI.
     /// </summary>
     public bool AutoStartCodexFiveHourWindow { get; set; } = false;
 
@@ -260,6 +259,18 @@ public sealed class AppSettings
     /// GLM-4.5-Air.
     /// </summary>
     public bool AutoStartZaiFiveHourWindow { get; set; } = false;
+
+    /// <summary>
+    /// When enabled, automatic session prompts may start only inside the local
+    /// daily window defined below. Off preserves the always-on behavior.
+    /// </summary>
+    public bool SessionActivationScheduleEnabled { get; set; } = false;
+
+    /// <summary>Inclusive local hour at which automatic session starts become eligible.</summary>
+    public int SessionActivationScheduleStartHour { get; set; } = 6;
+
+    /// <summary>Exclusive local hour after which automatic session starts wait.</summary>
+    public int SessionActivationScheduleEndHour { get; set; } = 18;
 
     /// <summary>
     /// UI theme: "system" (follow Windows apps theme), "light" or "dark".

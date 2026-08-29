@@ -31,6 +31,13 @@ namespace costats.App
         private const int DispatcherFailureLimit = 5;
 
         private static readonly TimeSpan DispatcherFailureWindow = TimeSpan.FromSeconds(60);
+        private static readonly string[] ScreenshotFlags =
+        [
+            "--screenshot",
+            "--settings-screenshot",
+            "--onboarding-screenshot",
+            "--onboarding-fallback-screenshot"
+        ];
 
         /// <summary>Timestamps of recent dispatcher exceptions; touched on the UI thread only.</summary>
         private readonly Queue<DateTimeOffset> _dispatcherFailures = new();
@@ -117,6 +124,7 @@ namespace costats.App
                 var settingsStore = new JsonSettingsStore(new CredentialVault());
                 var settings = await settingsStore.LoadAsync(CancellationToken.None).ConfigureAwait(false);
                 ApplyPreviewTheme(settings);
+                ApplyPreviewSafety(settings);
 
                 // Remote view ships with a working endpoint, so the user only has
                 // to tick the checkbox. These are runtime-only defaults: they are
@@ -220,19 +228,14 @@ namespace costats.App
         }
 
         /// <summary>
-        /// Dev/docs helpers render the normal widget, guided onboarding, or its
-        /// compact widget fallback to a PNG and exit. Preview state is in-memory
-        /// only and never touches settings.json.
+        /// Dev/docs helpers render the normal widget, settings, guided onboarding,
+        /// or its compact widget fallback to a PNG and exit. Preview state is
+        /// in-memory only and never touches settings.json.
         /// </summary>
         private bool MaybeCaptureScreenshot(TrayHost tray)
         {
             var args = Environment.GetCommandLineArgs();
-            var flag = new[]
-            {
-                "--screenshot",
-                "--onboarding-screenshot",
-                "--onboarding-fallback-screenshot"
-            }.FirstOrDefault(candidate => Array.IndexOf(args, candidate) >= 0);
+            var flag = ScreenshotFlags.FirstOrDefault(candidate => Array.IndexOf(args, candidate) >= 0);
             if (flag is null)
             {
                 return false;
@@ -249,7 +252,15 @@ namespace costats.App
             {
                 Window window;
                 var wait = TimeSpan.FromSeconds(1);
-                if (flag == "--onboarding-screenshot")
+                if (flag == "--settings-screenshot")
+                {
+                    var settingsWindow = _host!.Services.GetRequiredService<SettingsWindow>();
+                    settingsWindow.ShowCentered(
+                        returnToWidgetOnDismiss: false,
+                        initialCategory: SettingsCategory.Automation);
+                    window = settingsWindow;
+                }
+                else if (flag == "--onboarding-screenshot")
                 {
                     var onboarding = _host!.Services.GetRequiredService<OnboardingWindow>();
                     onboarding.ShowCentered(
@@ -310,6 +321,26 @@ namespace costats.App
             if (theme is ThemeService.LightTheme or ThemeService.DarkTheme)
             {
                 settings.Theme = theme;
+            }
+        }
+
+        private static void ApplyPreviewSafety(AppSettings settings)
+        {
+            var args = Environment.GetCommandLineArgs();
+            if (!ScreenshotFlags.Any(flag => Array.IndexOf(args, flag) >= 0))
+            {
+                return;
+            }
+
+            settings.AutoStartClaudeFiveHourWindow = false;
+            settings.AutoStartCodexFiveHourWindow = false;
+            settings.AutoStartZaiFiveHourWindow = false;
+
+            if (Array.IndexOf(args, "--settings-screenshot") >= 0)
+            {
+                settings.SessionActivationScheduleEnabled = true;
+                settings.SessionActivationScheduleStartHour = 6;
+                settings.SessionActivationScheduleEndHour = 18;
             }
         }
 

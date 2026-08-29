@@ -16,6 +16,7 @@ public sealed class SessionAutoStartCoordinator
     public const int MaximumAttempts = 4; // initial attempt + three retries
     public static readonly TimeSpan RetryInterval = TimeSpan.FromMinutes(5);
     private static readonly DateTimeOffset IdleZaiWindowMarker = DateTimeOffset.UnixEpoch;
+    private static readonly DateTimeOffset IdleClaudeWindowMarker = DateTimeOffset.UnixEpoch;
     private static readonly DateTimeOffset IdleCodexWindowMarker = DateTimeOffset.UnixEpoch;
 
     private readonly IPulseOrchestrator _pulseOrchestrator;
@@ -25,6 +26,7 @@ public sealed class SessionAutoStartCoordinator
     private readonly IClock _clock;
     private readonly ILogger<SessionAutoStartCoordinator> _logger;
     private readonly ISessionActivationWindowRegistry _windowRegistry;
+    private readonly TimeZoneInfo _localTimeZone;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     private Dictionary<string, SessionActivationCheckpoint>? _checkpoints;
@@ -37,7 +39,8 @@ public sealed class SessionAutoStartCoordinator
         ISessionActivationStateStore stateStore,
         IClock clock,
         ILogger<SessionAutoStartCoordinator> logger,
-        ISessionActivationWindowRegistry? windowRegistry = null)
+        ISessionActivationWindowRegistry? windowRegistry = null,
+        TimeZoneInfo? localTimeZone = null)
     {
         _pulseOrchestrator = pulseOrchestrator;
         _settings = settings;
@@ -46,6 +49,7 @@ public sealed class SessionAutoStartCoordinator
         _clock = clock;
         _logger = logger;
         _windowRegistry = windowRegistry ?? new SessionActivationWindowRegistry();
+        _localTimeZone = localTimeZone ?? TimeZoneInfo.Local;
     }
 
     public async Task CheckOnceAsync(CancellationToken cancellationToken)
@@ -105,8 +109,8 @@ public sealed class SessionAutoStartCoordinator
 
         if (resetAt > now)
         {
-            var restoredVisibleCodexWindow =
-                target.Provider == SessionActivationProvider.Codex &&
+            var restoredVisibleActivatedWindow =
+                target.Provider is SessionActivationProvider.Claude or SessionActivationProvider.Codex &&
                 checkpoint is { ObservedActiveWindow: true, Succeeded: true } &&
                 _windowRegistry.Confirm(target.ProviderId, resetAt) &&
                 reading.Usage?.SessionWindow?.ResetsAt is null;
@@ -119,7 +123,7 @@ public sealed class SessionAutoStartCoordinator
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            if (restoredVisibleCodexWindow)
+            if (restoredVisibleActivatedWindow)
             {
                 await _pulseOrchestrator
                     .RefreshProviderAsync(target.ProviderId, cancellationToken)
@@ -129,6 +133,11 @@ public sealed class SessionAutoStartCoordinator
         }
 
         if (checkpoint?.RequiresFutureObservation == true)
+        {
+            return;
+        }
+
+        if (!SessionActivationSchedule.AllowsStart(_settings, now, _localTimeZone))
         {
             return;
         }
@@ -185,12 +194,12 @@ public sealed class SessionAutoStartCoordinator
         var result = await _activator.ActivateAsync(target, cancellationToken).ConfigureAwait(false);
         var finishedAt = _clock.UtcNow;
         checkpoint.Succeeded = result.Succeeded;
-        if (result.Succeeded && target.Provider == SessionActivationProvider.Codex)
+        if (result.Succeeded &&
+            target.Provider is SessionActivationProvider.Claude or SessionActivationProvider.Codex)
         {
-            // Codex reports an idle 0%-used bucket as a rolling now+5h reset,
-            // so the provider cannot give us a stable timestamp for the tiny
-            // activation prompt. A successful official CLI invocation is the
-            // authoritative start event; arm its next deadline from that event.
+            // Codex can report a rolling idle reset, while Claude can delay
+            // publishing its new reset. A successful official CLI invocation
+            // is the authoritative start event until the provider catches up.
             checkpoint.ObservedResetAt = finishedAt + verifiedWindowDuration;
             checkpoint.ObservedActiveWindow = true;
             checkpoint.Attempts = 0;
@@ -267,7 +276,7 @@ public sealed class SessionAutoStartCoordinator
             return false;
         }
 
-        if (target.Provider == SessionActivationProvider.Codex &&
+        if (target.Provider is SessionActivationProvider.Claude or SessionActivationProvider.Codex &&
             reading.Usage.SessionUsed == 0 &&
             checkpoint is { Succeeded: true, Completed: false } &&
             checkpoint.ObservedResetAt != default)
@@ -314,13 +323,19 @@ public sealed class SessionAutoStartCoordinator
             return true;
         }
 
-        // Claude is eligible only after this exact account persisted a real
-        // reset; its first-run null state must never consume quota.
-        if (target.Provider == SessionActivationProvider.Claude &&
-            checkpoint is { RequiresFutureObservation: false } &&
-            checkpoint.ObservedResetAt != default)
+        if (target.Provider == SessionActivationProvider.Claude)
         {
-            resetAt = checkpoint.ObservedResetAt;
+            if (checkpoint is { RequiresFutureObservation: false } &&
+                checkpoint.ObservedResetAt != default)
+            {
+                resetAt = checkpoint.ObservedResetAt;
+                return true;
+            }
+
+            // The Claude checkbox is an explicit opt-in to consume a small
+            // prompt immediately when the account is idle. Corrupt-state
+            // recovery remains blocked by CheckProviderAsync.
+            resetAt = IdleClaudeWindowMarker;
             return true;
         }
 

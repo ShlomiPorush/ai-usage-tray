@@ -69,10 +69,8 @@ public sealed record SessionActivationLoadResult(
     bool IsReliable);
 
 /// <summary>
-/// Shares Codex windows that this app successfully started with the usage
-/// source. Codex can round a tiny activation prompt down to 0% used, so the
-/// official endpoint alone cannot distinguish that real fixed deadline from
-/// its rolling idle placeholder.
+/// Shares windows that this app successfully started with usage sources while
+/// a provider still reports an idle placeholder or delays its reset timestamp.
 /// </summary>
 public interface ISessionActivationWindowRegistry
 {

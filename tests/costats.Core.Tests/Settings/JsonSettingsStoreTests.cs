@@ -115,13 +115,19 @@ public sealed class JsonSettingsStoreTests : IDisposable
         Assert.False(defaults.AutoStartClaudeFiveHourWindow);
         Assert.False(defaults.AutoStartCodexFiveHourWindow);
         Assert.False(defaults.AutoStartZaiFiveHourWindow);
+        Assert.False(defaults.SessionActivationScheduleEnabled);
+        Assert.Equal(6, defaults.SessionActivationScheduleStartHour);
+        Assert.Equal(18, defaults.SessionActivationScheduleEndHour);
 
         await store.SaveAsync(
             new AppSettings
             {
                 AutoStartClaudeFiveHourWindow = true,
                 AutoStartCodexFiveHourWindow = true,
-                AutoStartZaiFiveHourWindow = true
+                AutoStartZaiFiveHourWindow = true,
+                SessionActivationScheduleEnabled = true,
+                SessionActivationScheduleStartHour = 7,
+                SessionActivationScheduleEndHour = 19
             },
             CancellationToken.None);
 
@@ -129,6 +135,9 @@ public sealed class JsonSettingsStoreTests : IDisposable
         Assert.True(loaded.AutoStartClaudeFiveHourWindow);
         Assert.True(loaded.AutoStartCodexFiveHourWindow);
         Assert.True(loaded.AutoStartZaiFiveHourWindow);
+        Assert.True(loaded.SessionActivationScheduleEnabled);
+        Assert.Equal(7, loaded.SessionActivationScheduleStartHour);
+        Assert.Equal(19, loaded.SessionActivationScheduleEndHour);
     }
 
     [Fact]

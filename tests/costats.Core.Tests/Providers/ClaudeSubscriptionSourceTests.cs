@@ -1,4 +1,5 @@
 using costats.Core.Pulse;
+using costats.Application.SessionActivation;
 using costats.Infrastructure.Providers;
 using Xunit;
 
@@ -50,6 +51,34 @@ public sealed class ClaudeSubscriptionSourceTests
 
         Assert.Null(reading.Usage);
         Assert.Equal("Claude: Claude subscription is not connected", reading.StatusSummary);
+    }
+
+    [Fact]
+    public async Task ReadAsync_exposes_a_reset_confirmed_by_successful_activation_while_the_api_is_delayed()
+    {
+        var confirmedReset = DateTimeOffset.UtcNow.AddHours(5);
+        var registry = new SessionActivationWindowRegistry();
+        registry.Confirm("claude:claude-1", confirmedReset);
+        var client = new FakeClaudeSubscriptionUsageClient(new ClaudeOAuthUsageResult(
+            0,
+            null,
+            18,
+            DateTimeOffset.UtcNow.AddDays(4),
+            false,
+            null,
+            null,
+            "pro",
+            null,
+            DateTimeOffset.UtcNow));
+        var source = new ClaudeSubscriptionSource(
+            new ClaudeAccountProfile("claude-1", "Claude", "/tmp/claude"),
+            client,
+            registry);
+
+        var reading = await source.ReadAsync(CancellationToken.None);
+
+        Assert.Equal(0, reading.Usage!.SessionUsed);
+        Assert.Equal(confirmedReset, reading.Usage.SessionWindow!.ResetsAt);
     }
 
     [Fact]
