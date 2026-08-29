@@ -1,4 +1,5 @@
 using costats.Application.Pulse;
+using costats.Application.SessionActivation;
 using costats.Core.Pulse;
 
 namespace costats.Infrastructure.Providers;
@@ -30,11 +31,16 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
     private static readonly TimeSpan SessionDuration = TimeSpan.FromHours(5);
     private static readonly TimeSpan WeekDuration = TimeSpan.FromDays(7);
     private readonly IClaudeSubscriptionUsageClient _client;
+    private readonly ISessionActivationWindowRegistry? _windowRegistry;
 
-    public ClaudeSubscriptionSource(ClaudeAccountProfile account, IClaudeSubscriptionUsageClient client)
+    public ClaudeSubscriptionSource(
+        ClaudeAccountProfile account,
+        IClaudeSubscriptionUsageClient client,
+        ISessionActivationWindowRegistry? windowRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(account);
         _client = client ?? throw new ArgumentNullException(nameof(client));
+        _windowRegistry = windowRegistry;
         if (string.IsNullOrWhiteSpace(account.DisplayName))
         {
             throw new ArgumentException("Account display name is required.", nameof(account));
@@ -62,6 +68,7 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
 
         var sessionUsed = ToUsedPercent(result.FiveHourUsedPercent);
         var weeklyUsed = ToUsedPercent(result.SevenDayUsedPercent);
+        var sessionReset = result.FiveHourResetsAt ?? ResolveConfirmedSessionReset(now);
         var usage = new UsagePulse(
             Profile.ProviderId,
             result.FetchedAt,
@@ -69,7 +76,7 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
             sessionUsed.HasValue ? 100 : null,
             weeklyUsed,
             weeklyUsed.HasValue ? 100 : null,
-            CreateWindow(SessionDuration, result.FiveHourResetsAt, sessionUsed.HasValue),
+            CreateWindow(SessionDuration, sessionReset, sessionUsed.HasValue),
             CreateWindow(WeekDuration, result.SevenDayResetsAt, weeklyUsed.HasValue))
         {
             ScopedQuotas = result.ScopedLimits ?? [],
@@ -97,6 +104,11 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
 
     private static QuotaWindow? CreateWindow(TimeSpan duration, DateTimeOffset? resetsAt, bool hasUsage) =>
         hasUsage || resetsAt.HasValue ? new QuotaWindow(duration, resetsAt) : null;
+
+    private DateTimeOffset? ResolveConfirmedSessionReset(DateTimeOffset now) =>
+        _windowRegistry?.TryGetActive(Profile.ProviderId, now, out var resetAt) == true
+            ? resetAt
+            : null;
 
     private static string FormatPlan(string? subscriptionType, string? rateLimitTier)
     {

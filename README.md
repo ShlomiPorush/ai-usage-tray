@@ -17,6 +17,11 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 </p>
 
 <p align="center">
+  <img src="assets/automation-schedule.png" alt="daily schedule for automatic five-hour window starts" width="380" />
+</p>
+<p align="center"><sub>Automatic five-hour window starts are opt-in and can be limited to a local-time schedule.</sub></p>
+
+<p align="center">
   <img src="assets/usage-dashboard.png" alt="usage dashboard" width="680" />
 </p>
 <p align="center"><sub>Usage dashboard: cost and tokens over the last 30 days, per provider, model or day.</sub></p>
@@ -33,6 +38,7 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 - Model-scoped limits reported by Claude (e.g. the Fable weekly limit) shown per account.
 - Plan chips for Claude (`Max 5x`, `Max 20x`, `Pro`...) and Codex (`Plus`, `Pro Lite`...).
 - Optional primary account (star in Settings): drives the tray icon and is pinned to the top of the overview.
+- **Scheduled five-hour window starts**: opt in per provider, then limit automatic activation to local daily hours so an expired window can start before your workday. If the PC wakes during the schedule, the app catches up immediately.
 - **Warm stone light and blue steel dark themes**, following the Windows theme by default.
 - Providers managed in Settings as a table with add/edit dialogs; changes apply without restarting.
 - Optional reset countdowns on the overview cards; daily / 30-day cost estimates where the provider supplies them.
@@ -75,9 +81,13 @@ Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from up
 | `ShowFloatingStatusPanel` | `false` | Show the movable always-on status panel with the same row design as the tray tooltip |
 | `FloatingPanelHiddenProviderIds[]` | empty | Provider ids hidden only from the floating panel; new accounts remain visible by default |
 | `AutoStartClaudeFiveHourWindow` / `AutoStartCodexFiveHourWindow` / `AutoStartZaiFiveHourWindow` | `false` | Opt-in activation of the next observed five-hour window through the matching official CLI/profile. GLM requires its coding-plan key. |
+| `SessionActivationScheduleEnabled` | `false` | Restrict automatic five-hour window starts to a daily local-time schedule. Expired windows wait outside it and catch up when the PC wakes during it. |
+| `SessionActivationScheduleStartHour` / `SessionActivationScheduleEndHour` | `6` / `18` | Start-inclusive and end-exclusive local hours. Overnight schedules are supported; matching hours pause automatic starts until corrected. |
 | `RemoteViewEnabled` + `RemoteViewUploadUrl` / `RemoteViewPageUrl` | `false` / empty | Remote view (see below) |
 
 `appsettings.json` (`Costats:Update`) controls updater infrastructure and release verification. Automatic checks can be switched off in Settings; manual checks remain available.
+
+Configure automatic starts under **Settings -> Automation**. Provider toggles and the schedule default to off, and screenshot or test modes never trigger a live activation.
 
 ## Usage dashboard
 Quota tells you how much of the subscription is gone; the usage dashboard tells you what you actually spent it on. Open it from the tray menu (**Usage stats**) or the chart button in the widget.
@@ -102,6 +112,7 @@ Self-hosting is optional: pull the published SQLite-backed container from GitHub
 - **Claude**: Anthropic's OAuth usage endpoint using the isolated profile's token. This is not a documented public API and may change.
 - **Z.AI**: `api.z.ai` usage endpoints with a Bearer token.
 - **Copilot**: unofficial GitHub endpoint; token stored in Windows Credential Manager.
+- **Optional window activation**: the app uses each provider's official CLI/profile only after you opt in. Codex starts through an isolated read-only prompt with web and shell tools disabled; Claude and GLM receive a minimal prompt. The schedule controls when these starts may happen.
 - No telemetry. Requests go only to the provider APIs above. Local credential files and the profile folders are git-ignored.
 
 ## What's different from upstream
@@ -112,7 +123,7 @@ Compared with `fmdz387/costats` v1.4.6 (the fork point):
 | OpenAI / Codex | One account, reads `~/.codex/auth.json` + OAuth endpoint, log-based estimates | **Any number of accounts** via `codex app-server`, separate `CODEX_HOME`s, account selector, editable in Settings |
 | Claude | Claude Code usage from local logs; multiple profiles only through the external `multicc` tool | **Any number of Claude subscriptions** through per-account OAuth profiles (`ClaudeSubscriptionSource`), including model-scoped limits |
 | Z.AI / GLM | not available | New provider (`ZaiUsageSource`) |
-| UI | Fixed tabs per provider, static tray icon | Overview-first widget, dynamic tray icon (colour + used %), hover popup with per-account status dots, warm stone / blue steel themes, four-level usage colours, primary account |
+| UI | Fixed tabs per provider, static tray icon | Overview-first widget, dynamic tray icon (colour + used %), hover popup with per-account status dots, warm stone / blue steel themes, four-level usage colours, primary account, scheduled five-hour window starts |
 | Usage analytics | Insights card CLI only | Built-in usage dashboard: tokens and API-rate cost from the local logs, per provider / account / model / day |
 | Tests | none | `tests/costats.Core.Tests` (xunit) covering the new sources, parsers and tray composer |
 | Settings | Fixed sections per provider | Providers table with add/edit dialogs; account changes apply live (`AccountSourceRegistry`) without a restart |

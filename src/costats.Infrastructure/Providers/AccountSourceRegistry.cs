@@ -48,7 +48,8 @@ public sealed class AccountSourceRegistry : IAccountSourceRegistry
                 {
                     sources.Add(new ClaudeSubscriptionSource(
                         new ClaudeAccountProfile(account.Id, displayName, account.ConfigDir),
-                        new ClaudeOAuthUsageFetcher(account.ConfigDir)));
+                        new ClaudeOAuthUsageFetcher(account.ConfigDir),
+                        _windowRegistry));
                 }
             }
             catch (ArgumentException)

@@ -280,6 +280,71 @@ public sealed class SessionAutoStartCoordinatorTests
     }
 
     [Fact]
+    public async Task Scheduled_activation_waits_until_the_daily_start_hour()
+    {
+        var now = new DateTimeOffset(2026, 8, 24, 5, 59, 0, TimeSpan.Zero);
+        var harness = Harness.Claude(now.AddHours(-1), now);
+        harness.Settings.SessionActivationScheduleEnabled = true;
+        harness.Settings.SessionActivationScheduleStartHour = 6;
+        harness.Settings.SessionActivationScheduleEndHour = 18;
+
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+        Assert.Empty(harness.Activator.Calls);
+        Assert.Empty(harness.Orchestrator.Refreshes);
+
+        harness.Clock.UtcNow = new DateTimeOffset(2026, 8, 24, 6, 0, 0, TimeSpan.Zero);
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        Assert.Single(harness.Activator.Calls);
+    }
+
+    [Fact]
+    public async Task Scheduled_activation_does_not_start_at_the_daily_end_hour()
+    {
+        var now = new DateTimeOffset(2026, 8, 24, 18, 0, 0, TimeSpan.Zero);
+        var harness = Harness.Claude(now.AddHours(-1), now);
+        harness.Settings.SessionActivationScheduleEnabled = true;
+        harness.Settings.SessionActivationScheduleStartHour = 6;
+        harness.Settings.SessionActivationScheduleEndHour = 18;
+
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        Assert.Empty(harness.Activator.Calls);
+        Assert.Empty(harness.Orchestrator.Refreshes);
+    }
+
+    [Fact]
+    public async Task Scheduled_activation_catches_up_when_the_app_resumes_inside_the_window()
+    {
+        var now = new DateTimeOffset(2026, 8, 24, 9, 0, 0, TimeSpan.Zero);
+        var harness = Harness.Claude(now.AddHours(-9), now);
+        harness.Settings.SessionActivationScheduleEnabled = true;
+        harness.Settings.SessionActivationScheduleStartHour = 6;
+        harness.Settings.SessionActivationScheduleEndHour = 18;
+
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        Assert.Single(harness.Activator.Calls);
+    }
+
+    [Fact]
+    public async Task User_activity_still_wins_the_preflight_at_the_scheduled_start()
+    {
+        var now = new DateTimeOffset(2026, 8, 24, 6, 0, 0, TimeSpan.Zero);
+        var harness = Harness.Claude(now.AddHours(-1), now);
+        harness.Settings.SessionActivationScheduleEnabled = true;
+        harness.Settings.SessionActivationScheduleStartHour = 6;
+        harness.Settings.SessionActivationScheduleEndHour = 18;
+        harness.Orchestrator.OnRefresh = providerId =>
+            harness.Orchestrator.CurrentState = State(providerId, now.AddHours(5));
+
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        Assert.Empty(harness.Activator.Calls);
+        Assert.Single(harness.Orchestrator.Refreshes);
+    }
+
+    [Fact]
     public async Task Glm_uses_its_own_toggle_and_target()
     {
         var settings = new AppSettings
@@ -365,15 +430,50 @@ public sealed class SessionAutoStartCoordinatorTests
     }
 
     [Fact]
-    public async Task Claude_window_without_reset_timestamp_is_not_inferred_as_expired()
+    public async Task Claude_idle_null_reset_activates_immediately_after_explicit_opt_in()
     {
         var harness = Harness.Claude(Baseline.AddMinutes(-1), Baseline);
         harness.Orchestrator.CurrentState = State("claude:work", null);
 
         await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
 
+        var call = Assert.Single(harness.Activator.Calls);
+        Assert.Equal(SessionActivationProvider.Claude, call.Provider);
+        Assert.True(harness.Store.Current["claude:work"].Succeeded);
+    }
+
+    [Fact]
+    public async Task Successful_claude_activation_arms_a_visible_deadline_while_the_api_is_delayed()
+    {
+        var harness = Harness.Claude(Baseline.AddMinutes(-1), Baseline);
+        harness.Orchestrator.CurrentState = State("claude:work", null);
+
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
+        var checkpoint = harness.Store.Current["claude:work"];
+        Assert.Equal(Baseline.AddHours(5), checkpoint.ObservedResetAt);
+        Assert.Equal(Baseline.AddHours(5), checkpoint.NextAttemptAt);
+        Assert.Equal(0, checkpoint.Attempts);
+        Assert.False(checkpoint.Completed);
+        Assert.True(checkpoint.Succeeded);
+        Assert.True(harness.WindowRegistry.TryGetActive(
+            "claude:work",
+            Baseline,
+            out var visibleReset));
+        Assert.Equal(Baseline.AddHours(5), visibleReset);
+    }
+
+    [Fact]
+    public async Task Claude_idle_null_reset_stays_closed_when_persisted_state_is_unreliable()
+    {
+        var harness = Harness.Claude(Baseline.AddMinutes(-1), Baseline);
+        harness.Store.IsReliable = false;
+        harness.Orchestrator.CurrentState = State("claude:work", null);
+
+        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
+
         Assert.Empty(harness.Activator.Calls);
-        Assert.Empty(harness.Orchestrator.Refreshes);
+        Assert.True(harness.Store.Current["claude:work"].RequiresFutureObservation);
     }
 
     [Fact]
@@ -494,7 +594,8 @@ public sealed class SessionAutoStartCoordinatorTests
             store,
             clock,
             NullLogger<SessionAutoStartCoordinator>.Instance,
-            windowRegistry);
+            windowRegistry,
+            TimeZoneInfo.Utc);
 
     private static PulseState State(
         string providerId,

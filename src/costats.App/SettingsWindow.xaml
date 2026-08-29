@@ -284,6 +284,40 @@
                     </Expander.Header>
                     <StackPanel>
 
+                        <CheckBox IsChecked="{Binding SessionActivationScheduleEnabled}"
+                                  Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Limit automatic starts to a daily schedule"
+                                       FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                        </CheckBox>
+                        <TextBlock Text="Outside these hours, expired windows wait. If this PC wakes during the schedule, they start immediately."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
+                                   Margin="30,0,0,8" TextWrapping="Wrap" />
+                        <StackPanel Margin="30,0,0,14"
+                                    Visibility="{Binding SessionActivationScheduleEnabled, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                            <DockPanel Margin="0,0,0,6">
+                                <TextBlock Text="Start at" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" DockPanel.Dock="Left"
+                                           VerticalAlignment="Center" />
+                                <ComboBox ItemsSource="{Binding SessionActivationHourOptions}"
+                                          SelectedItem="{Binding SelectedSessionActivationScheduleStart}"
+                                          DockPanel.Dock="Right" HorizontalAlignment="Right" Width="104" />
+                            </DockPanel>
+                            <DockPanel Margin="0,0,0,6">
+                                <TextBlock Text="Stop starting at" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" DockPanel.Dock="Left"
+                                           VerticalAlignment="Center" />
+                                <ComboBox ItemsSource="{Binding SessionActivationHourOptions}"
+                                          SelectedItem="{Binding SelectedSessionActivationScheduleEnd}"
+                                          DockPanel.Dock="Right" HorizontalAlignment="Right" Width="104" />
+                            </DockPanel>
+                            <TextBlock Text="{Binding SessionActivationScheduleDescription}"
+                                       FontSize="10" Foreground="{DynamicResource TextFaintBrush}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="Choose different start and stop times. Automatic starts are paused until the schedule is valid."
+                                       FontSize="10" Foreground="{DynamicResource SessionAccent}" Margin="0,5,0,0" TextWrapping="Wrap"
+                                       Visibility="{Binding HasInvalidSessionActivationSchedule, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
+                        </StackPanel>
+
                         <CheckBox IsChecked="{Binding AutoStartClaudeFiveHourWindow}"
                                   Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
                             <TextBlock Text="Automatically start new Claude 5-hour windows"
