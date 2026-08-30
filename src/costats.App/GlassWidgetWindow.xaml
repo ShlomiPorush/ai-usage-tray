@@ -114,6 +114,34 @@
             </Setter>
         </Style>
 
+        <Style x:Key="OverviewBannerButton" TargetType="Button">
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Padding" Value="11,6" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="BannerButtonBorder" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="7" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="BannerButtonBorder" Property="Opacity" Value="0.86" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Progress bar style -->
         <Style x:Key="UsageProgressBar" TargetType="ProgressBar">
             <Setter Property="Height" Value="8" />
@@ -306,6 +334,20 @@
                 <StackPanel>
                 <Border Background="{DynamicResource KindBadgeBrush}" BorderBrush="{DynamicResource AccentBrush}"
                         BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,10"
+                        Visibility="{Binding HasAvailableUpdate, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <StackPanel>
+                        <TextBlock Text="Update available" FontSize="12.5" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <TextBlock Text="{Binding AvailableUpdateVersion, StringFormat='Version {0} is ready to install.'}"
+                                   FontSize="10.5" Foreground="{DynamicResource TextMutedBrush}"
+                                   TextWrapping="Wrap" Margin="0,4,0,9" />
+                        <Button Content="View update" Click="OnViewUpdateClick"
+                                Style="{StaticResource OverviewBannerButton}" />
+                    </StackPanel>
+                </Border>
+
+                <Border Background="{DynamicResource KindBadgeBrush}" BorderBrush="{DynamicResource AccentBrush}"
+                        BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,10"
                         Visibility="{Binding ShowOnboardingFallback, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
                     <StackPanel>
                         <TextBlock Text="Finish setting up your accounts" FontSize="12.5" FontWeight="SemiBold"
@@ -313,25 +355,8 @@
                         <TextBlock Text="Ready accounts already show usage. Connect the rest when you need them."
                                    FontSize="10.5" Foreground="{DynamicResource TextMutedBrush}"
                                    TextWrapping="Wrap" Margin="0,4,0,9" />
-                        <Button Content="Finish setup" Click="OnFinishSetupClick" HorizontalAlignment="Left"
-                                Padding="11,6" FontSize="11" FontWeight="SemiBold" Cursor="Hand"
-                                Foreground="{DynamicResource AccentTextBrush}" Background="{DynamicResource AccentBrush}"
-                                BorderBrush="{DynamicResource AccentBrush}" BorderThickness="1">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border x:Name="SetupButtonBorder" Background="{TemplateBinding Background}"
-                                            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
-                                            CornerRadius="7" Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                                    </Border>
-                                    <ControlTemplate.Triggers>
-                                        <Trigger Property="IsMouseOver" Value="True">
-                                            <Setter TargetName="SetupButtonBorder" Property="Opacity" Value="0.86" />
-                                        </Trigger>
-                                    </ControlTemplate.Triggers>
-                                </ControlTemplate>
-                            </Button.Template>
-                        </Button>
+                        <Button Content="Finish setup" Click="OnFinishSetupClick"
+                                Style="{StaticResource OverviewBannerButton}" />
                     </StackPanel>
                 </Border>
 
