@@ -8,6 +8,8 @@ namespace costats.Infrastructure.Providers;
 
 public interface IClaudeSubscriptionUsageClient
 {
+    ProviderAuthenticationState AuthenticationState { get; }
+
     Task<ClaudeOAuthUsageResult?> FetchAsync(CancellationToken cancellationToken);
 }
 
@@ -29,9 +31,11 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
 
     private static readonly TimeSpan RefreshCooldownSuccess = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan RefreshCooldownFailure = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan ProactiveRefreshLeadTime = TimeSpan.FromMinutes(10);
 
     private readonly HttpClient _httpClient;
     private readonly string? _configDir;
+    private readonly bool _keepSessionActive;
 
     private int _consecutiveFailures;
     private DateTimeOffset _blockedUntil = DateTimeOffset.MinValue;
@@ -39,6 +43,8 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
     private ClaudeOAuthUsageResult? _memoryCache;
     private DateTimeOffset _memoryCacheWrittenAt = DateTimeOffset.MinValue;
     private DateTimeOffset _refreshBlockedUntil = DateTimeOffset.MinValue;
+
+    public ProviderAuthenticationState AuthenticationState { get; private set; }
 
     public ClaudeOAuthUsageFetcher()
     {
@@ -52,9 +58,10 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
-    public ClaudeOAuthUsageFetcher(string configDir) : this()
+    public ClaudeOAuthUsageFetcher(string configDir, bool keepSessionActive = false) : this()
     {
         _configDir = configDir;
+        _keepSessionActive = keepSessionActive;
     }
 
     //  Public API
@@ -69,10 +76,23 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             _lastCredentialFingerprint = fingerprint;
             _consecutiveFailures = 0;
             _blockedUntil = DateTimeOffset.MinValue;
+            AuthenticationState = ProviderAuthenticationState.Unknown;
         }
 
-        // 2. If token is expired, try delegated refresh via Claude CLI
-        if (credentials is not null && IsTokenExpired(credentials))
+        if (credentials is null || string.IsNullOrWhiteSpace(credentials.AccessToken))
+        {
+            AuthenticationState = ProviderAuthenticationState.SignInRequired;
+            return null;
+        }
+
+        // 2. An expired token always needs recovery. The optional keep-active
+        // setting also asks Claude Code to maintain the shared session before
+        // expiry. Claude Code remains the owner of the OAuth refresh.
+        var tokenExpired = IsTokenExpired(credentials);
+        if (ShouldRefreshSession(
+                _keepSessionActive,
+                tokenExpired,
+                IsTokenNearExpiry(credentials)))
         {
             await TryDelegatedRefreshAsync(cancellationToken).ConfigureAwait(false);
             credentials = await LoadCredentialsAsync(_configDir);
@@ -83,12 +103,24 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                 _lastCredentialFingerprint = newFingerprint;
                 _consecutiveFailures = 0;
                 _blockedUntil = DateTimeOffset.MinValue;
+                AuthenticationState = ProviderAuthenticationState.Unknown;
             }
+        }
+
+        if (credentials?.AccessToken is null || IsTokenExpired(credentials))
+        {
+            AuthenticationState = ProviderAuthenticationState.SignInRequired;
+            return null;
         }
 
         // 3. Check failure gate
         if (DateTimeOffset.UtcNow < _blockedUntil)
         {
+            if (AuthenticationState == ProviderAuthenticationState.SignInRequired)
+            {
+                return null;
+            }
+
             return GetCachedResult();
         }
 
@@ -98,6 +130,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         {
             _consecutiveFailures = 0;
             _blockedUntil = DateTimeOffset.MinValue;
+            AuthenticationState = ProviderAuthenticationState.Authenticated;
             SetMemoryCache(fresh);
             _ = WriteDiskCacheAsync(fresh);
             return fresh;
@@ -106,6 +139,11 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         // 5. Record failure & compute backoff
         _consecutiveFailures++;
         _blockedUntil = DateTimeOffset.UtcNow + ComputeBackoff(_consecutiveFailures);
+
+        if (AuthenticationState == ProviderAuthenticationState.SignInRequired)
+        {
+            return null;
+        }
 
         return GetCachedResult();
     }
@@ -126,7 +164,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             using var request = new HttpRequestMessage(HttpMethod.Get, UsagePath);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
 
-            var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
 
             if (response.IsSuccessStatusCode)
             {
@@ -148,6 +186,11 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                     SubscriptionType = profile?.SubscriptionType ?? usage.SubscriptionType,
                     RateLimitTier = profile?.RateLimitTier ?? usage.RateLimitTier
                 };
+            }
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                AuthenticationState = ProviderAuthenticationState.SignInRequired;
             }
 
             return null;
@@ -458,6 +501,23 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         return credentials.ExpiresAt.HasValue
             && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() > credentials.ExpiresAt.Value;
     }
+
+    private static bool IsTokenNearExpiry(ClaudeCredentials credentials)
+    {
+        if (!credentials.ExpiresAt.HasValue)
+        {
+            return false;
+        }
+
+        var expiresAt = DateTimeOffset.FromUnixTimeMilliseconds(credentials.ExpiresAt.Value);
+        return expiresAt - DateTimeOffset.UtcNow <= ProactiveRefreshLeadTime;
+    }
+
+    internal static bool ShouldRefreshSession(
+        bool keepSessionActive,
+        bool tokenExpired,
+        bool tokenExpiresSoon) =>
+        tokenExpired || (keepSessionActive && tokenExpiresSoon);
 
     private static async Task<ClaudeCredentials?> LoadCredentialsAsync(string? configDir)
     {

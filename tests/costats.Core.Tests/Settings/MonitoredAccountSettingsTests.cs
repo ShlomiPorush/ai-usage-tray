@@ -25,8 +25,8 @@ public sealed class MonitoredAccountSettingsTests
         {
             Accounts =
             [
-                new MonitoredAccountSettings { Id = "claude-1", Type = "claude", DisplayName = "Claude", ConfigDir = "/home/u/.claude" },
-                new MonitoredAccountSettings { Id = "codex-1", Type = "codex", DisplayName = "PA", ConfigDir = "/home/u/.codex" },
+                new MonitoredAccountSettings { Id = "claude-1", Type = "claude", DisplayName = "Claude", ConfigDir = "/home/u/.claude", KeepSessionActive = true },
+                new MonitoredAccountSettings { Id = "codex-1", Type = "codex", DisplayName = "PA", ConfigDir = "/home/u/.codex", KeepSessionActive = true },
                 new MonitoredAccountSettings { Id = "codex-2", Type = "codex", DisplayName = "GPT", ConfigDir = "/home/u/.codex-2" }
             ]
         };
@@ -38,6 +38,9 @@ public sealed class MonitoredAccountSettingsTests
         Assert.Equal(3, accounts.Count);
         Assert.Equal("claude-1", accounts[0].Id);
         Assert.Equal("PA", accounts[1].DisplayName);
+        Assert.True(accounts[0].KeepSessionActive);
+        Assert.True(accounts[1].KeepSessionActive);
+        Assert.False(accounts[2].KeepSessionActive);
         Assert.Equal("/home/u/.codex-2", accounts[2].ConfigDir);
     }
 

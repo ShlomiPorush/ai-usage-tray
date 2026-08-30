@@ -40,6 +40,7 @@ namespace costats.App.Services
         private readonly AppSettings _settings;
         private string? _lastFloatingPanelPosition;
         private readonly UsageAlertTracker _usageAlertTracker = new();
+        private readonly AuthenticationAlertTracker _authenticationAlertTracker = new();
         private Action? _notificationClickAction;
 
         public TrayHost(
@@ -417,8 +418,19 @@ namespace costats.App.Services
                         ? displayName
                         : pair.Key;
                     var account = pair.Value.Usage is { } usage
-                        ? AccountUsageStatus.FromUsagePulse(label, usage)
-                        : new AccountUsageStatus(label, null, null, null, null);
+                        ? AccountUsageStatus.FromUsagePulse(label, usage) with
+                        {
+                            RequiresSignIn = pair.Value.AuthenticationState ==
+                                ProviderAuthenticationState.SignInRequired
+                        }
+                        : new AccountUsageStatus(
+                            label,
+                            null,
+                            null,
+                            null,
+                            null,
+                            RequiresSignIn: pair.Value.AuthenticationState ==
+                                ProviderAuthenticationState.SignInRequired);
                     return (ProviderId: pair.Key, Account: account);
                 })
                 .OrderBy(entry => entry.Account.Label.StartsWith("Claude", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
@@ -434,6 +446,7 @@ namespace costats.App.Services
                     .ToArray()
                 : [];
             var usageAlerts = _usageAlertTracker.Observe(state, usageAlertRules);
+            var signInAlerts = _authenticationAlertTracker.Observe(state);
             var accounts = accountEntries.Select(entry => entry.Account).ToArray();
             var status = TrayStatusComposer.Compose(
                 accounts,
@@ -449,8 +462,19 @@ namespace costats.App.Services
             {
                 var label = displayNames.TryGetValue(primaryId, out var primaryName) ? primaryName : primaryId;
                 var primaryAccount = primaryReading.Usage is { } primaryUsage
-                    ? AccountUsageStatus.FromUsagePulse(label, primaryUsage)
-                    : new AccountUsageStatus(label, null, null, null, null);
+                    ? AccountUsageStatus.FromUsagePulse(label, primaryUsage) with
+                    {
+                        RequiresSignIn = primaryReading.AuthenticationState ==
+                            ProviderAuthenticationState.SignInRequired
+                    }
+                    : new AccountUsageStatus(
+                        label,
+                        null,
+                        null,
+                        null,
+                        null,
+                        RequiresSignIn: primaryReading.AuthenticationState ==
+                            ProviderAuthenticationState.SignInRequired);
                 var primaryStatus = TrayStatusComposer.Compose(
                     [primaryAccount],
                     DateTimeOffset.UtcNow,
@@ -494,7 +518,31 @@ namespace costats.App.Services
             {
                 ApplyTrayStatus(status, rows, floatingRows);
                 ShowUsageAlerts(usageAlerts, displayNames, showRemainingPercentages);
+                ShowSignInRequiredAlerts(signInAlerts, displayNames);
             });
+        }
+
+        private void ShowSignInRequiredAlerts(
+            IReadOnlyList<string> providerIds,
+            IReadOnlyDictionary<string, string> displayNames)
+        {
+            foreach (var providerId in providerIds)
+            {
+                var accountName = displayNames.TryGetValue(providerId, out var displayName)
+                    ? displayName
+                    : providerId;
+                _notificationClickAction = () => ShowSettings(SettingsCategory.Accounts);
+                _taskbarIcon.ShowNotification(
+                    $"{accountName} sign-in required",
+                    "The account session could not be refreshed. Click to open account settings and sign in again.",
+                    NotificationIcon.Error,
+                    customIconHandle: null,
+                    largeIcon: true,
+                    sound: true,
+                    respectQuietTime: true,
+                    realtime: false,
+                    timeout: TimeSpan.FromSeconds(12));
+            }
         }
 
         private void ShowUsageAlerts(

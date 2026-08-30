@@ -54,6 +54,22 @@ public sealed class ClaudeSubscriptionSourceTests
     }
 
     [Fact]
+    public async Task ReadAsync_exposes_sign_in_required_without_stale_usage()
+    {
+        var source = new ClaudeSubscriptionSource(
+            new ClaudeAccountProfile("claude-1", "Claude", "/tmp/claude"),
+            new FakeClaudeSubscriptionUsageClient(
+                null,
+                ProviderAuthenticationState.SignInRequired));
+
+        var reading = await source.ReadAsync(CancellationToken.None);
+
+        Assert.Null(reading.Usage);
+        Assert.Equal(ProviderAuthenticationState.SignInRequired, reading.AuthenticationState);
+        Assert.Contains("Sign-in required", reading.StatusSummary, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ReadAsync_exposes_a_reset_confirmed_by_successful_activation_while_the_api_is_delayed()
     {
         var confirmedReset = DateTimeOffset.UtcNow.AddHours(5);
@@ -150,9 +166,13 @@ public sealed class ClaudeSubscriptionSourceTests
         Assert.False(reading.Usage.IsBlocked);
     }
 
-    private sealed class FakeClaudeSubscriptionUsageClient(ClaudeOAuthUsageResult? result)
+    private sealed class FakeClaudeSubscriptionUsageClient(
+        ClaudeOAuthUsageResult? result,
+        ProviderAuthenticationState authenticationState = ProviderAuthenticationState.Unknown)
         : IClaudeSubscriptionUsageClient
     {
+        public ProviderAuthenticationState AuthenticationState => authenticationState;
+
         public Task<ClaudeOAuthUsageResult?> FetchAsync(CancellationToken cancellationToken) =>
             Task.FromResult(result);
     }

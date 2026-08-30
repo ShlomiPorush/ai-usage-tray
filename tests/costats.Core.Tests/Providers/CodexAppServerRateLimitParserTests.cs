@@ -314,4 +314,52 @@ public sealed class CodexAppServerRateLimitParserTests
         Assert.True(matched);
         Assert.Null(email);
     }
+
+    [Fact]
+    public void TryParseAccount_reports_when_openai_auth_has_no_account()
+    {
+        const string json = """
+        {"id":3,"result":{"account":null,"requiresOpenaiAuth":true}}
+        """;
+
+        var matched = CodexAppServerRateLimitParser.TryParseAccount(
+            json,
+            expectedId: 3,
+            out var account);
+
+        Assert.True(matched);
+        Assert.NotNull(account);
+        Assert.False(account.HasAccount);
+        Assert.True(account.RequiresOpenaiAuth);
+        Assert.False(account.HasError);
+    }
+
+    [Fact]
+    public void TryParseAccount_preserves_refresh_errors_as_a_completed_response()
+    {
+        const string json = """
+        {"id":3,"error":{"code":-32000,"message":"token refresh failed"}}
+        """;
+
+        var matched = CodexAppServerRateLimitParser.TryParseAccount(
+            json,
+            expectedId: 3,
+            out var account);
+
+        Assert.True(matched);
+        Assert.True(account!.HasError);
+    }
+
+    [Fact]
+    public void TryParseError_reads_a_matching_json_rpc_error()
+    {
+        const string json = """
+        {"id":2,"error":{"code":-32000,"message":"refresh token expired"}}
+        """;
+
+        var matched = CodexAppServerRateLimitParser.TryParseError(json, expectedId: 2, out var error);
+
+        Assert.True(matched);
+        Assert.Equal("refresh token expired", error);
+    }
 }

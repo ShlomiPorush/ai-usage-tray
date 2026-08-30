@@ -182,13 +182,56 @@ public sealed class CodexAppServerSourceTests
         Assert.Null(reading.Usage.ResetCreditExpiresAt);
     }
 
+    [Fact]
+    public async Task ReadAsync_passes_the_account_session_refresh_opt_in_to_app_server()
+    {
+        var client = new StubClient(new CodexAppServerRateLimitSnapshot(
+            34, TimeSpan.FromHours(5), DateTimeOffset.UtcNow,
+            60, TimeSpan.FromDays(7), DateTimeOffset.UtcNow.AddDays(3)));
+        var source = new CodexAppServerSource(
+            new CodexAccountProfile(
+                "openai-1",
+                "OpenAI 1",
+                "C:/profiles/openai-1",
+                KeepSessionActive: true),
+            client);
+
+        await source.ReadAsync(CancellationToken.None);
+        await source.ReadAsync(CancellationToken.None);
+
+        Assert.Equal([true, false], client.RefreshTokens);
+    }
+
+    [Fact]
+    public async Task ReadAsync_exposes_sign_in_required_without_stale_usage()
+    {
+        var source = new CodexAppServerSource(
+            new CodexAccountProfile("openai-1", "OpenAI 1", "C:/profiles/openai-1"),
+            new StubClient(new CodexAppServerRateLimitSnapshot(
+                null, null, null, null, null, null)
+            {
+                RequiresSignIn = true
+            }));
+
+        var reading = await source.ReadAsync(CancellationToken.None);
+
+        Assert.Null(reading.Usage);
+        Assert.Equal(ProviderAuthenticationState.SignInRequired, reading.AuthenticationState);
+        Assert.Contains("Sign-in required", reading.StatusSummary, StringComparison.Ordinal);
+    }
+
     private sealed class StubClient(CodexAppServerRateLimitSnapshot snapshot) : ICodexAppServerClient
     {
         public string? LastCodexHome { get; private set; }
+        public List<bool> RefreshTokens { get; } = [];
 
-        public Task<CodexAppServerRateLimitSnapshot?> FetchAsync(string codexHome, CancellationToken cancellationToken)
+        public Task<CodexAppServerRateLimitSnapshot?> FetchAsync(
+            string codexHome,
+            bool refreshToken,
+            CancellationToken cancellationToken)
         {
             LastCodexHome = codexHome;
+            RefreshTokens.Add(refreshToken);
             return Task.FromResult<CodexAppServerRateLimitSnapshot?>(snapshot);
         }
     }
@@ -200,6 +243,7 @@ public sealed class CodexAppServerSourceTests
 
         public Task<CodexAppServerRateLimitSnapshot?> FetchAsync(
             string codexHome,
+            bool refreshToken,
             CancellationToken cancellationToken)
         {
             var snapshot = snapshots[Math.Min(_index, snapshots.Length - 1)];

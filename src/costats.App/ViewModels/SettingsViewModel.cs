@@ -461,7 +461,8 @@ public sealed partial class SettingsViewModel : ObservableObject
                 IsPrimaryProvider(providerId),
                 _settings.IsFloatingPanelProviderVisible(providerId),
                 UsageAlertsEnabled: _settings.IsUsageAlertProviderEnabled(providerId),
-                UsageAlertThreshold: _settings.GetUsageAlertThreshold(providerId)));
+                UsageAlertThreshold: _settings.GetUsageAlertThreshold(providerId),
+                KeepSessionActive: account.KeepSessionActive));
         }
 
         if (_settings.HasZaiKey)
@@ -557,6 +558,28 @@ public sealed partial class SettingsViewModel : ObservableObject
         SaveSettingsInBackground();
         RebuildProviderRows();
         _pulseOrchestrator.RepublishLastState();
+    }
+
+    [RelayCommand]
+    private void ToggleKeepSessionActive(ProviderRowViewModel? row)
+    {
+        if (row is not { CanKeepSessionActive: true, AccountId: not null })
+        {
+            return;
+        }
+
+        var account = (_settings.Accounts ?? []).FirstOrDefault(candidate =>
+            (candidate.IsClaude || candidate.IsCodex) &&
+            string.Equals(candidate.Id, row.AccountId, StringComparison.OrdinalIgnoreCase));
+        if (account is null)
+        {
+            return;
+        }
+
+        account.KeepSessionActive = !row.KeepSessionActive;
+        ApplyAccountsChanged(account.KeepSessionActive
+            ? $"Session refresh enabled for {row.Name}."
+            : $"Session refresh disabled for {row.Name}.");
     }
 
     public void SetUsageAlertThreshold(ProviderRowViewModel row, string? text)

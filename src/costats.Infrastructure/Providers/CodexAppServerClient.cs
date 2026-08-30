@@ -8,7 +8,10 @@ namespace costats.Infrastructure.Providers;
 /// </summary>
 public interface ICodexAppServerClient
 {
-    Task<CodexAppServerRateLimitSnapshot?> FetchAsync(string codexHome, CancellationToken cancellationToken);
+    Task<CodexAppServerRateLimitSnapshot?> FetchAsync(
+        string codexHome,
+        bool refreshToken,
+        CancellationToken cancellationToken);
 }
 
 public sealed class CodexAppServerClient : ICodexAppServerClient, IDisposable
@@ -29,6 +32,7 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, IDisposable
 
     public async Task<CodexAppServerRateLimitSnapshot?> FetchAsync(
         string codexHome,
+        bool refreshToken,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(codexHome))
@@ -65,14 +69,41 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, IDisposable
             await process.StandardInput.WriteLineAsync(
                 "{\"method\":\"initialized\",\"params\":{}}");
             await process.StandardInput.WriteLineAsync(
-                "{\"method\":\"account/rateLimits/read\",\"id\":2}");
-            await process.StandardInput.WriteLineAsync(
-                "{\"method\":\"account/read\",\"id\":3,\"params\":{\"refreshToken\":false}}");
+                CreateAccountReadRequest(refreshToken));
             await process.StandardInput.FlushAsync(timeout.Token);
 
-            var accountReadCompleted = false;
-            string? email = null;
-            while (!timeout.IsCancellationRequested && !process.HasExited)
+            CodexAppServerAccountSnapshot? accountSnapshot = null;
+            while (!timeout.IsCancellationRequested)
+            {
+                var line = await process.StandardOutput.ReadLineAsync(timeout.Token);
+                if (line is null)
+                {
+                    break;
+                }
+
+                if (CodexAppServerRateLimitParser.TryParseAccount(line, expectedId: 3, out accountSnapshot))
+                {
+                    break;
+                }
+            }
+
+            var requiresSignIn = accountSnapshot is
+                {
+                    HasAccount: false,
+                    RequiresOpenaiAuth: true
+                } ||
+                (refreshToken && accountSnapshot?.HasError == true);
+            if (requiresSignIn)
+            {
+                return SignInRequiredSnapshot();
+            }
+
+            await process.StandardInput.WriteLineAsync(
+                "{\"method\":\"account/rateLimits/read\",\"id\":2}");
+            await process.StandardInput.FlushAsync(timeout.Token);
+
+            var email = accountSnapshot?.Email;
+            while (!timeout.IsCancellationRequested)
             {
                 var line = await process.StandardOutput.ReadLineAsync(timeout.Token);
                 if (line is null)
@@ -81,14 +112,11 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, IDisposable
                 }
 
                 rateLimitSnapshot ??= CodexAppServerRateLimitParser.Parse(line, expectedId: 2);
-                if (!accountReadCompleted &&
-                    CodexAppServerRateLimitParser.TryParseAccountEmail(line, expectedId: 3, out var parsedEmail))
+                if (CodexAppServerRateLimitParser.TryParseError(line, expectedId: 2, out var error))
                 {
-                    accountReadCompleted = true;
-                    email = parsedEmail;
+                    return IsAuthenticationError(error) ? SignInRequiredSnapshot() : null;
                 }
-
-                if (rateLimitSnapshot is not null && accountReadCompleted)
+                if (rateLimitSnapshot is not null)
                 {
                     return rateLimitSnapshot with { Email = email };
                 }
@@ -108,6 +136,35 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, IDisposable
         {
             TryTerminate(process);
         }
+    }
+
+    internal static string CreateAccountReadRequest(bool refreshToken) =>
+        $"{{\"method\":\"account/read\",\"id\":3,\"params\":{{\"refreshToken\":{refreshToken.ToString().ToLowerInvariant()}}}}}";
+
+    private static CodexAppServerRateLimitSnapshot SignInRequiredSnapshot() =>
+        new(null, null, null, null, null, null)
+        {
+            RequiresSignIn = true
+        };
+
+    internal static bool IsAuthenticationError(string? error)
+    {
+        if (string.IsNullOrWhiteSpace(error))
+        {
+            return false;
+        }
+
+        string[] markers =
+        [
+            "401",
+            "auth",
+            "login",
+            "sign in",
+            "sign-in",
+            "token",
+            "unauthorized"
+        ];
+        return markers.Any(marker => error.Contains(marker, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
