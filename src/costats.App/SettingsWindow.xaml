@@ -500,6 +500,8 @@
                     <StackPanel>
                         <TextBlock Text="Each account points at the local profile folder its login lives in (CLAUDE_CONFIG_DIR for Claude, CODEX_HOME for Codex). Sign in with the official CLI inside that folder; this app never stores provider passwords."
                                    FontSize="11" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                        <TextBlock Text="Keep session active is optional and off by default. For Claude and Codex it periodically asks the provider's official client to refresh the account session before it expires. It does not start an agent session or spend quota."
+                                   FontSize="10" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
 
                 <ItemsControl ItemsSource="{Binding ProviderRows}" Focusable="False">
                     <ItemsControl.ItemTemplate>
@@ -529,6 +531,15 @@
                                                    Foreground="{DynamicResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis" />
                                         <TextBlock Text="{Binding Detail}" FontSize="9.5" FontFamily="Consolas"
                                                    Foreground="{DynamicResource TextFaintBrush}" TextTrimming="CharacterEllipsis" />
+                                        <CheckBox IsChecked="{Binding KeepSessionActive, Mode=OneWay}"
+                                                  Command="{Binding DataContext.ToggleKeepSessionActiveCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                  CommandParameter="{Binding}"
+                                                  Style="{StaticResource SettingsCheckBox}" Margin="0,5,0,0"
+                                                  Visibility="{Binding CanKeepSessionActive, Converter={x:Static local:BoolToVisibilityConverter.Instance}}"
+                                                  ToolTip="Periodically refresh this account session through the provider's official client">
+                                            <TextBlock Text="Keep active" FontSize="10.5"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}" />
+                                        </CheckBox>
                                     </StackPanel>
                                 </DockPanel>
                             </Border>

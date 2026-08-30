@@ -26,7 +26,8 @@ public sealed record AccountUsageStatus(
     // Colours and status wording come from the used number alone.
     QuotaSeverity? SessionSeverity = null,
     QuotaSeverity? WeeklySeverity = null,
-    bool IsBlocked = false)
+    bool IsBlocked = false,
+    bool RequiresSignIn = false)
 {
     public static AccountUsageStatus FromUsagePulse(string label, UsagePulse usage)
     {
@@ -159,6 +160,11 @@ public static class TrayStatusComposer
                 return TraySeverity.Red;
             }
 
+            if (account.RequiresSignIn)
+            {
+                return TraySeverity.Red;
+            }
+
             foreach (var severity in WindowSeverities(account))
             {
                 if (Rank(severity) > Rank(worst))
@@ -218,6 +224,10 @@ public static class TrayStatusComposer
         {
             // Leads the line: "which window" matters less than "you are stopped".
             windows.Add("blocked");
+        }
+        if (account.RequiresSignIn)
+        {
+            windows.Add("sign-in required");
         }
         if (showWeeklyBeforeSession)
         {

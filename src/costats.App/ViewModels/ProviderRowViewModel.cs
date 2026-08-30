@@ -14,13 +14,18 @@ public sealed record ProviderRowViewModel(
     bool IsShownInFloatingPanel = true,
     bool CanChangeFloatingPanelSelection = true,
     bool UsageAlertsEnabled = false,
-    int UsageAlertThreshold = 90)
+    int UsageAlertThreshold = 90,
+    bool KeepSessionActive = false)
 {
     /// <summary>The pulse provider id this row maps to ("claude:x", "codex:x", "zai", "copilot").</summary>
     public string ProviderId => AccountId is null ? Kind : $"{Kind}:{AccountId}";
 
     public string PrimaryGlyph => IsPrimary ? "★" : "☆";
 
+    public bool IsCodex => string.Equals(Kind, "codex", StringComparison.OrdinalIgnoreCase);
+
+    public bool CanKeepSessionActive =>
+        string.Equals(Kind, "claude", StringComparison.OrdinalIgnoreCase) || IsCodex;
 
     public string KindLabel => Kind switch
     {

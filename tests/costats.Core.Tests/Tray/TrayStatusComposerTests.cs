@@ -266,6 +266,25 @@ public sealed class TrayStatusComposerTests
     }
 
     [Fact]
+    public void An_account_that_requires_sign_in_is_red_and_never_looks_healthy()
+    {
+        var account = new AccountUsageStatus(
+            "Codex",
+            SessionRemainingPercent: null,
+            SessionResetsAt: null,
+            WeeklyRemainingPercent: null,
+            WeeklyResetsAt: null,
+            RequiresSignIn: true);
+
+        var status = TrayStatusComposer.Compose([account], DateTimeOffset.UtcNow);
+        var row = Assert.Single(TrayStatusComposer.ComposeRows([account], DateTimeOffset.UtcNow));
+
+        Assert.Equal(TraySeverity.Red, status.Severity);
+        Assert.Contains("sign-in required", status.FullTooltip, StringComparison.Ordinal);
+        Assert.Equal("sign-in required", row.WindowsText);
+    }
+
+    [Fact]
     public void Tray_panels_follow_the_weekly_before_session_setting()
     {
         var account = new AccountUsageStatus(

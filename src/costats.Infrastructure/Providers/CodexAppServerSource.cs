@@ -5,7 +5,11 @@ using costats.Core.Pulse;
 
 namespace costats.Infrastructure.Providers;
 
-public sealed record CodexAccountProfile(string Id, string DisplayName, string CodexHome)
+public sealed record CodexAccountProfile(
+    string Id,
+    string DisplayName,
+    string CodexHome,
+    bool KeepSessionActive = false)
 {
     public string ValidatedId
     {
@@ -24,9 +28,11 @@ public sealed record CodexAccountProfile(string Id, string DisplayName, string C
 
 public sealed class CodexAppServerSource : ISignalSource
 {
+    private static readonly TimeSpan SessionRefreshInterval = TimeSpan.FromMinutes(30);
     private readonly CodexAccountProfile _account;
     private readonly ICodexAppServerClient _client;
     private readonly ISessionActivationWindowRegistry? _windowRegistry;
+    private DateTimeOffset _nextSessionRefreshAt = DateTimeOffset.MinValue;
 
     public CodexAppServerSource(
         CodexAccountProfile account,
@@ -55,7 +61,18 @@ public sealed class CodexAppServerSource : ISignalSource
     public async Task<ProviderReading> ReadAsync(CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
-        var snapshot = await _client.FetchAsync(_account.CodexHome, cancellationToken).ConfigureAwait(false);
+        var refreshToken = _account.KeepSessionActive && now >= _nextSessionRefreshAt;
+        if (refreshToken)
+        {
+            // Mark the cadence before the call so a fast failure cannot turn a
+            // one-minute usage interval into a one-minute forced-refresh loop.
+            _nextSessionRefreshAt = now + SessionRefreshInterval;
+        }
+
+        var snapshot = await _client.FetchAsync(
+            _account.CodexHome,
+            refreshToken,
+            cancellationToken).ConfigureAwait(false);
         if (snapshot is null)
         {
             return new ProviderReading(
@@ -65,6 +82,18 @@ public sealed class CodexAppServerSource : ISignalSource
                 now,
                 ReadingConfidence.Low,
                 ReadingSource.Api);
+        }
+
+        if (snapshot.RequiresSignIn)
+        {
+            return new ProviderReading(
+                null,
+                new IdentityCard(Profile.ProviderId, Profile.DisplayName, null, null, null, "Codex app-server"),
+                "Sign-in required - reconnect this Codex account",
+                now,
+                ReadingConfidence.High,
+                ReadingSource.Api,
+                ProviderAuthenticationState.SignInRequired);
         }
 
         var sessionUsed = ToUsedPercent(snapshot.SessionRemainingPercent);
@@ -98,7 +127,8 @@ public sealed class CodexAppServerSource : ISignalSource
             "Updated from official Codex app-server",
             now,
             ReadingConfidence.High,
-            ReadingSource.Api);
+            ReadingSource.Api,
+            ProviderAuthenticationState.Authenticated);
     }
 
     // ChatGPT plan slugs -> display names (mirrors how the Claude plan chip looks).

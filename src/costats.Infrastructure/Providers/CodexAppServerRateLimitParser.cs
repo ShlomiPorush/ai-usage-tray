@@ -39,7 +39,19 @@ public sealed record CodexAppServerRateLimitSnapshot(
 
     /// <summary>Account email returned by <c>account/read</c>, when available.</summary>
     public string? Email { get; init; }
+
+    /// <summary>
+    /// The official app-server reported no usable OpenAI account, or a forced
+    /// managed-token refresh failed. No credentials are inspected by this app.
+    /// </summary>
+    public bool RequiresSignIn { get; init; }
 }
+
+public sealed record CodexAppServerAccountSnapshot(
+    string? Email,
+    bool HasAccount,
+    bool RequiresOpenaiAuth,
+    bool HasError);
 
 public static class CodexAppServerRateLimitParser
 {
@@ -111,9 +123,12 @@ public static class CodexAppServerRateLimitParser
     /// Parses the response to <c>account/read</c>. A matching error or a
     /// non-ChatGPT account still counts as a completed response with no email.
     /// </summary>
-    public static bool TryParseAccountEmail(string json, long expectedId, out string? email)
+    public static bool TryParseAccount(
+        string json,
+        long expectedId,
+        out CodexAppServerAccountSnapshot? snapshot)
     {
-        email = null;
+        snapshot = null;
         if (string.IsNullOrWhiteSpace(json))
         {
             return false;
@@ -132,16 +147,73 @@ public static class CodexAppServerRateLimitParser
 
             if (root.TryGetProperty("error", out _))
             {
+                snapshot = new CodexAppServerAccountSnapshot(null, false, false, true);
                 return true;
             }
 
+            string? email = null;
+            var hasAccount = false;
             if (root.TryGetProperty("result", out var result) &&
-                result.TryGetProperty("account", out var account) &&
-                account.ValueKind == JsonValueKind.Object)
+                result.ValueKind == JsonValueKind.Object)
             {
-                email = ReadString(account, "email")?.Trim();
+                if (result.TryGetProperty("account", out var account) &&
+                    account.ValueKind == JsonValueKind.Object)
+                {
+                    hasAccount = true;
+                    email = ReadString(account, "email")?.Trim();
+                }
+
+                var requiresOpenaiAuth =
+                    result.TryGetProperty("requiresOpenaiAuth", out var requiresAuth) &&
+                    requiresAuth.ValueKind is JsonValueKind.True or JsonValueKind.False &&
+                    requiresAuth.GetBoolean();
+                snapshot = new CodexAppServerAccountSnapshot(
+                    email,
+                    hasAccount,
+                    requiresOpenaiAuth,
+                    HasError: false);
             }
 
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    public static bool TryParseAccountEmail(string json, long expectedId, out string? email)
+    {
+        var matched = TryParseAccount(json, expectedId, out var snapshot);
+        email = snapshot?.Email;
+        return matched;
+    }
+
+    public static bool TryParseError(string json, long expectedId, out string? error)
+    {
+        error = null;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("id", out var id) ||
+                id.ValueKind != JsonValueKind.Number ||
+                id.GetInt64() != expectedId ||
+                !root.TryGetProperty("error", out var errorElement))
+            {
+                return false;
+            }
+
+            error = errorElement.ValueKind == JsonValueKind.Object &&
+                    errorElement.TryGetProperty("message", out var message) &&
+                    message.ValueKind == JsonValueKind.String
+                ? message.GetString()
+                : errorElement.GetRawText();
             return true;
         }
         catch (JsonException)

@@ -509,6 +509,12 @@ public sealed class MonitoredAccountSettings
     /// <summary>CODEX_HOME for Codex accounts, CLAUDE_CONFIG_DIR for Claude accounts.</summary>
     public string ConfigDir { get; set; } = string.Empty;
 
+    /// <summary>
+    /// When enabled, the monitor periodically asks the provider's official
+    /// client to refresh the account session before it expires.
+    /// </summary>
+    public bool KeepSessionActive { get; set; }
+
     public bool IsClaude => string.Equals(Type, ClaudeType, StringComparison.OrdinalIgnoreCase);
     public bool IsCodex => string.Equals(Type, CodexType, StringComparison.OrdinalIgnoreCase);
 

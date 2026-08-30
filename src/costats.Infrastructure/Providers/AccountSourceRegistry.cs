@@ -40,7 +40,11 @@ public sealed class AccountSourceRegistry : IAccountSourceRegistry
                 if (account.IsCodex)
                 {
                     sources.Add(new CodexAppServerSource(
-                        new CodexAccountProfile(account.Id, displayName, account.ConfigDir),
+                        new CodexAccountProfile(
+                            account.Id,
+                            displayName,
+                            account.ConfigDir,
+                            account.KeepSessionActive),
                         _codexClient,
                         _windowRegistry));
                 }
@@ -48,7 +52,7 @@ public sealed class AccountSourceRegistry : IAccountSourceRegistry
                 {
                     sources.Add(new ClaudeSubscriptionSource(
                         new ClaudeAccountProfile(account.Id, displayName, account.ConfigDir),
-                        new ClaudeOAuthUsageFetcher(account.ConfigDir),
+                        new ClaudeOAuthUsageFetcher(account.ConfigDir, account.KeepSessionActive),
                         _windowRegistry));
                 }
             }

@@ -202,7 +202,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     {
         var vm = new ProviderPulseViewModel
         {
-            ProviderId = reading.Usage?.ProviderId ?? displayNameFallback,
+            ProviderId = reading.Usage?.ProviderId ?? reading.Identity?.ProviderId ?? displayNameFallback,
             DisplayName = displayNameFallback,
             StatusSummary = FormatStatusSummary(reading),
             PlanText = reading.Identity?.Plan ?? string.Empty,
@@ -225,6 +225,19 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         var worstPercent = Math.Max(sessionPercent, weekPercent);
         vm.OverallStatusColor = GetUtilizationColor(worstPercent);
         vm.OverallStatusText = GetStatusText(worstPercent);
+
+        if (reading.Usage is null)
+        {
+            vm.OverallStatusColor = "#64748B";
+            vm.OverallStatusText = "Unavailable";
+        }
+
+        if (reading.AuthenticationState == ProviderAuthenticationState.SignInRequired)
+        {
+            vm.OverallStatusColor = "#EF4444";
+            vm.OverallStatusText = "Sign-in required";
+            vm.StatusSummary = "Reconnect this account";
+        }
 
         // Being refused is worse than any percentage, and no window on its own
         // says it, so it overrides the headline on every surface that shows one.

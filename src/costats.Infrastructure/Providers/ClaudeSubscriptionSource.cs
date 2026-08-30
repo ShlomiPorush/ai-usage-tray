@@ -57,6 +57,18 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
         var now = DateTimeOffset.UtcNow;
         if (result is null)
         {
+            if (_client.AuthenticationState == ProviderAuthenticationState.SignInRequired)
+            {
+                return new ProviderReading(
+                    null,
+                    new IdentityCard(Profile.ProviderId, Profile.DisplayName, null, null, null, "Claude subscription OAuth"),
+                    "Sign-in required - reconnect this Claude account",
+                    now,
+                    ReadingConfidence.High,
+                    ReadingSource.Api,
+                    ProviderAuthenticationState.SignInRequired);
+            }
+
             return new ProviderReading(
                 null,
                 null,
@@ -96,7 +108,8 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
             "Updated from Claude subscription",
             result.FetchedAt,
             ReadingConfidence.High,
-            ReadingSource.Api);
+            ReadingSource.Api,
+            ProviderAuthenticationState.Authenticated);
     }
 
     private static long? ToUsedPercent(double? value) =>
