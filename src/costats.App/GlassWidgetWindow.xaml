@@ -571,6 +571,11 @@
                                        Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
                         </StackPanel>
                         <TextBlock Text="{Binding StatusSummary}" FontSize="12" Foreground="{DynamicResource TextMutedBrush}" Margin="0,3,0,0" />
+                        <Button Content="Relogin" Click="OnReloginClick"
+                                Style="{StaticResource OverviewBannerButton}"
+                                HorizontalAlignment="Left" Margin="0,7,0,0"
+                                Visibility="{Binding ShowRelogin, Converter={StaticResource BoolToVisibilityConverter}}"
+                                ToolTip="Sign in again with this account's official CLI" />
                         <StackPanel Orientation="Horizontal" Margin="0,5,0,0"
                                     Visibility="{Binding HasEmail, Converter={StaticResource BoolToVisibilityConverter}}">
                             <TextBlock Text="{Binding EmailDisplayText}" FontSize="11"

@@ -582,6 +582,45 @@ public sealed partial class SettingsViewModel : ObservableObject
             : $"Session refresh disabled for {row.Name}.");
     }
 
+    [RelayCommand]
+    private async Task ReloginProviderRowAsync(ProviderRowViewModel? row)
+    {
+        if (row is not { CanRelogin: true } || string.IsNullOrWhiteSpace(row.Detail))
+        {
+            return;
+        }
+
+        var literal = QuotePowerShellLiteral(row.Detail);
+        var command = row.IsCodex
+            ? $"$env:CODEX_HOME={literal}; Write-Host 'Complete Codex sign-in, then close this window.' -ForegroundColor Cyan; codex login"
+            : $"$env:CLAUDE_CONFIG_DIR={literal}; Write-Host 'If needed, type /login in Claude Code, then close this window.' -ForegroundColor Cyan; claude";
+
+        if (!TryOpenPowerShell(command, out var process) || process is null)
+        {
+            AccountsRestartMessage = $"Could not open PowerShell for {row.Name}.";
+            return;
+        }
+
+        AccountsRestartMessage = $"Complete {row.Name} sign-in in the PowerShell window.";
+        try
+        {
+            await process.WaitForExitAsync().ConfigureAwait(true);
+            _accountSources?.Reload();
+            await _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None)
+                .ConfigureAwait(true);
+            AccountsRestartMessage = $"{row.Name} relogin finished. Usage refreshed.";
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Provider relogin refresh failed for {ProviderId}", row.ProviderId);
+            AccountsRestartMessage = $"{row.Name} relogin finished, but usage could not refresh.";
+        }
+        finally
+        {
+            process.Dispose();
+        }
+    }
+
     public void SetUsageAlertThreshold(ProviderRowViewModel row, string? text)
     {
         ArgumentNullException.ThrowIfNull(row);
@@ -735,6 +774,31 @@ public sealed partial class SettingsViewModel : ObservableObject
             UseShellExecute = false
         });
         System.Windows.Application.Current.Shutdown(0);
+    }
+
+    private static string QuotePowerShellLiteral(string value) => $"'{value.Replace("'", "''")}'";
+
+    private static bool TryOpenPowerShell(string command, out Process? process)
+    {
+        process = null;
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                UseShellExecute = true,
+                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+            };
+            startInfo.ArgumentList.Add("-Command");
+            startInfo.ArgumentList.Add(command);
+            process = Process.Start(startInfo);
+            return process is not null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Could not open provider sign-in in PowerShell");
+            return false;
+        }
     }
 
     partial void OnShowOverviewResetTimesChanged(bool value)

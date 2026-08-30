@@ -95,6 +95,23 @@ namespace costats.App
             _settingsWindow.ShowCentered(returnToWidgetOnDismiss: true);
         }
 
+        private void OnReloginClick(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not PulseViewModel pulse ||
+                _settingsWindow.DataContext is not SettingsViewModel settings)
+            {
+                return;
+            }
+
+            var providerId = pulse.SelectedAccount.ProviderId;
+            var row = settings.ProviderRows.FirstOrDefault(candidate =>
+                string.Equals(candidate.ProviderId, providerId, StringComparison.OrdinalIgnoreCase));
+            if (row is not null && settings.ReloginProviderRowCommand.CanExecute(row))
+            {
+                settings.ReloginProviderRowCommand.Execute(row);
+            }
+        }
+
         private void OnUsageStatsClick(object sender, RoutedEventArgs e)
         {
             // The widget hides itself the moment the dashboard takes focus,

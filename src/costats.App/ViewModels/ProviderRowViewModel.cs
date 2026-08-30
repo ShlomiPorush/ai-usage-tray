@@ -27,6 +27,8 @@ public sealed record ProviderRowViewModel(
     public bool CanKeepSessionActive =>
         string.Equals(Kind, "claude", StringComparison.OrdinalIgnoreCase) || IsCodex;
 
+    public bool CanRelogin => CanKeepSessionActive;
+
     public string KindLabel => Kind switch
     {
         "claude" => "Claude",
