@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using costats.App.Services.Updates;
 using costats.Application.Pulse;
 using costats.Application.Settings;
 using costats.Core.Analytics;
@@ -22,6 +23,7 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     private readonly IEnumerable<ISignalSource> _staticSources;
     private readonly IAccountSourceRegistry _accountSources;
     private readonly IUsageAnalyticsService _analytics;
+    private readonly StartupUpdateCoordinator? _updateCoordinator;
     private CancellationTokenSource? _costLoad;
 
     public PulseViewModel(
@@ -29,7 +31,8 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
         AppSettings settings,
         IEnumerable<ISignalSource> sources,
         IAccountSourceRegistry accountSources,
-        IUsageAnalyticsService analytics)
+        IUsageAnalyticsService analytics,
+        StartupUpdateCoordinator? updateCoordinator = null)
     {
         _orchestrator = orchestrator;
         _settings = settings;
@@ -37,6 +40,7 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
         _staticSources = sources;
         _accountSources = accountSources;
         _analytics = analytics ?? throw new ArgumentNullException(nameof(analytics));
+        _updateCoordinator = updateCoordinator;
 
         Providers = new ObservableCollection<ProviderPulseViewModel>();
         _subscription = orchestrator.PulseStream.Subscribe(this);
@@ -72,6 +76,14 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     [ObservableProperty]
     private bool showOnboardingFallback;
 
+    /// <summary>True while a newer app version is available to review.</summary>
+    [ObservableProperty]
+    private bool hasAvailableUpdate;
+
+    /// <summary>The newer app version shown in the overview update banner.</summary>
+    [ObservableProperty]
+    private string availableUpdateVersion = string.Empty;
+
     /// <summary>
     /// The remote view link, or null while remote view is off or unconfigured.
     /// Mirrors AppSettings so the overview button follows the Settings toggle.
@@ -98,6 +110,24 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
 
     /// <summary>Applies onboarding changes immediately, without waiting for a pulse.</summary>
     public void NotifyOnboardingStateChanged() => ApplySettings();
+
+    /// <summary>Copies the latest updater result into the overview banner.</summary>
+    public void ApplyUpdateCheckResult(UpdateCheckResult result)
+    {
+        var current = new WidgetUpdateAvailability(HasAvailableUpdate, AvailableUpdateVersion);
+        var next = WidgetUpdateAvailability.Apply(current, result);
+        HasAvailableUpdate = next.IsVisible;
+        AvailableUpdateVersion = next.Version;
+    }
+
+    /// <summary>Refreshes the banner after a manual check in Settings.</summary>
+    public void RefreshUpdateAvailability()
+    {
+        if (_updateCoordinator?.LastCheckResult is { } result)
+        {
+            ApplyUpdateCheckResult(result);
+        }
+    }
 
     [RelayCommand]
     private void OpenRemoteView()

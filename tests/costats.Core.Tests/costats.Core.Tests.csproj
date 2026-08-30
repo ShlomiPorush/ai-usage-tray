@@ -26,5 +26,6 @@
     <Compile Include="../../src/costats.App/Services/Updates/UpdateCheckResult.cs" Link="Updates/UpdateCheckResult.cs" />
     <Compile Include="../../src/costats.App/Services/Updates/UpdateOptions.cs" Link="Updates/UpdateOptions.cs" />
     <Compile Include="../../src/costats.App/Services/Updates/StartupUpdateCoordinator.cs" Link="Updates/StartupUpdateCoordinator.cs" />
+    <Compile Include="../../src/costats.App/Services/Updates/WidgetUpdateAvailability.cs" Link="Updates/WidgetUpdateAvailability.cs" />
   </ItemGroup>
 </Project>

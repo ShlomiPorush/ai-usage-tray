@@ -300,6 +300,8 @@ namespace costats.App.Services
 
         public void HandleBackgroundUpdateResult(UpdateCheckResult result)
         {
+            _viewModel.ApplyUpdateCheckResult(result);
+
             if (_settingsWindow.DataContext is SettingsViewModel settingsViewModel)
             {
                 settingsViewModel.ApplyBackgroundUpdateResult(result);
@@ -355,6 +357,7 @@ namespace costats.App.Services
 
             if (!wasVisible)
             {
+                _viewModel.RefreshUpdateAvailability();
                 PositionWidget();
                 _viewModel.ResetToOverview();
                 _widgetWindow.Show();

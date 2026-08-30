@@ -278,6 +278,21 @@ namespace costats.App
                         _host.Services.GetRequiredService<PulseViewModel>().NotifyOnboardingStateChanged();
                     }
 
+                    var previewUpdateVersion = ReadOptionalArgument(args, "--preview-update-version");
+                    if (previewUpdateVersion is not null)
+                    {
+                        tray.HandleBackgroundUpdateResult(new UpdateCheckResult(
+                            UpdateCheckStatus.UpdateAvailable,
+                            new AvailableUpdate(
+                                previewUpdateVersion,
+                                "Preview release notes",
+                                "https://github.com/ShlomiPorush/ai-usage-tray/releases",
+                                "preview.zip",
+                                "https://github.com/ShlomiPorush/ai-usage-tray/releases/download/preview/preview.zip",
+                                null),
+                            FromCache: true));
+                    }
+
                     tray.ShowWidget();
                     window = _host!.Services.GetRequiredService<GlassWidgetWindow>();
                     wait = TimeSpan.FromSeconds(15);
@@ -336,6 +351,11 @@ namespace costats.App
             settings.AutoStartCodexFiveHourWindow = false;
             settings.AutoStartZaiFiveHourWindow = false;
 
+            if (ReadOptionalArgument(args, "--preview-update-version") is not null)
+            {
+                settings.AutomaticUpdateChecksEnabled = false;
+            }
+
             if (Array.IndexOf(args, "--settings-screenshot") >= 0)
             {
                 settings.SessionActivationScheduleEnabled = true;
@@ -350,6 +370,18 @@ namespace costats.App
             return index >= 0 && index + 1 < args.Length && int.TryParse(args[index + 1], out var step)
                 ? Math.Clamp(step, 1, 3)
                 : 1;
+        }
+
+        private static string? ReadOptionalArgument(string[] args, string flag)
+        {
+            var index = Array.IndexOf(args, flag);
+            if (index < 0 || index + 1 >= args.Length)
+            {
+                return null;
+            }
+
+            var value = args[index + 1].Trim();
+            return value.Length == 0 ? null : value;
         }
 
         /// <summary>Reads a URL from configuration, treating blank as "not shipped".</summary>

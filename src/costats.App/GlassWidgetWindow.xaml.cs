@@ -107,6 +107,13 @@ namespace costats.App
             _onboardingWindow.ShowCentered(resume: true);
         }
 
+        private void OnViewUpdateClick(object sender, RoutedEventArgs e)
+        {
+            _settingsWindow.ShowCentered(
+                returnToWidgetOnDismiss: true,
+                initialCategory: SettingsCategory.Updates);
+        }
+
         private void OnAccountUsageClick(object sender, RoutedEventArgs e)
         {
             // The Cost section only exists once an analytics bucket was
