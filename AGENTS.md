@@ -44,6 +44,8 @@ AI Usage Tray: a .NET 10 WPF Windows tray app (fork of fmdz387/costats, MIT) sho
 
 Bump `VersionPrefix` in `src/Directory.Build.props` (single source of truth) -> commit -> tag `vX.Y.Z` -> push tag. The Release workflow builds x64+arm64 ZIPs with `.sha256` and publishes; the app self-updates from this repo's releases. Verify release readiness via the public download URL, not the GitHub API (rate limits).
 
+- Write `CHANGELOG` entries and release notes in clear, human language. Explain what changed, why it matters to users, and any important limitation. Do not publish raw commit subjects, merge lines, PR numbers, or implementation jargon as the explanation. Review generated changelogs and replace mechanical entries such as `Merge pull request #N` with a concise user-facing summary.
+
 ## Known traps
 
 - Windows shell tray tooltips cap at 127 chars; the real hover popup is our own window fed by `TrayStatus.FullTooltip`.
