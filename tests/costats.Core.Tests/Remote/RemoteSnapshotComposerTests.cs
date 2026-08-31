@@ -356,5 +356,6 @@ public sealed class RemoteSnapshotComposerTests
         Assert.False(accounts[0].TryGetProperty("alert", out _));
         Assert.True(accounts[1].GetProperty("alert").GetProperty("enabled").GetBoolean());
         Assert.Equal(95, accounts[1].GetProperty("alert").GetProperty("thresholdPercent").GetInt32());
+        Assert.False(accounts[1].GetProperty("alert").GetProperty("resetEnabled").GetBoolean());
     }
 }

@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v11: adds opt-in Web Push notifications for per-account quota thresholds.
-var CACHE = "ai-usage-tray-shell-v11";
+// v12: adds opt-in Web Push notifications for usage resets.
+var CACHE = "ai-usage-tray-shell-v12";
 
 var SHELL = [
   "./",
@@ -84,13 +84,14 @@ self.addEventListener("push", function (event) {
   }
 
   var alerts = Array.isArray(message && message.alerts) ? message.alerts : [];
+  var resets = Array.isArray(message && message.resets) ? message.resets : [];
   var displayMode = message && message.displayMode === "remaining" ? "remaining" : "used";
   var viewerUrl = new URL("./", self.registration.scope);
   if (message && typeof message.readId === "string") {
     viewerUrl.searchParams.set("id", message.readId);
   }
 
-  if (alerts.length === 0) {
+  if (alerts.length === 0 && resets.length === 0) {
     event.waitUntil(self.registration.showNotification("AI Usage Tray alert", {
       body: "A configured usage threshold was reached.",
       icon: "icon-192.png",
@@ -101,7 +102,7 @@ self.addEventListener("push", function (event) {
     return;
   }
 
-  event.waitUntil(Promise.all(alerts.map(function (alert) {
+  var notifications = alerts.map(function (alert) {
     var used = Math.max(0, Math.min(100, Math.round(Number(alert.usedPercent) || 0)));
     var shown = displayMode === "remaining" ? 100 - used : used;
     var accountName = typeof alert.accountName === "string" && alert.accountName
@@ -121,7 +122,27 @@ self.addEventListener("push", function (event) {
       renotify: false,
       data: { url: viewerUrl.href }
     });
-  })));
+  });
+  notifications = notifications.concat(resets.map(function (reset) {
+    var accountName = typeof reset.accountName === "string" && reset.accountName
+      ? reset.accountName
+      : "Account";
+    var windowName = typeof reset.windowLabel === "string" && reset.windowLabel
+      ? reset.windowLabel
+      : "Usage";
+    if (typeof reset.scope === "string" && reset.scope) {
+      windowName += " · " + reset.scope;
+    }
+    return self.registration.showNotification(accountName + " usage reset", {
+      body: windowName + " usage reset to 0%.",
+      icon: "icon-192.png",
+      badge: "icon-192.png",
+      tag: "usage-reset:" + String(reset.accountId || "account") + ":" + String(reset.windowKey || "window"),
+      renotify: false,
+      data: { url: viewerUrl.href }
+    });
+  }));
+  event.waitUntil(Promise.all(notifications));
 });
 
 self.addEventListener("notificationclick", function (event) {

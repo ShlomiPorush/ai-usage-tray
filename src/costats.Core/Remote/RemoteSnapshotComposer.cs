@@ -16,7 +16,10 @@ public sealed record RemoteSnapshotEntry(
     RemoteAlertSettings? Alert = null);
 
 /// <summary>The effective alert choice published for one account.</summary>
-public sealed record RemoteAlertSettings(bool Enabled, int ThresholdPercent);
+public sealed record RemoteAlertSettings(
+    bool Enabled,
+    int ThresholdPercent,
+    bool ResetEnabled = false);
 
 /// <summary>
 /// A single quota window as published to the remote viewer. <c>Scope</c> is the
@@ -145,7 +148,10 @@ public static class RemoteSnapshotComposer
     private static RemoteAlertSettings? NormalizeAlert(RemoteAlertSettings? alert) =>
         alert is null
             ? null
-            : new RemoteAlertSettings(alert.Enabled, Math.Clamp(alert.ThresholdPercent, 1, 100));
+            : new RemoteAlertSettings(
+                alert.Enabled,
+                Math.Clamp(alert.ThresholdPercent, 1, 100),
+                alert.ResetEnabled);
 
     /// <summary>
     /// Only publish reset credits there is something to redeem: an account with

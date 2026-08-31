@@ -118,7 +118,10 @@ namespace costats.App.Services
                     pair.Value.Usage,
                     new RemoteAlertSettings(
                         _settings.UsageAlertsEnabled && _settings.IsUsageAlertProviderEnabled(pair.Key),
-                        _settings.GetUsageAlertThreshold(pair.Key))))
+                        _settings.GetUsageAlertThreshold(pair.Key),
+                        _settings.UsageAlertsEnabled &&
+                        _settings.UsageResetAlertsEnabled &&
+                        _settings.IsUsageAlertProviderEnabled(pair.Key))))
                 .OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 

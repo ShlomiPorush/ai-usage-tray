@@ -69,7 +69,7 @@ function upload(session, writeId = WRITE_ID) {
       accounts: [{
         id: "claude:work",
         name: "Claude Work",
-        alert: { enabled: true, thresholdPercent: 80 },
+        alert: { enabled: true, thresholdPercent: 80, resetEnabled: true },
         windows: [{ label: "Session", usedPercent: session }],
       }],
     }),
@@ -132,6 +132,10 @@ test("matches the server subscription route and delivers a crossing", async () =
   assert.equal(pushCalls[0].message.alerts[0].windowKey, "session");
   assert.ok(env.USAGE.puts.some((entry) =>
     entry.key.startsWith(`push:${READ_ID}:`) && entry.options?.expirationTtl === 604800));
+
+  assert.equal((await run(upload(0))).status, 204);
+  assert.equal(pushCalls.length, 2);
+  assert.equal(pushCalls[1].message.resets.length, 1);
 
   const removed = await run(new Request(
     `https://viewer.example/u/${READ_ID}/push-subscription`,

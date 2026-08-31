@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.0.5
+ghcr.io/shlomiporush/ai-usage-tray:1.0.6
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 

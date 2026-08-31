@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { findThresholdCrossings } from "../shared/usage-alerts.mjs";
+import { findResetAlerts, findThresholdCrossings } from "../shared/usage-alerts.mjs";
 import {
   sendWebPush,
   validatePushSubscription,
@@ -388,13 +388,14 @@ export function createRemoteViewServer({
     }
   }
 
-  async function deliverAlerts(readId, data, crossings) {
-    if (vapidConfiguration === null || crossings.length === 0) return;
+  async function deliverAlerts(readId, data, crossings, resets) {
+    if (vapidConfiguration === null || (crossings.length === 0 && resets.length === 0)) return;
     const message = {
       type: "usage-alerts",
       readId,
       displayMode: data.displayMode === "remaining" ? "remaining" : "used",
       alerts: crossings,
+      resets,
     };
     const subscriptions = store.listSubscriptions(readId);
     await Promise.all(subscriptions.map(async (subscription) => {
@@ -520,8 +521,9 @@ export function createRemoteViewServer({
         }
       }
       const crossings = findThresholdCrossings(previous, data);
+      const resets = findResetAlerts(previous, data);
       store.put(readId, body, now() + ttlMs);
-      await deliverAlerts(readId, data, crossings);
+      await deliverAlerts(readId, data, crossings, resets);
       return sendEmpty(response, 204, { "X-Read-Id": readId });
     } catch (error) {
       console.error("Remote-view request failed", error);

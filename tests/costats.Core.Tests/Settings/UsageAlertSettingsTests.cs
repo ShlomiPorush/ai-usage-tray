@@ -11,6 +11,7 @@ public sealed class UsageAlertSettingsTests
         var settings = new AppSettings();
 
         Assert.False(settings.UsageAlertsEnabled);
+        Assert.False(settings.UsageResetAlertsEnabled);
         Assert.False(settings.IsUsageAlertProviderEnabled("claude:work"));
         Assert.Equal(90, settings.GetUsageAlertThreshold("claude:work"));
     }

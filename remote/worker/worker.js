@@ -12,7 +12,7 @@
 //
 // The single exception is GET /u/demo, a built-in read-only sample payload.
 
-import { findThresholdCrossings } from "../shared/usage-alerts.mjs";
+import { findResetAlerts, findThresholdCrossings } from "../shared/usage-alerts.mjs";
 import {
   base64UrlEncode,
   sendWebPush,
@@ -176,15 +176,16 @@ async function removeSubscriptions(env, readId) {
   }));
 }
 
-async function deliverAlerts(env, readId, data, crossings) {
+async function deliverAlerts(env, readId, data, crossings, resets) {
   const configuration = vapidConfiguration(env);
-  if (configuration === null || crossings.length === 0) return;
+  if (configuration === null || (crossings.length === 0 && resets.length === 0)) return;
   const listed = await env.USAGE.list({ prefix: subscriptionPrefix(readId) });
   const message = {
     type: "usage-alerts",
     readId,
     displayMode: data.displayMode === "remaining" ? "remaining" : "used",
     alerts: crossings,
+    resets,
   };
   await Promise.all(listed.keys.map(async (entry) => {
     const subscription = await env.USAGE.get(entry.name, { type: "json" });
@@ -248,9 +249,10 @@ async function put(request, env, context, writeId) {
     }
   }
   const crossings = findThresholdCrossings(previous, data);
+  const resets = findResetAlerts(previous, data);
   await env.USAGE.put(readId, body, { expirationTtl: TTL_SECONDS });
   await refreshSubscriptions(env, readId);
-  const delivery = deliverAlerts(env, readId, data, crossings);
+  const delivery = deliverAlerts(env, readId, data, crossings, resets);
   if (context && typeof context.waitUntil === "function") context.waitUntil(delivery);
   else await delivery;
   // Diagnostics only: the app derives the same value locally.

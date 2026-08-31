@@ -448,6 +448,12 @@
                         </CheckBox>
                         <TextBlock Text="Shows a notification once when a selected account window crosses its threshold. Each window rearms after it drops below the threshold or resets."
                                    FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,8" TextWrapping="Wrap" />
+                        <CheckBox IsChecked="{Binding UsageResetAlertsEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Notify when usage resets to 0%" FontSize="12"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
+                        </CheckBox>
+                        <TextBlock Text="Uses the same selected accounts. The notification appears only when a window changes from above 0% used to exactly 0%."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,8" TextWrapping="Wrap" />
                         <StackPanel Visibility="{Binding UsageAlertsEnabled, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
                             <TextBlock Text="Accounts notified" FontSize="11" FontWeight="SemiBold"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="30,0,0,6" />

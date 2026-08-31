@@ -82,6 +82,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         showFloatingStatusPanel = settings.ShowFloatingStatusPanel;
         floatingPanelPosition = settings.FloatingPanelPosition;
         usageAlertsEnabled = settings.UsageAlertsEnabled;
+        usageResetAlertsEnabled = settings.UsageResetAlertsEnabled;
         autoStartClaudeFiveHourWindow = settings.AutoStartClaudeFiveHourWindow;
         autoStartCodexFiveHourWindow = settings.AutoStartCodexFiveHourWindow;
         sessionActivationScheduleEnabled = settings.SessionActivationScheduleEnabled;
@@ -144,6 +145,9 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty]
     private bool usageAlertsEnabled;
+
+    [ObservableProperty]
+    private bool usageResetAlertsEnabled;
 
     [ObservableProperty]
     private bool autoStartCodexFiveHourWindow;
@@ -768,6 +772,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnUsageAlertsEnabledChanged(bool value)
     {
         _settings.UsageAlertsEnabled = value;
+        SaveSettingsInBackground();
+        _pulseOrchestrator.RepublishLastState();
+    }
+
+    partial void OnUsageResetAlertsEnabledChanged(bool value)
+    {
+        _settings.UsageResetAlertsEnabled = value;
         SaveSettingsInBackground();
         _pulseOrchestrator.RepublishLastState();
     }

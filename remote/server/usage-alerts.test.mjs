@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { findThresholdCrossings } from "../shared/usage-alerts.mjs";
+import { findResetAlerts, findThresholdCrossings } from "../shared/usage-alerts.mjs";
 
 function snapshot(session, weekly, threshold = 80, enabled = true) {
   return {
@@ -14,6 +14,19 @@ function snapshot(session, weekly, threshold = 80, enabled = true) {
         { label: "Session", usedPercent: session, resetsAt: "2026-08-28T14:00:00Z" },
         { label: "Weekly", usedPercent: weekly, resetsAt: "2026-09-01T12:00:00Z" },
       ],
+    }],
+  };
+}
+
+function resetSnapshot(session, resetEnabled = true) {
+  return {
+    version: 2,
+    displayMode: "used",
+    accounts: [{
+      id: "codex:personal",
+      name: "Codex Personal",
+      alert: { enabled: true, thresholdPercent: 80, resetEnabled },
+      windows: [{ label: "Session", usedPercent: session }],
     }],
   };
 }
@@ -52,4 +65,17 @@ test("scoped windows are keyed separately", () => {
   const alert = findThresholdCrossings(previous, current)[0];
   assert.equal(alert.windowKey, "weekly:fable");
   assert.equal(alert.scope, "Fable");
+});
+
+test("detects a reset only on a non-zero to zero transition", () => {
+  assert.deepEqual(findResetAlerts(null, resetSnapshot(0)), []);
+  const resets = findResetAlerts(resetSnapshot(42), resetSnapshot(0));
+  assert.equal(resets.length, 1);
+  assert.equal(resets[0].windowKey, "session");
+  assert.deepEqual(findResetAlerts(resetSnapshot(0), resetSnapshot(0)), []);
+});
+
+test("does not detect resets when the account is not opted in", () => {
+  assert.deepEqual(findResetAlerts(resetSnapshot(42, false), resetSnapshot(0, false)), []);
+  assert.deepEqual(findResetAlerts(resetSnapshot(42, false), resetSnapshot(0, true)), []);
 });

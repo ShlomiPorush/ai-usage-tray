@@ -220,7 +220,7 @@ test("registers browser subscriptions and pushes only new per-window crossings",
       id: "claude:work",
       provider: "claude",
       name: "Claude Work",
-      alert: { enabled: true, thresholdPercent: 80 },
+      alert: { enabled: true, thresholdPercent: 80, resetEnabled: true },
       windows: [
         { label: "Session", usedPercent: session },
         { label: "Weekly", usedPercent: weekly },
@@ -250,6 +250,14 @@ test("registers browser subscriptions and pushes only new per-window crossings",
     body: usage(81, 83),
   });
   assert.equal(fixture.pushCalls.length, 1);
+
+  await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: usage(0, 0),
+  });
+  assert.equal(fixture.pushCalls.length, 2);
+  assert.equal(fixture.pushCalls[1].message.resets.length, 2);
   assert.equal(fixture.pushCalls[0].message.displayMode, "remaining");
   assert.equal(fixture.pushCalls[0].message.alerts.length, 1);
   assert.equal(fixture.pushCalls[0].message.alerts[0].windowKey, "session");
@@ -257,9 +265,9 @@ test("registers browser subscriptions and pushes only new per-window crossings",
   await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: usage(90, 84),
+    body: usage(0, 0),
   });
-  assert.equal(fixture.pushCalls.length, 1);
+  assert.equal(fixture.pushCalls.length, 2);
 
   const unregister = await fetch(`${fixture.baseUrl}/u/${READ_ID}/push-subscription`, {
     method: "DELETE",
