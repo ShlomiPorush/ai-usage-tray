@@ -6,6 +6,7 @@ using H.NotifyIcon.Core;
 using costats.App.ViewModels;
 using costats.App.Services.Updates;
 using costats.Application.Pulse;
+using costats.Application.Alerts;
 using costats.Application.Settings;
 using costats.Application.Windowing;
 using costats.Core.Alerts;
@@ -40,6 +41,8 @@ namespace costats.App.Services
         private readonly AppSettings _settings;
         private string? _lastFloatingPanelPosition;
         private readonly UsageAlertTracker _usageAlertTracker = new();
+        private readonly UsageResetAlertTracker _usageResetAlertTracker;
+        private readonly IUsageResetStateStore _usageResetStateStore;
         private readonly AuthenticationAlertTracker _authenticationAlertTracker = new();
         private Action? _notificationClickAction;
 
@@ -54,7 +57,8 @@ namespace costats.App.Services
             TaskbarPositionService taskbarPosition,
             IEnumerable<ISignalSource> sources,
             IAccountSourceRegistry accountSources,
-            AppSettings settings)
+            AppSettings settings,
+            IUsageResetStateStore usageResetStateStore)
         {
             _viewModel = viewModel;
             _widgetWindow = widgetWindow;
@@ -67,6 +71,8 @@ namespace costats.App.Services
             _settings = settings;
             _staticSources = sources;
             _accountSources = accountSources;
+            _usageResetStateStore = usageResetStateStore;
+            _usageResetAlertTracker = new UsageResetAlertTracker(usageResetStateStore.Load());
 
             _currentIcon = CreateIcon(TraySeverity.Unknown, null);
             _taskbarIcon = new TaskbarIcon();
@@ -446,6 +452,12 @@ namespace costats.App.Services
                     .ToArray()
                 : [];
             var usageAlerts = _usageAlertTracker.Observe(state, usageAlertRules);
+            var resetAlerts = _usageResetAlertTracker.Observe(
+                state,
+                _settings.UsageAlertsEnabled && _settings.UsageResetAlertsEnabled
+                    ? usageAlertRules.Select(rule => rule.ProviderId)
+                    : []);
+            _usageResetStateStore.Save(_usageResetAlertTracker.ExportCheckpoints());
             var signInAlerts = _authenticationAlertTracker.Observe(state);
             var accounts = accountEntries.Select(entry => entry.Account).ToArray();
             var status = TrayStatusComposer.Compose(
@@ -518,6 +530,7 @@ namespace costats.App.Services
             {
                 ApplyTrayStatus(status, rows, floatingRows);
                 ShowUsageAlerts(usageAlerts, displayNames, showRemainingPercentages);
+                ShowUsageResetAlerts(resetAlerts, displayNames);
                 ShowSignInRequiredAlerts(signInAlerts, displayNames);
             });
         }
@@ -567,6 +580,33 @@ namespace costats.App.Services
                     $"{accountName} usage alert",
                     $"{windowName} is at {displayPercent}% {displayMode}.",
                     NotificationIcon.Warning,
+                    customIconHandle: null,
+                    largeIcon: true,
+                    sound: true,
+                    respectQuietTime: true,
+                    realtime: false,
+                    timeout: TimeSpan.FromSeconds(10));
+            }
+        }
+
+        private void ShowUsageResetAlerts(
+            IReadOnlyList<UsageResetAlert> alerts,
+            IReadOnlyDictionary<string, string> displayNames)
+        {
+            foreach (var alert in alerts)
+            {
+                var accountName = displayNames.TryGetValue(alert.ProviderId, out var displayName)
+                    ? displayName
+                    : alert.ProviderId;
+                var windowName = string.IsNullOrWhiteSpace(alert.Scope)
+                    ? alert.WindowLabel
+                    : $"{alert.WindowLabel} · {alert.Scope}";
+
+                _notificationClickAction = ShowWidget;
+                _taskbarIcon.ShowNotification(
+                    $"{accountName} usage reset",
+                    $"{windowName} usage reset to 0%.",
+                    NotificationIcon.Info,
                     customIconHandle: null,
                     largeIcon: true,
                     sound: true,

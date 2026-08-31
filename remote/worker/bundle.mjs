@@ -33,7 +33,7 @@ const workerSource = read(join(here, "worker.js")).replace(
   /^import[\s\S]*?from "\.\.\/shared\/web-push\.mjs";\r?\n/m,
   "",
 ).replace(
-  /^import \{ findThresholdCrossings \} from "\.\.\/shared\/usage-alerts\.mjs";\r?\n/m,
+  /^import \{ findResetAlerts, findThresholdCrossings \} from "\.\.\/shared\/usage-alerts\.mjs";\r?\n/m,
   "",
 );
 const EXPORT_MARKER = "export default {";

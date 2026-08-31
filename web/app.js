@@ -289,7 +289,7 @@ if (typeof module !== "undefined" && module.exports) {
             pushSubscription = subscription;
             associatedPushReadId = id;
             return registration.showNotification("Browser alerts are ready", {
-              body: "This device will notify you when a selected quota crosses its threshold.",
+              body: "This device will notify you when a selected quota crosses its threshold or resets.",
               icon: "icon-192.png",
               badge: "icon-192.png",
               tag: "usage-alert-test",

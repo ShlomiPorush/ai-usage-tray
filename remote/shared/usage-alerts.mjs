@@ -10,6 +10,10 @@ function normalizedThreshold(account) {
   return threshold;
 }
 
+function resetAlertsEnabled(account) {
+  return account?.alert?.enabled === true && account?.alert?.resetEnabled === true;
+}
+
 function windowKey(window) {
   const label = typeof window?.label === "string" ? window.label.trim().toLowerCase() : "usage";
   const scope = typeof window?.scope === "string" ? window.scope.trim().toLowerCase() : "";
@@ -77,4 +81,40 @@ export function findThresholdCrossings(previousSnapshot, currentSnapshot) {
   }
 
   return crossings;
+}
+
+export function findResetAlerts(previousSnapshot, currentSnapshot) {
+  if (!previousSnapshot || typeof previousSnapshot !== "object") return [];
+  const previousAccounts = new Map(
+    (Array.isArray(previousSnapshot.accounts) ? previousSnapshot.accounts : [])
+      .filter((account) => account && typeof account.id === "string")
+      .map((account) => [account.id.toLowerCase(), account]),
+  );
+  const resets = [];
+
+  for (const account of Array.isArray(currentSnapshot?.accounts) ? currentSnapshot.accounts : []) {
+    if (!account || typeof account.id !== "string" || !resetAlertsEnabled(account)) continue;
+    const previousAccount = previousAccounts.get(account.id.toLowerCase());
+    if (!previousAccount || !resetAlertsEnabled(previousAccount)) continue;
+    const previousWindows = windowsByKey(previousAccount);
+
+    for (const [key, currentWindow] of windowsByKey(account)) {
+      const previousWindow = previousWindows.get(key);
+      if (!previousWindow || previousWindow.usedPercent <= 0 || currentWindow.usedPercent !== 0) continue;
+
+      resets.push({
+        accountId: account.id,
+        accountName: typeof account.name === "string" && account.name ? account.name : account.id,
+        windowKey: key,
+        windowLabel: typeof currentWindow.label === "string" && currentWindow.label
+          ? currentWindow.label
+          : "Usage",
+        scope: typeof currentWindow.scope === "string" && currentWindow.scope
+          ? currentWindow.scope
+          : null,
+      });
+    }
+  }
+
+  return resets;
 }

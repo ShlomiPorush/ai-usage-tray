@@ -6,6 +6,7 @@ using costats.App.Services.Updates;
 using costats.App.ViewModels;
 using costats.Application.Abstractions;
 using costats.Application.Pulse;
+using costats.Application.Alerts;
 using costats.Application.Security;
 using costats.Application.SessionActivation;
 using costats.Application.Settings;
@@ -15,6 +16,7 @@ using costats.Infrastructure.Providers;
 using costats.Infrastructure.Security;
 using costats.Infrastructure.SessionActivation;
 using costats.Infrastructure.Settings;
+using costats.Infrastructure.Alerts;
 using costats.Infrastructure.Time;
 using costats.Infrastructure.Windows;
 using Microsoft.Extensions.Configuration;
@@ -559,6 +561,7 @@ namespace costats.App
                     services.AddHostedService(sp => (PulseOrchestrator)sp.GetRequiredService<IPulseOrchestrator>());
 
                     services.AddSingleton<ISessionActivationStateStore, JsonSessionActivationStateStore>();
+                    services.AddSingleton<IUsageResetStateStore, JsonUsageResetStateStore>();
                     services.AddSingleton<ISessionWindowActivator, CliSessionWindowActivator>();
                     services.AddSingleton<SessionAutoStartCoordinator>();
                     services.AddHostedService<SessionAutoStartWorker>();
