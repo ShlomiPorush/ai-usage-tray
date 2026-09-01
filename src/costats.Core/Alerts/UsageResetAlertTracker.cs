@@ -2,7 +2,7 @@ using costats.Core.Pulse;
 
 namespace costats.Core.Alerts;
 
-/// <summary>A quota window that changed from non-zero used percent to zero.</summary>
+/// <summary>A weekly quota window that changed from non-zero used percent to zero.</summary>
 public sealed record UsageResetAlert(
     string ProviderId,
     string WindowKey,
@@ -19,10 +19,10 @@ public sealed record UsageResetCheckpoint(
     DateTimeOffset? ResetsAt);
 
 /// <summary>
-/// Detects explicit usage resets. A reset is deliberately narrow: the same
-/// account and window must move from &gt;0% used to exactly 0% used while its
-/// alert is enabled. Readings are retained when alerts are disabled so turning
-/// the feature on never creates a retroactive notification.
+/// Detects explicit weekly usage resets. A reset is deliberately narrow: the
+/// same account and weekly window must move from &gt;0% used to exactly 0% used
+/// while its alert is enabled. Readings are retained when alerts are disabled
+/// so turning the feature on never creates a retroactive notification.
 /// </summary>
 public sealed class UsageResetAlertTracker
 {
@@ -38,7 +38,8 @@ public sealed class UsageResetAlertTracker
         foreach (var checkpoint in checkpoints)
         {
             if (string.IsNullOrWhiteSpace(checkpoint.ProviderId) ||
-                string.IsNullOrWhiteSpace(checkpoint.WindowKey))
+                string.IsNullOrWhiteSpace(checkpoint.WindowKey) ||
+                !IsWeeklyKey(checkpoint.WindowKey))
             {
                 continue;
             }
@@ -110,16 +111,6 @@ public sealed class UsageResetAlertTracker
 
     private static IEnumerable<WindowReading> WindowsOf(UsagePulse usage)
     {
-        if (usage.SessionUsed is { } sessionUsed)
-        {
-            yield return new WindowReading(
-                "session",
-                "Session",
-                null,
-                ClampPercent(sessionUsed),
-                usage.SessionWindow?.ResetsAt);
-        }
-
         if (usage.WeekUsed is { } weekUsed)
         {
             yield return new WindowReading(
@@ -132,18 +123,24 @@ public sealed class UsageResetAlertTracker
 
         foreach (var quota in usage.ScopedQuotas)
         {
-            var group = quota.Group.Contains("week", StringComparison.OrdinalIgnoreCase)
-                ? "weekly"
-                : "session";
+            if (!quota.Group.Contains("week", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
             var scope = quota.Label.Trim();
             yield return new WindowReading(
-                $"scoped:{group}:{scope.ToLowerInvariant()}",
-                group == "weekly" ? "Weekly" : "Session",
+                $"scoped:weekly:{scope.ToLowerInvariant()}",
+                "Weekly",
                 scope,
                 ClampPercent(quota.UsedPercent),
                 quota.ResetsAt);
         }
     }
+
+    private static bool IsWeeklyKey(string key) =>
+        key.Equals("weekly", StringComparison.OrdinalIgnoreCase) ||
+        key.StartsWith("scoped:weekly:", StringComparison.OrdinalIgnoreCase);
 
     private static long ClampPercent(long usedPercent) => Math.Clamp(usedPercent, 0, 100);
 

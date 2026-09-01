@@ -265,6 +265,32 @@ h1 {
   opacity: 0.7;
 }
 
+.notification-test {
+  flex: none;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notification-test[hidden] { display: none; }
+
+.notification-test:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+
+.notification-test:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 .theme-toggle {
   flex: none;
   display: inline-flex;
@@ -650,4 +676,5 @@ h1 {
 @media (max-width: 520px) {
   .notification-toggle span { display: none; }
   .notification-toggle { width: 34px; padding: 0; }
+  .notification-test { padding: 0 8px; }
 }

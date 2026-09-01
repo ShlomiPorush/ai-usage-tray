@@ -144,20 +144,14 @@ jobs:
           CURRENT_TAG="v$VERSION"
           # Previous release tag (excluding the current one), if any
           PREV_TAG=$(git tag --sort=-v:refname | grep -v "^${CURRENT_TAG}$" | head -n 1 || true)
+          NOTES_FILE="docs/release-notes/${CURRENT_TAG}.md"
+          test -f "$NOTES_FILE"
 
           {
-            echo "## What's Changed"
+            cat "$NOTES_FILE"
             echo ""
             if [ -n "$PREV_TAG" ]; then
-              git log --pretty=format:"- %s (%h)" "${PREV_TAG}..HEAD"
-              echo ""
-              echo ""
               echo "**Full changelog:** https://github.com/${REPO}/compare/${PREV_TAG}...${CURRENT_TAG}"
-            else
-              git log --pretty=format:"- %s (%h)" HEAD
-              echo ""
-              echo ""
-              echo "_Initial release._"
             fi
             echo ""
             echo "## Downloads"

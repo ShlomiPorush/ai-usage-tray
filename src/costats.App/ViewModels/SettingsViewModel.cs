@@ -201,6 +201,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public event EventHandler? ManualUpdateAvailable;
 
+    public event EventHandler? TestNotificationRequested;
+
     [ObservableProperty]
     private bool copilotEnabled;
 
@@ -562,6 +564,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         SaveSettingsInBackground();
         RebuildProviderRows();
         _pulseOrchestrator.RepublishLastState();
+    }
+
+    [RelayCommand]
+    private void TestNotification()
+    {
+        TestNotificationRequested?.Invoke(this, EventArgs.Empty);
     }
 
     [RelayCommand]

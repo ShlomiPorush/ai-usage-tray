@@ -71,6 +71,7 @@ if (typeof module !== "undefined" && module.exports) {
   var notificationEl = document.getElementById("notifications");
   var notificationButton = document.getElementById("notification-toggle");
   var notificationLabel = document.getElementById("notification-label");
+  var notificationTestButton = document.getElementById("notification-test");
 
   var id = null;
   var payload = null; // last payload we managed to render
@@ -170,13 +171,24 @@ if (typeof module !== "undefined" && module.exports) {
     if (notificationLabel) notificationLabel.textContent = label;
   }
 
+  function setNotificationTestButton(visible, disabled) {
+    if (!notificationTestButton) return;
+    notificationTestButton.hidden = !visible;
+    notificationTestButton.disabled = Boolean(disabled);
+    notificationTestButton.title = disabled
+      ? "Enable browser alerts before testing a notification."
+      : "Show a test notification on this device.";
+  }
+
   function syncNotificationControl() {
     if (!notificationButton || id === DEMO_ID || !pushSupported() || !payload) {
       if (notificationButton) notificationButton.hidden = true;
+      setNotificationTestButton(false, true);
       return Promise.resolve();
     }
 
     var alertsConfigured = hasEnabledAlertAccounts(payload);
+    setNotificationTestButton(false, true);
     return (serviceWorkerPromise || Promise.reject(new Error("service_worker_unavailable")))
       .then(function (registration) {
         if (!registration) throw new Error("service_worker_unavailable");
@@ -204,6 +216,7 @@ if (typeof module !== "undefined" && module.exports) {
                 : "Browser alerts are subscribed but no desktop account alert is enabled. Click to turn them off.",
               false
             );
+            setNotificationTestButton(true, Notification.permission !== "granted");
           });
         } else if (!alertsConfigured) {
           notificationButton.hidden = true;
@@ -214,6 +227,7 @@ if (typeof module !== "undefined" && module.exports) {
             "Notifications are blocked in this browser's site settings.",
             true
           );
+          setNotificationTestButton(true, true);
         } else {
           setNotificationButton(
             "off",
@@ -221,6 +235,7 @@ if (typeof module !== "undefined" && module.exports) {
             "Enable browser alerts on this device.",
             false
           );
+          setNotificationTestButton(true, Notification.permission !== "granted");
         }
       })
       .catch(function () {
@@ -289,7 +304,7 @@ if (typeof module !== "undefined" && module.exports) {
             pushSubscription = subscription;
             associatedPushReadId = id;
             return registration.showNotification("Browser alerts are ready", {
-              body: "This device will notify you when a selected quota crosses its threshold or resets.",
+              body: "This device will notify you when a selected quota crosses its threshold or has a weekly reset.",
               icon: "icon-192.png",
               badge: "icon-192.png",
               tag: "usage-alert-test",
@@ -320,6 +335,35 @@ if (typeof module !== "undefined" && module.exports) {
         return syncNotificationControl();
       });
     });
+    if (notificationTestButton) {
+      notificationTestButton.addEventListener("click", function () {
+        if (Notification.permission !== "granted") {
+          show(notificationEl, "Enable browser alerts first, then test the notification.");
+          return;
+        }
+        notificationTestButton.disabled = true;
+        (serviceWorkerPromise || Promise.reject(new Error("service_worker_unavailable")))
+          .then(function (registration) {
+            if (!registration) throw new Error("service_worker_unavailable");
+            return registration.showNotification("AI Usage Tray test notification", {
+              body: "Test successful. Weekly usage reset alerts will appear here.",
+              icon: "icon-192.png",
+              badge: "icon-192.png",
+              tag: "usage-alert-test",
+              data: { url: window.location.href }
+            });
+          })
+          .then(function () {
+            show(notificationEl, "Test notification sent to this device.");
+          })
+          .catch(function () {
+            show(notificationEl, "The test notification could not be shown. Try enabling alerts again.");
+          })
+          .then(function () {
+            notificationTestButton.disabled = false;
+          });
+      });
+    }
   }
 
   // --- theme -----------------------------------------------------------

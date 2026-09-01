@@ -20,6 +20,10 @@ function windowKey(window) {
   return scope ? `${label}:${scope}` : label;
 }
 
+function isWeeklyWindow(window) {
+  return typeof window?.label === "string" && window.label.trim().toLowerCase() === "weekly";
+}
+
 function windowsByKey(account) {
   const result = new Map();
   const windows = Array.isArray(account?.windows) ? account.windows : [];
@@ -99,6 +103,7 @@ export function findResetAlerts(previousSnapshot, currentSnapshot) {
     const previousWindows = windowsByKey(previousAccount);
 
     for (const [key, currentWindow] of windowsByKey(account)) {
+      if (!isWeeklyWindow(currentWindow)) continue;
       const previousWindow = previousWindows.get(key);
       if (!previousWindow || previousWindow.usedPercent <= 0 || currentWindow.usedPercent !== 0) continue;
 

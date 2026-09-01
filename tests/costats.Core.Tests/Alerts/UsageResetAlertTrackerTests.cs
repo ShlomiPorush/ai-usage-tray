@@ -13,45 +13,66 @@ public sealed class UsageResetAlertTrackerTests
     {
         var tracker = new UsageResetAlertTracker();
 
-        Assert.Empty(tracker.Observe(State(0), ["codex:personal"]));
+        Assert.Empty(tracker.Observe(State(weekly: 0), ["codex:personal"]));
     }
 
     [Fact]
     public void Non_zero_to_zero_emits_once_and_rearms_after_usage_returns()
     {
         var tracker = new UsageResetAlertTracker();
-        tracker.Observe(State(42), ["codex:personal"]);
+        tracker.Observe(State(weekly: 42), ["codex:personal"]);
 
-        var alert = Assert.Single(tracker.Observe(State(0), ["codex:personal"]));
+        var alert = Assert.Single(tracker.Observe(State(weekly: 0), ["codex:personal"]));
         Assert.Equal("codex:personal", alert.ProviderId);
-        Assert.Equal("session", alert.WindowKey);
-        Assert.Empty(tracker.Observe(State(0), ["codex:personal"]));
+        Assert.Equal("weekly", alert.WindowKey);
+        Assert.Empty(tracker.Observe(State(weekly: 0), ["codex:personal"]));
 
-        tracker.Observe(State(3), ["codex:personal"]);
-        Assert.Single(tracker.Observe(State(0), ["codex:personal"]));
+        tracker.Observe(State(weekly: 3), ["codex:personal"]);
+        Assert.Single(tracker.Observe(State(weekly: 0), ["codex:personal"]));
+    }
+
+    [Fact]
+    public void Session_reset_does_not_alert()
+    {
+        var tracker = new UsageResetAlertTracker();
+        tracker.Observe(State(session: 42, weekly: 42), ["codex:personal"]);
+
+        Assert.Empty(tracker.Observe(State(session: 0, weekly: 42), ["codex:personal"]));
     }
 
     [Fact]
     public void Disabled_account_does_not_alert_when_enabled_later()
     {
         var tracker = new UsageResetAlertTracker();
-        tracker.Observe(State(42), []);
-        tracker.Observe(State(0), []);
+        tracker.Observe(State(weekly: 42), []);
+        tracker.Observe(State(weekly: 0), []);
 
-        Assert.Empty(tracker.Observe(State(0), ["codex:personal"]));
+        Assert.Empty(tracker.Observe(State(weekly: 0), ["codex:personal"]));
     }
 
     [Fact]
     public void Checkpoints_restore_the_previous_reading()
     {
         var first = new UsageResetAlertTracker();
-        first.Observe(State(42), ["codex:personal"]);
+        first.Observe(State(weekly: 42), ["codex:personal"]);
 
         var restored = new UsageResetAlertTracker(first.ExportCheckpoints());
-        Assert.Single(restored.Observe(State(0), ["codex:personal"]));
+        Assert.Single(restored.Observe(State(weekly: 0), ["codex:personal"]));
     }
 
-    private static PulseState State(long session) =>
+    [Fact]
+    public void Legacy_session_checkpoint_is_discarded()
+    {
+        var restored = new UsageResetAlertTracker(
+        [
+            new UsageResetCheckpoint("codex:personal", "session", 42, true, null)
+        ]);
+
+        Assert.Empty(restored.ExportCheckpoints());
+        Assert.Empty(restored.Observe(State(session: 0, weekly: 42), ["codex:personal"]));
+    }
+
+    private static PulseState State(long? session = null, long? weekly = null) =>
         new(
             new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase)
             {
@@ -60,9 +81,9 @@ public sealed class UsageResetAlertTrackerTests
                         "codex:personal",
                         Now,
                         session,
-                        100,
-                        null,
-                        null,
+                        session.HasValue ? 100 : null,
+                        weekly,
+                        weekly.HasValue ? 100 : null,
                         null,
                         null),
                     null,
