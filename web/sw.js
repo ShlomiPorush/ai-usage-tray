@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v15: moves the deployed remote-view version into the title row.
-var CACHE = "ai-usage-tray-shell-v15";
+// v16: compacts the header version and test-notification control.
+var CACHE = "ai-usage-tray-shell-v16";
 
 var SHELL = [
   "./",

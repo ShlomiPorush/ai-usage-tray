@@ -271,24 +271,42 @@ if (typeof module !== "undefined" && module.exports) {
     setNotificationTestButton(control.testVisible, !control.testEnabled);
   }
 
+  function setExpandableButtonWidth(button, label) {
+    if (!button || !label) return;
+    var labelWidth = label.scrollWidth;
+    if (!labelWidth) return;
+    button.style.setProperty("--expanded-label-width", labelWidth + "px");
+    button.style.setProperty("--expanded-width", (labelWidth + 41) + "px");
+  }
+
   function setNotificationButton(state, label, title, disabled) {
     if (!notificationButton) return;
     notificationButton.hidden = false;
     notificationButton.disabled = Boolean(disabled);
     notificationButton.setAttribute("data-state", state);
     notificationButton.setAttribute("aria-pressed", state === "on" ? "true" : "false");
-    notificationButton.setAttribute("aria-label", title);
-    notificationButton.title = title;
-    if (notificationLabel) notificationLabel.textContent = label;
+    notificationButton.setAttribute("aria-label", title || label);
+    notificationButton.removeAttribute("title");
+    if (notificationLabel) {
+      notificationLabel.textContent = label;
+      setExpandableButtonWidth(notificationButton, notificationLabel);
+    }
   }
 
   function setNotificationTestButton(visible, disabled) {
     if (!notificationTestButton) return;
     notificationTestButton.hidden = !visible;
     notificationTestButton.disabled = Boolean(disabled);
-    notificationTestButton.title = disabled
+    notificationTestButton.setAttribute("aria-label", disabled
       ? "Enable browser alerts before testing a notification."
-      : "Show a test notification on this device.";
+      : "Test notification");
+    notificationTestButton.removeAttribute("title");
+    if (visible) {
+      setExpandableButtonWidth(
+        notificationTestButton,
+        notificationTestButton.querySelector("span")
+      );
+    }
   }
 
   function syncNotificationControl() {
