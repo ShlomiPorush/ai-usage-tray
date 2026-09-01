@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v13: adds a browser notification test control.
-var CACHE = "ai-usage-tray-shell-v13";
+// v14: adds reliable alert controls and the deployed remote-view version.
+var CACHE = "ai-usage-tray-shell-v14";
 
 var SHELL = [
   "./",

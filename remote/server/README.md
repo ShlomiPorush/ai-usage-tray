@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.0.7
+ghcr.io/shlomiporush/ai-usage-tray:1.1.0
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -34,16 +34,20 @@ curl http://127.0.0.1:8080/health
 The Compose file binds only to `127.0.0.1:8080`. Put Caddy, nginx, Traefik, or another HTTPS reverse
 proxy in front of it.
 
-Browser notifications require a persistent VAPID key pair. Generate one once from the repository:
+Browser notifications use a persistent VAPID key pair. By default, the server creates
+`data/vapid.json` on first startup and reuses it across restarts and image updates. Keep this file
+private and include it in backups if browser subscriptions must survive moving to another host.
+
+To supply a managed key pair instead, generate one from the repository:
 
 ```sh
 npm run generate-vapid-keys --prefix remote/server
 ```
 
 Put the three printed values in the deployment shell or a Compose `.env` file before starting the
-container. Keep `VAPID_PRIVATE_KEY` secret and back it up. `VAPID_SUBJECT` must be a `mailto:` or
-`https:` contact value. If the variables are absent, remote viewing still works but the browser
-notification control reports that Web Push is unavailable.
+container. Environment values override `data/vapid.json`. Keep `VAPID_PRIVATE_KEY` secret and back
+it up. `VAPID_SUBJECT` must be a `mailto:` or `https:` contact value. A partial or invalid
+environment configuration stops startup instead of silently disabling browser alerts.
 
 To update later:
 
@@ -112,7 +116,8 @@ The JSON is stored unchanged. The server does not extract account data into colu
 | --- | --- | --- |
 | `GET` | `/`, viewer assets | Serves the installable viewer. |
 | `GET` | `/health` | Checks that the process and SQLite connection are healthy. |
-| `GET` | `/push/vapid-public-key` | Returns the public VAPID key, or `503` when Web Push is not configured. |
+| `GET` | `/version` | Returns the deployed remote-view version shown in the viewer. |
+| `GET` | `/push/vapid-public-key` | Returns the public VAPID key used for browser subscriptions. |
 | `PUT` | `/u/{writeId}` | Validates and stores a snapshot. Returns `204` and `X-Read-Id`. |
 | `DELETE` | `/u/{writeId}` | Deletes a snapshot. Always returns `204` for a valid ID. |
 | `GET` | `/u/{readId}` | Returns unexpired JSON or `404 {"error":"not_found"}`. |

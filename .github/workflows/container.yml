@@ -7,6 +7,7 @@ on:
       - 'remote/server/Dockerfile'
       - 'remote/server/package.json'
       - 'remote/server/server.mjs'
+      - 'remote/server/vapid-configuration.mjs'
       - 'remote/server/generate-vapid-keys.mjs'
       - 'remote/server/docker-entrypoint.sh'
       - 'remote/server/healthcheck.sh'

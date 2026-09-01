@@ -9,7 +9,12 @@ import { createRemoteViewServer, deriveReadId, SnapshotStore } from "./server.mj
 import { base64UrlEncode } from "../shared/web-push.mjs";
 
 const require = createRequire(import.meta.url);
-const { hasEnabledAlertAccounts, resolvePercentMode } = require("../../web/app.js");
+const {
+  describeNotificationError,
+  hasEnabledAlertAccounts,
+  resolveNotificationControl,
+  resolvePercentMode,
+} = require("../../web/app.js");
 
 const WRITE_ID = "0123456789abcdef0123456789abcdef";
 const READ_ID = "3eb1bd439947eb762998e566ccc2e099";
@@ -39,6 +44,7 @@ beforeEach(async () => {
     now: () => currentTime,
     ttlMs: 1000,
     cleanupIntervalMs: 0,
+    runtimeVersion: "1.1.0-test",
     vapidConfiguration: {
       publicKey: base64UrlEncode(await crypto.subtle.exportKey("raw", vapidKeys.publicKey)),
       privateKey: vapidPrivate.d,
@@ -82,6 +88,69 @@ test("viewer keeps an explicit browser percentage override", () => {
   assert.equal(resolvePercentMode("left", "used"), "left");
 });
 
+test("viewer presents notification actions from the real subscription state", () => {
+  assert.deepEqual(resolveNotificationControl({
+    alertsConfigured: true,
+    permission: "granted",
+    pushReady: true,
+    subscribed: false,
+    supported: true,
+  }), {
+    disabled: false,
+    label: "Enable alerts",
+    state: "off",
+    testEnabled: false,
+    testVisible: false,
+    title: "Enable browser alerts on this device.",
+    visible: true,
+  });
+
+  assert.deepEqual(resolveNotificationControl({
+    alertsConfigured: true,
+    permission: "granted",
+    pushReady: true,
+    subscribed: true,
+    supported: true,
+  }), {
+    disabled: false,
+    label: "Disable alerts",
+    state: "on",
+    testEnabled: true,
+    testVisible: true,
+    title: "Browser alerts are on. Click to turn them off.",
+    visible: true,
+  });
+});
+
+test("viewer explains unavailable push configuration instead of offering a broken action", () => {
+  assert.deepEqual(resolveNotificationControl({
+    alertsConfigured: true,
+    permission: "granted",
+    pushReady: false,
+    subscribed: false,
+    supported: true,
+  }), {
+    disabled: true,
+    label: "Alerts unavailable",
+    state: "unavailable",
+    testEnabled: false,
+    testVisible: false,
+    title: "Browser alerts are not configured on this server.",
+    visible: true,
+  });
+  assert.equal(
+    describeNotificationError(new Error("push_not_configured")),
+    "Browser alerts are not configured on this server.",
+  );
+  assert.equal(
+    describeNotificationError({
+      message: "Registration failed - push service not available",
+      name: "AbortError",
+    }),
+    "Browser push is unavailable. Check this browser's notification settings and try again.",
+  );
+});
+
 test("stores, reads, and deletes an unchanged JSON payload", async () => {
   const put = await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, {
     method: "PUT",
@@ -103,6 +172,13 @@ test("stores, reads, and deletes an unchanged JSON payload", async () => {
   assert.equal(remove.status, 204);
   assert.equal(remove.headers.get("x-read-id"), READ_ID);
   assert.equal((await fetch(`${fixture.baseUrl}/u/${READ_ID}`)).status, 404);
+});
+
+test("reports the deployed remote-view version", async () => {
+  const response = await fetch(`${fixture.baseUrl}/version`);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await response.json(), { version: "1.1.0-test" });
 });
 
 test("expires snapshots after their configured TTL", async () => {

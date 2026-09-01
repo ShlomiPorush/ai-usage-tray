@@ -10,6 +10,7 @@ import {
   validatePushSubscription,
   validateVapidConfiguration,
 } from "../shared/web-push.mjs";
+import { ensureVapidConfiguration } from "./vapid-configuration.mjs";
 
 export const ID_RE = /^[a-f0-9]{32}$/;
 export const MAX_BODY = 16 * 1024;
@@ -345,6 +346,7 @@ export function createRemoteViewServer({
   now = () => Date.now(),
   ttlMs = TTL_MS,
   cleanupIntervalMs = 60 * 60 * 1000,
+  runtimeVersion = "dev",
   vapidConfiguration = null,
   pushSender = sendWebPush,
 } = {}) {
@@ -420,6 +422,10 @@ export function createRemoteViewServer({
       if (request.method === "GET" && path === "/health") {
         if (!store.ping()) return sendJson(response, 503, { status: "unhealthy" });
         return sendJson(response, 200, { status: "ok" });
+      }
+
+      if (request.method === "GET" && path === "/version") {
+        return sendJson(response, 200, { version: runtimeVersion });
       }
 
       if (request.method === "GET" && path === "/push/vapid-public-key") {
@@ -574,18 +580,6 @@ function readPositiveInteger(name, fallback) {
   return value;
 }
 
-function readVapidConfiguration() {
-  const publicKey = process.env.VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT;
-  if (publicKey === undefined && privateKey === undefined && subject === undefined) return null;
-  const configuration = { publicKey, privateKey, subject };
-  if (!validateVapidConfiguration(configuration)) {
-    throw new Error("VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY and VAPID_SUBJECT must form a valid configuration");
-  }
-  return configuration;
-}
-
 async function startFromEnvironment() {
   const here = dirname(fileURLToPath(import.meta.url));
   const port = readPositiveInteger("PORT", 8080);
@@ -593,12 +587,16 @@ async function startFromEnvironment() {
   const webRoot = resolve(process.env.WEB_ROOT ?? join(here, "..", "..", "web"));
   const ttlMs = readPositiveInteger("SNAPSHOT_TTL_SECONDS", TTL_MS / 1000) * 1000;
   const cleanupIntervalMs = readPositiveInteger("CLEANUP_INTERVAL_SECONDS", 3600) * 1000;
-  const vapidConfiguration = readVapidConfiguration();
+  const runtimeVersion = readFileSync(join(here, "VERSION"), "utf8").trim();
+  const vapidConfiguration = await ensureVapidConfiguration({
+    path: databasePath === ":memory:" ? null : join(dirname(databasePath), "vapid.json"),
+  });
   const app = createRemoteViewServer({
     databasePath,
     webRoot,
     ttlMs,
     cleanupIntervalMs,
+    runtimeVersion,
     vapidConfiguration,
   });
 
