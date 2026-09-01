@@ -961,7 +961,10 @@ if (typeof module !== "undefined" && module.exports) {
       })
       .then(function (data) {
         if (!data || typeof data.version !== "string" || !data.version.trim()) return;
-        versionEl.textContent = "Remote view v" + data.version.trim();
+        var version = data.version.trim();
+        versionEl.textContent = "v" + version;
+        versionEl.setAttribute("aria-label", "Remote view version " + version);
+        versionEl.hidden = false;
       })
       .catch(function () { /* The viewer remains usable when an older relay has no version route. */ });
   }

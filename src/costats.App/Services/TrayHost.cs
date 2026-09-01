@@ -173,7 +173,12 @@ namespace costats.App.Services
                 return;
             }
 
-            _hoverRetention.MarkTrayActivity(DateTimeOffset.UtcNow);
+            if (!_hoverRetention.ObserveTrayMouseMove(
+                    DateTimeOffset.UtcNow,
+                    IsPointerOverTrayIcon()))
+            {
+                return;
+            }
 
             if (!_hoverTooltipWindow.IsVisible)
             {
