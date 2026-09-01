@@ -72,7 +72,7 @@ public sealed class AppSettings
     /// </summary>
     public bool UsageAlertsEnabled { get; set; } = false;
 
-    /// <summary>When true, selected accounts also notify after a usage reset.</summary>
+    /// <summary>When true, selected accounts also notify after a weekly usage reset.</summary>
     public bool UsageResetAlertsEnabled { get; set; } = false;
 
     private List<UsageAlertRuleSettings> usageAlertRules = [];

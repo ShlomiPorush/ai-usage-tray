@@ -150,6 +150,10 @@ namespace costats.App.Services
             _widgetWindow.SizeChanged += OnWidgetSizeChanged;
             _statusPanelWindow.SizeChanged += OnStatusPanelSizeChanged;
             _settingsWindow.Dismissing += OnSettingsDismissing;
+            if (_settingsWindow.DataContext is SettingsViewModel settingsViewModel)
+            {
+                settingsViewModel.TestNotificationRequested += OnTestNotificationRequested;
+            }
             _onboardingWindow.Dismissing += OnOnboardingDismissing;
         }
 
@@ -616,6 +620,21 @@ namespace costats.App.Services
             }
         }
 
+        private void OnTestNotificationRequested(object? sender, EventArgs e)
+        {
+            _notificationClickAction = ShowWidget;
+            _taskbarIcon.ShowNotification(
+                "AI Usage Tray test notification",
+                "Test successful. Weekly usage reset alerts will appear here.",
+                NotificationIcon.Info,
+                customIconHandle: null,
+                largeIcon: true,
+                sound: true,
+                respectQuietTime: false,
+                realtime: true,
+                timeout: TimeSpan.FromSeconds(10));
+        }
+
         private void RaiseFloatingPanel()
         {
             if (_settings.ShowFloatingStatusPanel)
@@ -691,6 +710,10 @@ namespace costats.App.Services
             _widgetWindow.SizeChanged -= OnWidgetSizeChanged;
             _statusPanelWindow.SizeChanged -= OnStatusPanelSizeChanged;
             _settingsWindow.Dismissing -= OnSettingsDismissing;
+            if (_settingsWindow.DataContext is SettingsViewModel settingsViewModel)
+            {
+                settingsViewModel.TestNotificationRequested -= OnTestNotificationRequested;
+            }
             SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
             _taskbarIcon.Dispose();
             _currentIcon.Dispose();

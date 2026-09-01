@@ -58,7 +58,7 @@ beforeEach(async () => {
   };
 });
 
-function upload(session, writeId = WRITE_ID) {
+function upload(session, writeId = WRITE_ID, weekly = 42) {
   return new Request(`https://viewer.example/u/${writeId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -70,7 +70,10 @@ function upload(session, writeId = WRITE_ID) {
         id: "claude:work",
         name: "Claude Work",
         alert: { enabled: true, thresholdPercent: 80, resetEnabled: true },
-        windows: [{ label: "Session", usedPercent: session }],
+        windows: [
+          { label: "Session", usedPercent: session },
+          { label: "Weekly", usedPercent: weekly },
+        ],
       }],
     }),
   });
@@ -133,9 +136,10 @@ test("matches the server subscription route and delivers a crossing", async () =
   assert.ok(env.USAGE.puts.some((entry) =>
     entry.key.startsWith(`push:${READ_ID}:`) && entry.options?.expirationTtl === 604800));
 
-  assert.equal((await run(upload(0))).status, 204);
+  assert.equal((await run(upload(0, WRITE_ID, 0))).status, 204);
   assert.equal(pushCalls.length, 2);
   assert.equal(pushCalls[1].message.resets.length, 1);
+  assert.equal(pushCalls[1].message.resets[0].windowKey, "weekly");
 
   const removed = await run(new Request(
     `https://viewer.example/u/${READ_ID}/push-subscription`,

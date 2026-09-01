@@ -257,7 +257,8 @@ test("registers browser subscriptions and pushes only new per-window crossings",
     body: usage(0, 0),
   });
   assert.equal(fixture.pushCalls.length, 2);
-  assert.equal(fixture.pushCalls[1].message.resets.length, 2);
+  assert.equal(fixture.pushCalls[1].message.resets.length, 1);
+  assert.equal(fixture.pushCalls[1].message.resets[0].windowKey, "weekly");
   assert.equal(fixture.pushCalls[0].message.displayMode, "remaining");
   assert.equal(fixture.pushCalls[0].message.alerts.length, 1);
   assert.equal(fixture.pushCalls[0].message.alerts[0].windowKey, "session");

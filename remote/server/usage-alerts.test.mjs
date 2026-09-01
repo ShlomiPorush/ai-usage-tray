@@ -18,7 +18,7 @@ function snapshot(session, weekly, threshold = 80, enabled = true) {
   };
 }
 
-function resetSnapshot(session, resetEnabled = true) {
+function resetSnapshot(session, weekly, resetEnabled = true) {
   return {
     version: 2,
     displayMode: "used",
@@ -26,7 +26,10 @@ function resetSnapshot(session, resetEnabled = true) {
       id: "codex:personal",
       name: "Codex Personal",
       alert: { enabled: true, thresholdPercent: 80, resetEnabled },
-      windows: [{ label: "Session", usedPercent: session }],
+      windows: [
+        { label: "Session", usedPercent: session },
+        { label: "Weekly", usedPercent: weekly },
+      ],
     }],
   };
 }
@@ -68,14 +71,18 @@ test("scoped windows are keyed separately", () => {
 });
 
 test("detects a reset only on a non-zero to zero transition", () => {
-  assert.deepEqual(findResetAlerts(null, resetSnapshot(0)), []);
-  const resets = findResetAlerts(resetSnapshot(42), resetSnapshot(0));
+  assert.deepEqual(findResetAlerts(null, resetSnapshot(0, 0)), []);
+  const resets = findResetAlerts(resetSnapshot(42, 42), resetSnapshot(0, 0));
   assert.equal(resets.length, 1);
-  assert.equal(resets[0].windowKey, "session");
-  assert.deepEqual(findResetAlerts(resetSnapshot(0), resetSnapshot(0)), []);
+  assert.equal(resets[0].windowKey, "weekly");
+  assert.deepEqual(findResetAlerts(resetSnapshot(0, 0), resetSnapshot(0, 0)), []);
+});
+
+test("does not detect a session reset", () => {
+  assert.deepEqual(findResetAlerts(resetSnapshot(42, 42), resetSnapshot(0, 42)), []);
 });
 
 test("does not detect resets when the account is not opted in", () => {
-  assert.deepEqual(findResetAlerts(resetSnapshot(42, false), resetSnapshot(0, false)), []);
-  assert.deepEqual(findResetAlerts(resetSnapshot(42, false), resetSnapshot(0, true)), []);
+  assert.deepEqual(findResetAlerts(resetSnapshot(42, 42, false), resetSnapshot(0, 0, false)), []);
+  assert.deepEqual(findResetAlerts(resetSnapshot(42, 42, false), resetSnapshot(0, 0, true)), []);
 });
