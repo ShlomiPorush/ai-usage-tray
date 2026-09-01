@@ -12,7 +12,7 @@ public sealed class TrayHoverRetentionTests
     public void Pointer_over_icon_keeps_hover_visible_without_a_time_limit()
     {
         var retention = new TrayHoverRetention(TimeSpan.FromMilliseconds(300));
-        retention.MarkTrayActivity(Baseline);
+        Assert.True(retention.ObserveTrayMouseMove(Baseline, pointerIsOverTrayIcon: true));
 
         Assert.True(retention.ShouldRemainVisible(Baseline.AddHours(1), pointerIsOverTrayIcon: true));
     }
@@ -25,5 +25,14 @@ public sealed class TrayHoverRetentionTests
 
         Assert.True(retention.ShouldRemainVisible(Baseline.AddMilliseconds(299), pointerIsOverTrayIcon: false));
         Assert.False(retention.ShouldRemainVisible(Baseline.AddMilliseconds(301), pointerIsOverTrayIcon: false));
+    }
+
+    [Fact]
+    public void Mouse_move_callback_away_from_icon_does_not_start_hover()
+    {
+        var retention = new TrayHoverRetention(TimeSpan.FromMilliseconds(300));
+
+        Assert.False(retention.ObserveTrayMouseMove(Baseline, pointerIsOverTrayIcon: false));
+        Assert.False(retention.ShouldRemainVisible(Baseline, pointerIsOverTrayIcon: false));
     }
 }

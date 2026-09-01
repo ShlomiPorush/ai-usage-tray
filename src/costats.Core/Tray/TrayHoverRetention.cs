@@ -21,6 +21,17 @@ public sealed class TrayHoverRetention
 
     public void MarkTrayActivity(DateTimeOffset now) => _lastTrayActivity = now;
 
+    public bool ObserveTrayMouseMove(DateTimeOffset now, bool pointerIsOverTrayIcon)
+    {
+        if (!pointerIsOverTrayIcon)
+        {
+            return false;
+        }
+
+        MarkTrayActivity(now);
+        return true;
+    }
+
     public bool ShouldRemainVisible(DateTimeOffset now, bool pointerIsOverTrayIcon)
     {
         var sinceLastActivity = now - _lastTrayActivity;

@@ -249,7 +249,13 @@ test("serves the viewer, same-origin config, demo, and health endpoint", async (
   assert.equal(page.status, 200);
   assert.match(page.headers.get("content-security-policy"), /script-src 'self' 'sha256-/);
   assert.equal(page.headers.get("x-frame-options"), "DENY");
-  assert.match(await page.text(), /AI Usage/);
+  const pageHtml = await page.text();
+  assert.match(pageHtml, /AI Usage/);
+  assert.match(
+    pageHtml,
+    /<h1>AI usage<\/h1>\s*<span class="version-badge" id="remote-version" hidden><\/span>/,
+  );
+  assert.doesNotMatch(pageHtml, /class="site-footer"/);
 
   const config = await fetch(`${fixture.baseUrl}/config.js`);
   assert.equal(await config.text(), 'window.REMOTE_VIEW_CONFIG = { apiBase: "" };\n');
