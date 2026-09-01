@@ -82,6 +82,30 @@ test("does not detect a session reset", () => {
   assert.deepEqual(findResetAlerts(resetSnapshot(42, 42), resetSnapshot(0, 42)), []);
 });
 
+test("collapses a scoped weekly reset into the account-wide reset", () => {
+  const previous = resetSnapshot(10, 42);
+  const current = resetSnapshot(10, 0);
+  previous.accounts[0].windows.push({ label: "Weekly", scope: "Fable", usedPercent: 17 });
+  current.accounts[0].windows.push({ label: "Weekly", scope: "Fable", usedPercent: 0 });
+
+  const resets = findResetAlerts(previous, current);
+  assert.equal(resets.length, 1);
+  assert.equal(resets[0].windowKey, "weekly");
+  assert.equal(resets[0].scope, null);
+});
+
+test("a scoped weekly reset alone still alerts", () => {
+  const previous = resetSnapshot(10, 0);
+  const current = resetSnapshot(10, 0);
+  previous.accounts[0].windows.push({ label: "Weekly", scope: "Fable", usedPercent: 17 });
+  current.accounts[0].windows.push({ label: "Weekly", scope: "Fable", usedPercent: 0 });
+
+  const resets = findResetAlerts(previous, current);
+  assert.equal(resets.length, 1);
+  assert.equal(resets[0].windowKey, "weekly:fable");
+  assert.equal(resets[0].scope, "Fable");
+});
+
 test("does not detect resets when the account is not opted in", () => {
   assert.deepEqual(findResetAlerts(resetSnapshot(42, 42, false), resetSnapshot(0, 0, false)), []);
   assert.deepEqual(findResetAlerts(resetSnapshot(42, 42, false), resetSnapshot(0, 0, true)), []);

@@ -112,13 +112,14 @@ function findResetAlerts(previousSnapshot, currentSnapshot) {
     const previousAccount = previousAccounts.get(account.id.toLowerCase());
     if (!previousAccount || !resetAlertsEnabled(previousAccount)) continue;
     const previousWindows = windowsByKey(previousAccount);
+    const accountResets = [];
 
     for (const [key, currentWindow] of windowsByKey(account)) {
       if (!isWeeklyWindow(currentWindow)) continue;
       const previousWindow = previousWindows.get(key);
       if (!previousWindow || previousWindow.usedPercent <= 0 || currentWindow.usedPercent !== 0) continue;
 
-      resets.push({
+      accountResets.push({
         accountId: account.id,
         accountName: typeof account.name === "string" && account.name ? account.name : account.id,
         windowKey: key,
@@ -129,6 +130,15 @@ function findResetAlerts(previousSnapshot, currentSnapshot) {
           ? currentWindow.scope
           : null,
       });
+    }
+
+    // Scoped model windows reset together with the account-wide weekly
+    // window; when both fire in one snapshot, one alert per account is enough.
+    const accountWide = accountResets.find((reset) => reset.scope === null);
+    if (accountWide) {
+      resets.push(accountWide);
+    } else {
+      resets.push(...accountResets);
     }
   }
 
@@ -741,7 +751,7 @@ const api = {
 
     const path = new URL(request.url).pathname;
     if (request.method === "GET" && path === "/version") {
-      return json(200, { version: env.REMOTE_VIEW_VERSION || "1.1.2" });
+      return json(200, { version: env.REMOTE_VIEW_VERSION || "1.1.3" });
     }
     if (request.method === "GET" && path === "/push/vapid-public-key") {
       const configuration = vapidConfiguration(env);
