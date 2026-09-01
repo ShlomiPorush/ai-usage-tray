@@ -166,6 +166,12 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     private string overallStatusText = "OK";
 
     [ObservableProperty]
+    private bool isSignInRequired;
+
+    [ObservableProperty]
+    private bool showRelogin;
+
+    [ObservableProperty]
     private string overallStatusColor = "#10B981";
 
     [ObservableProperty]
@@ -209,6 +215,9 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
             Email = reading.Identity?.Email?.Trim() ?? string.Empty
         };
 
+        vm.ShowRelogin = reading.Usage is null &&
+            (vm.ProviderKind is "claude" or "codex");
+
         var isDark = ThemeManager.IsDark;
         PopulateSessionMetrics(vm, reading, showRemainingPercentages, isDark);
         PopulateWeekMetrics(vm, reading, showRemainingPercentages, isDark);
@@ -234,6 +243,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
 
         if (reading.AuthenticationState == ProviderAuthenticationState.SignInRequired)
         {
+            vm.IsSignInRequired = true;
             vm.OverallStatusColor = "#EF4444";
             vm.OverallStatusText = "Sign-in required";
             vm.StatusSummary = "Reconnect this account";
