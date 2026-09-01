@@ -19,6 +19,7 @@ Everything you paste lives in one file: **`worker.bundle.js`**.
 | ------- | ----------------------------------- | -------------------------------------------------------- |
 | GET     | `/`, `/index.html`                  | The viewer page.                                          |
 | GET     | `/styles.css`, `/app.js`, `/config.js` | Page assets (cached 5 minutes).                        |
+| GET     | `/version`                           | Returns the remote-view version shown in the viewer.      |
 | PUT     | `/u/{writeId}`                      | Stores the snapshot the app uploads. `204` on success.    |
 | DELETE  | `/u/{writeId}`                      | Removes the snapshot. Always `204`, present or not.       |
 | GET     | `/u/{readId}`                       | Returns the stored JSON, or `404 {"error":"not_found"}`.  |

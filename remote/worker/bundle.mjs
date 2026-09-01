@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const webDir = join(here, "..", "..", "web");
+const remoteViewVersion = readFileSync(join(here, "..", "server", "VERSION"), "utf8").trim();
 
 const read = (path) => readFileSync(path, "utf8");
 const readBase64 = (path) => readFileSync(path).toString("base64");
@@ -35,7 +36,7 @@ const workerSource = read(join(here, "worker.js")).replace(
 ).replace(
   /^import \{ findResetAlerts, findThresholdCrossings \} from "\.\.\/shared\/usage-alerts\.mjs";\r?\n/m,
   "",
-);
+).replaceAll("__REMOTE_VIEW_VERSION__", remoteViewVersion);
 const EXPORT_MARKER = "export default {";
 const markerCount = workerSource.split(EXPORT_MARKER).length - 1;
 if (markerCount !== 1) {

@@ -258,7 +258,17 @@ h1 {
   border-color: var(--ink-3);
 }
 
-.notification-toggle[data-state="on"] { color: var(--ink-green); }
+.notification-toggle[data-state="on"] {
+  background: var(--band-green);
+  border-color: var(--band-green);
+  color: #052E24;
+}
+
+.notification-toggle[data-state="on"]:hover:not(:disabled) {
+  background: #0EA371;
+  border-color: #0EA371;
+  color: #052E24;
+}
 
 .notification-toggle:disabled {
   cursor: default;
@@ -667,6 +677,14 @@ h1 {
   clip: rect(0 0 0 0);
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+.site-footer {
+  width: min(1120px, calc(100% - 32px));
+  margin: 18px auto 28px;
+  color: var(--ink-3);
+  font-size: 11px;
+  text-align: center;
 }
 
 @media (prefers-reduced-motion: reduce) {

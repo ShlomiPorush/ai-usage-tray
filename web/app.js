@@ -17,10 +17,93 @@ function hasEnabledAlertAccounts(data) {
   });
 }
 
+function resolveNotificationControl(options) {
+  if (!options.supported || (!options.alertsConfigured && !options.subscribed)) {
+    return {
+      disabled: true,
+      label: "",
+      state: "hidden",
+      testEnabled: false,
+      testVisible: false,
+      title: "",
+      visible: false
+    };
+  }
+  if (options.subscribed) {
+    return {
+      disabled: false,
+      label: "Disable alerts",
+      state: "on",
+      testEnabled: options.permission === "granted",
+      testVisible: true,
+      title: options.alertsConfigured
+        ? "Browser alerts are on. Click to turn them off."
+        : "Browser alerts are subscribed but account alerts are paused. Click to turn them off.",
+      visible: true
+    };
+  }
+  if (options.permission === "denied") {
+    return {
+      disabled: true,
+      label: "Alerts blocked",
+      state: "blocked",
+      testEnabled: false,
+      testVisible: false,
+      title: "Notifications are blocked in this browser's site settings.",
+      visible: true
+    };
+  }
+  if (!options.pushReady) {
+    return {
+      disabled: true,
+      label: "Alerts unavailable",
+      state: "unavailable",
+      testEnabled: false,
+      testVisible: false,
+      title: "Browser alerts are not configured on this server.",
+      visible: true
+    };
+  }
+  return {
+    disabled: false,
+    label: "Enable alerts",
+    state: "off",
+    testEnabled: false,
+    testVisible: false,
+    title: "Enable browser alerts on this device.",
+    visible: true
+  };
+}
+
+function describeNotificationError(error) {
+  var code = error && error.message;
+  if (code === "permission_denied") {
+    return "Notifications were not allowed. Change this in the browser's site settings.";
+  }
+  if (code === "push_not_configured") {
+    return "Browser alerts are not configured on this server.";
+  }
+  if (code === "service_worker_unavailable") {
+    return "Browser notifications are unavailable on this device.";
+  }
+  if (code === "push_service_unavailable" || (error && error.name === "AbortError")) {
+    return "Browser push is unavailable. Check this browser's notification settings and try again.";
+  }
+  if (code === "not_found") {
+    return "This shared view expired. Refresh it from the desktop app before enabling alerts.";
+  }
+  if (code === "subscription_rejected" || code === "invalid_subscription") {
+    return "This browser could not register alerts for the shared view. Try again.";
+  }
+  return "Browser alerts could not be changed. Try again.";
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    describeNotificationError: describeNotificationError,
     resolvePercentMode: resolvePercentMode,
-    hasEnabledAlertAccounts: hasEnabledAlertAccounts
+    hasEnabledAlertAccounts: hasEnabledAlertAccounts,
+    resolveNotificationControl: resolveNotificationControl
   };
 }
 
@@ -72,6 +155,7 @@ if (typeof module !== "undefined" && module.exports) {
   var notificationButton = document.getElementById("notification-toggle");
   var notificationLabel = document.getElementById("notification-label");
   var notificationTestButton = document.getElementById("notification-test");
+  var versionEl = document.getElementById("remote-version");
 
   var id = null;
   var payload = null; // last payload we managed to render
@@ -161,11 +245,38 @@ if (typeof module !== "undefined" && module.exports) {
     return Uint8Array.from(binary, function (character) { return character.charCodeAt(0); });
   }
 
+  function responseError(response, fallback) {
+    return response.json().catch(function () { return null; }).then(function (body) {
+      throw new Error(body && typeof body.error === "string" ? body.error : fallback);
+    });
+  }
+
+  function fetchPushConfiguration() {
+    return fetch(API_BASE + "/push/vapid-public-key", {
+      cache: "no-store",
+      headers: { Accept: "application/json" }
+    }).then(function (response) {
+      if (!response.ok) return responseError(response, "push_not_configured");
+      return response.json();
+    });
+  }
+
+  function applyNotificationControl(control) {
+    if (!control.visible) {
+      notificationButton.hidden = true;
+      setNotificationTestButton(false, true);
+      return;
+    }
+    setNotificationButton(control.state, control.label, control.title, control.disabled);
+    setNotificationTestButton(control.testVisible, !control.testEnabled);
+  }
+
   function setNotificationButton(state, label, title, disabled) {
     if (!notificationButton) return;
     notificationButton.hidden = false;
     notificationButton.disabled = Boolean(disabled);
     notificationButton.setAttribute("data-state", state);
+    notificationButton.setAttribute("aria-pressed", state === "on" ? "true" : "false");
     notificationButton.setAttribute("aria-label", title);
     notificationButton.title = title;
     if (notificationLabel) notificationLabel.textContent = label;
@@ -204,49 +315,44 @@ if (typeof module !== "undefined" && module.exports) {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(subscription.toJSON())
             }).then(function (response) {
-              if (!response.ok) throw new Error("subscription_rejected");
+              if (!response.ok) return responseError(response, "subscription_rejected");
               associatedPushReadId = id;
             });
           return association.then(function () {
-            setNotificationButton(
-              "on",
-              alertsConfigured ? "Alerts on" : "Alerts paused",
-              alertsConfigured
-                ? "Browser alerts are on. Click to turn them off."
-                : "Browser alerts are subscribed but no desktop account alert is enabled. Click to turn them off.",
-              false
-            );
-            setNotificationTestButton(true, Notification.permission !== "granted");
+            applyNotificationControl(resolveNotificationControl({
+              alertsConfigured: alertsConfigured,
+              permission: Notification.permission,
+              pushReady: true,
+              subscribed: true,
+              supported: true
+            }));
           });
         } else if (!alertsConfigured) {
           notificationButton.hidden = true;
-        } else if (Notification.permission === "denied") {
-          setNotificationButton(
-            "blocked",
-            "Alerts blocked",
-            "Notifications are blocked in this browser's site settings.",
-            true
-          );
-          setNotificationTestButton(true, true);
         } else {
-          setNotificationButton(
-            "off",
-            "Enable alerts",
-            "Enable browser alerts on this device.",
-            false
-          );
-          setNotificationTestButton(true, Notification.permission !== "granted");
+          return fetchPushConfiguration().then(function () {
+            applyNotificationControl(resolveNotificationControl({
+              alertsConfigured: alertsConfigured,
+              permission: Notification.permission,
+              pushReady: true,
+              subscribed: false,
+              supported: true
+            }));
+          });
         }
       })
-      .catch(function () {
-        if (hasEnabledAlertAccounts(payload)) {
-          setNotificationButton(
-            "unavailable",
-            "Alerts unavailable",
-            "Browser alerts are unavailable on this device.",
-            true
-          );
-        }
+      .catch(function (error) {
+        var message = describeNotificationError(error);
+        var control = resolveNotificationControl({
+          alertsConfigured: hasEnabledAlertAccounts(payload),
+          permission: Notification.permission,
+          pushReady: false,
+          subscribed: Boolean(pushSubscription),
+          supported: true
+        });
+        if (control.state === "unavailable") control.title = message;
+        applyNotificationControl(control);
+        show(notificationEl, message);
       });
   }
 
@@ -274,13 +380,7 @@ if (typeof module !== "undefined" && module.exports) {
         if (permission !== "granted") throw new Error("permission_denied");
         return Promise.all([
           serviceWorkerPromise,
-          fetch(API_BASE + "/push/vapid-public-key", {
-            cache: "no-store",
-            headers: { Accept: "application/json" }
-          }).then(function (response) {
-            if (!response.ok) throw new Error("push_not_configured");
-            return response.json();
-          })
+          fetchPushConfiguration()
         ]);
       })
       .then(function (results) {
@@ -298,7 +398,7 @@ if (typeof module !== "undefined" && module.exports) {
           }).then(function (response) {
             if (!response.ok) {
               return subscription.unsubscribe().then(function () {
-                throw new Error("subscription_rejected");
+                return responseError(response, "subscription_rejected");
               });
             }
             pushSubscription = subscription;
@@ -326,10 +426,7 @@ if (typeof module !== "undefined" && module.exports) {
       notificationButton.disabled = true;
       var action = pushSubscription ? unregisterBrowserAlerts() : registerBrowserAlerts();
       action.catch(function (error) {
-        var message = error && error.message === "permission_denied"
-          ? "Notifications were not allowed. You can change this in the browser's site settings."
-          : "Browser alerts could not be changed. Try again.";
-        show(notificationEl, message);
+        show(notificationEl, describeNotificationError(error));
       }).then(function () {
         notificationBusy = false;
         return syncNotificationControl();
@@ -852,6 +949,23 @@ if (typeof module !== "undefined" && module.exports) {
       .catch(function () { return null; });
   }
 
+  function loadVersion() {
+    if (!versionEl) return;
+    fetch(API_BASE + "/version", {
+      cache: "no-store",
+      headers: { Accept: "application/json" }
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error("version_unavailable");
+        return response.json();
+      })
+      .then(function (data) {
+        if (!data || typeof data.version !== "string" || !data.version.trim()) return;
+        versionEl.textContent = "Remote view v" + data.version.trim();
+      })
+      .catch(function () { /* The viewer remains usable when an older relay has no version route. */ });
+  }
+
   function resolveId() {
     var params = new URLSearchParams(window.location.search);
     var raw = (params.get("id") || "").trim();
@@ -868,6 +982,7 @@ if (typeof module !== "undefined" && module.exports) {
 
   function start() {
     setupTheme();
+    loadVersion();
     registerServiceWorker();
     setupNotifications();
 

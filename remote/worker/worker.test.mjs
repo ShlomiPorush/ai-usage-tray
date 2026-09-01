@@ -48,6 +48,7 @@ beforeEach(async () => {
   pushCalls = [];
   env = {
     USAGE: new MemoryKv(),
+    REMOTE_VIEW_VERSION: "1.1.0-worker-test",
     VAPID_PUBLIC_KEY: base64UrlEncode(await crypto.subtle.exportKey("raw", vapidKeys.publicKey)),
     VAPID_PRIVATE_KEY: privateJwk.d,
     VAPID_SUBJECT: "mailto:test@example.com",
@@ -56,6 +57,13 @@ beforeEach(async () => {
       return new Response(null, { status: 201 });
     },
   };
+});
+
+test("reports the deployed remote-view version", async () => {
+  const response = await run(new Request("https://viewer.example/version"));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await response.json(), { version: "1.1.0-worker-test" });
 });
 
 function upload(session, writeId = WRITE_ID, weekly = 42) {
