@@ -73,6 +73,7 @@ public sealed class UsageResetAlertTracker
             }
 
             var providerEnabled = enabled.Contains(providerId);
+            var providerAlerts = new List<UsageResetAlert>();
             foreach (var window in WindowsOf(usage))
             {
                 var identity = new WindowIdentity(providerId, window.Key);
@@ -82,7 +83,7 @@ public sealed class UsageResetAlertTracker
                     previous.UsedPercent > 0 &&
                     window.UsedPercent == 0)
                 {
-                    alerts.Add(new UsageResetAlert(
+                    providerAlerts.Add(new UsageResetAlert(
                         providerId,
                         window.Key,
                         window.Label,
@@ -94,6 +95,19 @@ public sealed class UsageResetAlertTracker
                     window.UsedPercent,
                     providerEnabled,
                     window.ResetsAt);
+            }
+
+            // Scoped model windows reset together with the account-wide weekly
+            // window; when both fire in one observation, one alert per account
+            // is enough.
+            var accountWide = providerAlerts.Find(alert => alert.Scope is null);
+            if (accountWide is not null)
+            {
+                alerts.Add(accountWide);
+            }
+            else
+            {
+                alerts.AddRange(providerAlerts);
             }
         }
 

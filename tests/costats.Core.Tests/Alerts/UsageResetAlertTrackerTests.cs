@@ -51,6 +51,28 @@ public sealed class UsageResetAlertTrackerTests
     }
 
     [Fact]
+    public void Scoped_weekly_reset_collapses_into_the_account_wide_alert()
+    {
+        var tracker = new UsageResetAlertTracker();
+        tracker.Observe(State(weekly: 42, scopedWeekly: 17), ["codex:personal"]);
+
+        var alert = Assert.Single(tracker.Observe(State(weekly: 0, scopedWeekly: 0), ["codex:personal"]));
+        Assert.Equal("weekly", alert.WindowKey);
+        Assert.Null(alert.Scope);
+    }
+
+    [Fact]
+    public void Scoped_weekly_reset_alone_still_alerts()
+    {
+        var tracker = new UsageResetAlertTracker();
+        tracker.Observe(State(weekly: 0, scopedWeekly: 17), ["codex:personal"]);
+
+        var alert = Assert.Single(tracker.Observe(State(weekly: 0, scopedWeekly: 0), ["codex:personal"]));
+        Assert.Equal("scoped:weekly:fable", alert.WindowKey);
+        Assert.Equal("Fable", alert.Scope);
+    }
+
+    [Fact]
     public void Checkpoints_restore_the_previous_reading()
     {
         var first = new UsageResetAlertTracker();
@@ -72,7 +94,7 @@ public sealed class UsageResetAlertTrackerTests
         Assert.Empty(restored.Observe(State(session: 0, weekly: 42), ["codex:personal"]));
     }
 
-    private static PulseState State(long? session = null, long? weekly = null) =>
+    private static PulseState State(long? session = null, long? weekly = null, long? scopedWeekly = null) =>
         new(
             new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase)
             {
@@ -85,7 +107,12 @@ public sealed class UsageResetAlertTrackerTests
                         weekly,
                         weekly.HasValue ? 100 : null,
                         null,
-                        null),
+                        null)
+                    {
+                        ScopedQuotas = scopedWeekly.HasValue
+                            ? [new ScopedQuota("Fable", "week", scopedWeekly.Value, null, true)]
+                            : []
+                    },
                     null,
                     null,
                     Now,
