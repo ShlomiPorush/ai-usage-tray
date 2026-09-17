@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v17: adds reset details and expiry notices.
-var CACHE = "ai-usage-tray-shell-v17";
+// v18: compacts the reset dialog header and refreshes unmodified HTML responses.
+var CACHE = "ai-usage-tray-shell-v18";
 
 var SHELL = [
   "./",
