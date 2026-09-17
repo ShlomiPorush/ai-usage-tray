@@ -10,11 +10,27 @@ import { base64UrlEncode } from "../shared/web-push.mjs";
 
 const require = createRequire(import.meta.url);
 const {
+  resetExpiryInfo,
+  resetExpiryNotice,
   describeNotificationError,
   hasEnabledAlertAccounts,
   resolveNotificationControl,
   resolvePercentMode,
 } = require("../../web/app.js");
+
+test("reset expiry uses calendar days and only warns about unexpired resets through day seven", () => {
+  const now = new Date(2026, 8, 17, 12).getTime();
+  const date = (days) => new Date(2026, 8, 17 + days, 12).toISOString();
+  assert.equal(resetExpiryInfo(date(7), now).text, "7 days left");
+  assert.equal(resetExpiryInfo(date(0), now).text, "Expired");
+  assert.equal(resetExpiryInfo(new Date(now + 60000).toISOString(), now).text, "0 days left, expires today");
+  assert.equal(resetExpiryInfo("invalid", now), null);
+  assert.equal(resetExpiryInfo(null, now), null);
+  assert.equal(resetExpiryNotice({ available: 5, credits: [-1, 0, 1, 7, 8].map(days => ({ expiresAt: date(days) })) }, now), "2 resets expire within 7 days.");
+  assert.equal(resetExpiryNotice({ available: 2, expiresAt: date(7) }, now), "1 reset expires within 7 days.");
+  assert.equal(resetExpiryNotice({ available: 2, credits: [] }, now), "");
+  assert.equal(resetExpiryNotice({ available: 0, expiresAt: date(1) }, now), "");
+});
 
 const WRITE_ID = "0123456789abcdef0123456789abcdef";
 const READ_ID = "3eb1bd439947eb762998e566ccc2e099";

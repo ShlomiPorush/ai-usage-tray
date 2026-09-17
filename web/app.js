@@ -98,8 +98,30 @@ function describeNotificationError(error) {
   return "Browser alerts could not be changed. Try again.";
 }
 
+// Calendar days in the viewer's local time zone, independent of DST day length.
+function resetExpiryInfo(value, now) {
+  var date = value ? new Date(value) : null;
+  if (!date || !isFinite(date.getTime())) return null;
+  var current = new Date(now);
+  var days = Math.round((Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) -
+    Date.UTC(current.getFullYear(), current.getMonth(), current.getDate())) / 86400000);
+  var expired = date.getTime() <= now;
+  return { date: date, days: days, soon: !expired && days <= 7,
+    text: expired ? "Expired" : days === 0 ? "0 days left, expires today" : days === 1 ? "1 day left" : days + " days left" };
+}
+
+function resetExpiryNotice(source, now) {
+  if (!source || !(Number(source.available) > 0)) return "";
+  var dates = Array.isArray(source.credits)
+    ? source.credits.map(function (credit) { return credit && credit.expiresAt; }) : [source.expiresAt];
+  var count = dates.filter(function (value) { var info = resetExpiryInfo(value, now); return info && info.soon; }).length;
+  return count === 0 ? "" : count === 1 ? "1 reset expires within 7 days." : count + " resets expire within 7 days.";
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    resetExpiryInfo: resetExpiryInfo,
+    resetExpiryNotice: resetExpiryNotice,
     describeNotificationError: describeNotificationError,
     resolvePercentMode: resolvePercentMode,
     hasEnabledAlertAccounts: hasEnabledAlertAccounts,
@@ -785,7 +807,7 @@ if (typeof module !== "undefined" && module.exports) {
   // Codex hands out redeemable "usage limit reset" credits. They belong to the
   // account rather than to any one window, so they sit under the header as a
   // quiet line of their own. Absent from the payload when there is none.
-  function renderResetCredits(source, now) {
+  function renderResetCredits(source, now, account) {
     if (!source || typeof source !== "object") return null;
 
     var available = Math.floor(Number(source.available));
@@ -802,7 +824,15 @@ if (typeof module !== "undefined" && module.exports) {
     }
 
     var box = el("div", "resets");
-    box.appendChild(el("span", "reset-chip", text));
+    var button = el("button", "reset-chip", text);
+    button.type = "button";
+    button.dataset.resetAccount = account.id;
+    button.setAttribute("aria-haspopup", "dialog");
+    button.setAttribute("aria-label", "View resets for " + (account.name || "Account"));
+    button.addEventListener("click", function () { openResetDetails(account); });
+    box.appendChild(button);
+    var notice = resetExpiryNotice(source, now);
+    if (notice) box.appendChild(el("p", "reset-notice", notice));
     return box;
   }
 
@@ -838,7 +868,7 @@ if (typeof module !== "undefined" && module.exports) {
       card.appendChild(el("p", "blocked-banner", "Limit reached - requests are being refused."));
     }
 
-    var resets = renderResetCredits(account.resetCredits, now);
+    var resets = renderResetCredits(account.resetCredits, now, account);
     if (resets) card.appendChild(resets);
 
     var rows = windowsOf(account);
@@ -857,10 +887,78 @@ if (typeof module !== "undefined" && module.exports) {
     return card;
   }
 
+  var resetDialog = null;
+  var resetDialogBody = null;
+  var resetAccountId = null;
+
+  function fillResetDetails(account, now) {
+    resetDialogBody.replaceChildren();
+    var heading = el("h2", "", "Usage resets");
+    heading.id = "reset-dialog-title";
+    resetDialogBody.appendChild(heading);
+    resetDialogBody.appendChild(el("p", "reset-account", account.name || "Account"));
+    var source = account.resetCredits || {};
+    var credits = Array.isArray(source.credits) ? source.credits.filter(function (credit) { return credit && typeof credit === "object"; }) : null;
+    var count = Math.max(0, Math.floor(Number(source.available) || 0));
+    var complete = credits && source.detailsComplete === true && credits.length === count;
+    resetDialogBody.appendChild(el("p", "reset-summary", !count ? "No resets available in this account." : !credits
+      ? count + " resets available. Details are unavailable. Refresh the desktop app to publish them."
+      : complete ? "All " + count + " resets loaded." : credits.length + " of " + count + " resets loaded. Details are incomplete."));
+    var notice = resetExpiryNotice(source, now);
+    if (notice) resetDialogBody.appendChild(el("p", "reset-notice", notice));
+    (credits || []).slice().sort(function (a, b) {
+      return (parseDate(a.expiresAt) || Infinity) - (parseDate(b.expiresAt) || Infinity);
+    }).forEach(function (credit) {
+      var card = el("article", "reset-detail");
+      card.appendChild(el("h3", "", typeof credit.title === "string" && credit.title.trim() ? credit.title : "Usage limit reset"));
+      if (typeof credit.description === "string" && credit.description) card.appendChild(el("p", "", credit.description));
+      var expiry = resetExpiryInfo(credit.expiresAt, now);
+      card.appendChild(el("p", "reset-date", expiry ? "Expires " + expiry.date.toLocaleString() + " (" + expiry.text + ")" : "No expiration"));
+      var granted = parseDate(credit.grantedAt);
+      card.appendChild(el("p", "reset-date", granted ? "Granted " + granted.toLocaleString() : "Grant date unavailable"));
+      if (credit.resetType !== "codexRateLimits") card.appendChild(el("p", "reset-date", "This reset type cannot be used in the desktop app."));
+      resetDialogBody.appendChild(card);
+    });
+    if (count) resetDialogBody.appendChild(el("p", "reset-summary", "To use a reset, open this account in the desktop app."));
+  }
+
+  function openResetDetails(account) {
+    if (!resetDialog) {
+      resetDialog = el("dialog", "reset-dialog");
+      resetDialog.setAttribute("aria-labelledby", "reset-dialog-title");
+      var close = el("button", "reset-close", "Close");
+      close.type = "button";
+      close.autofocus = true;
+      close.addEventListener("click", function () { resetDialog.close(); });
+      resetDialog.appendChild(close);
+      resetDialogBody = el("div", "reset-dialog-body");
+      resetDialog.appendChild(resetDialogBody);
+      resetDialog.addEventListener("click", function (event) {
+        var bounds = resetDialog.getBoundingClientRect();
+        if (event.target === resetDialog && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) resetDialog.close();
+      });
+      resetDialog.addEventListener("close", function () {
+        var id = resetAccountId;
+        resetAccountId = null;
+        var trigger = Array.from(document.querySelectorAll("[data-reset-account]")).find(function (button) { return button.dataset.resetAccount === String(id); });
+        if (trigger) trigger.focus();
+      });
+      document.body.appendChild(resetDialog);
+    }
+    resetAccountId = account.id;
+    fillResetDetails(account, Date.now());
+    resetDialog.showModal();
+  }
+
   function render() {
     if (!payload) return;
 
     var now = Date.now();
+    if (resetDialog && resetDialog.open) {
+      var openAccount = (payload.accounts || []).find(function (account) { return account.id === resetAccountId; });
+      if (openAccount) fillResetDetails(openAccount, now);
+      else resetDialog.close();
+    }
     var generatedAt = parseDate(payload.generatedAt);
 
     if (generatedAt) {

@@ -108,8 +108,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     [ObservableProperty]
     private bool hasScopedLimits;
 
-    // Redeemable "usage limit reset" credits. Display only; the redeem action
-    // lives in the Codex CLI.
+    // The summary opens the full bank for explicit selection and redemption.
     [ObservableProperty]
     private bool hasResetCredits;
 
@@ -120,6 +119,12 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     /// <summary>Overview chip for the same fact: "reset" or "2 resets".</summary>
     [ObservableProperty]
     private string resetCreditsChipText = string.Empty;
+
+    [ObservableProperty]
+    private string resetExpiryNotice = string.Empty;
+
+    [ObservableProperty]
+    private bool hasResetExpiryNotice;
 
     [ObservableProperty]
     private string weekPaceText = string.Empty;
@@ -405,6 +410,8 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         vm.HasResetCredits = true;
         vm.ResetCreditsChipText = UsageFormatter.ResetCreditsChip(available);
         vm.ResetCreditsText = UsageFormatter.ResetCreditsLine(available, expiresOn);
+        vm.ResetExpiryNotice = ResetCreditExpiry.Notice(reading.Usage?.ResetCredits, reading.Usage?.ResetCreditExpiresAt, DateTimeOffset.UtcNow);
+        vm.HasResetExpiryNotice = vm.ResetExpiryNotice.Length > 0;
     }
 
     /// <summary>

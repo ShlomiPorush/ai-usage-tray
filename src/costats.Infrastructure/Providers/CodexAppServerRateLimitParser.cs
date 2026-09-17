@@ -31,6 +31,10 @@ public sealed record CodexAppServerRateLimitSnapshot(
     /// </summary>
     public long ResetCreditsAvailable { get; init; }
 
+    public IReadOnlyList<ResetCredit>? ResetCredits { get; init; }
+
+    public ResetCreditBank ResetCreditBank => new(ResetCreditsAvailable, ResetCredits);
+
     /// <summary>
     /// When the first redeemable reset credit expires, when the payload lists
     /// it. Null when the list is absent, truncated, or carries no expiry.
@@ -110,6 +114,7 @@ public static class CodexAppServerRateLimitParser
                 ScopedQuotas = scoped,
                 IsBlocked = blocked,
                 ResetCreditsAvailable = resetCredits.Available,
+                ResetCredits = ParseResetCreditDetails(result),
                 ResetCreditExpiresAt = resetCredits.ExpiresAt
             };
         }
@@ -262,12 +267,49 @@ public static class CodexAppServerRateLimitParser
 
             return (
                 available,
-                credit.TryGetProperty("expiresAt", out var expires) && expires.ValueKind == JsonValueKind.Number
-                    ? DateTimeOffset.FromUnixTimeSeconds(expires.GetInt64())
-                    : null);
+                TryReadCreditDate(credit, "expiresAt", out var expiresAt) ? expiresAt : null);
         }
 
         return (available, null);
+    }
+
+    private static IReadOnlyList<ResetCredit>? ParseResetCreditDetails(JsonElement result)
+    {
+        if (!result.TryGetProperty("rateLimitResetCredits", out var block) ||
+            block.ValueKind != JsonValueKind.Object ||
+            !block.TryGetProperty("availableCount", out var count) || count.ValueKind != JsonValueKind.Number ||
+            !count.TryGetInt64(out var available) ||
+            available < 0 || !block.TryGetProperty("credits", out var rows) || rows.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var credits = new List<ResetCredit>();
+        foreach (var row in rows.EnumerateArray())
+        {
+            if (row.ValueKind != JsonValueKind.Object || ReadString(row, "status") != "available" ||
+                string.IsNullOrWhiteSpace(ReadString(row, "id")) ||
+                !row.TryGetProperty("expiresAt", out _) ||
+                !TryReadCreditDate(row, "grantedAt", out var grantedAt) ||
+                !TryReadCreditDate(row, "expiresAt", out var expiresAt))
+            {
+                continue;
+            }
+            credits.Add(new ResetCredit(ReadString(row, "id")!, ReadString(row, "resetType") ?? "unknown",
+                ReadString(row, "title"), ReadString(row, "description"), grantedAt, expiresAt));
+        }
+        return credits;
+    }
+
+    private static bool TryReadCreditDate(JsonElement row, string property, out DateTimeOffset? value)
+    {
+        value = null;
+        if (!row.TryGetProperty(property, out var field) || field.ValueKind == JsonValueKind.Null)
+            return true;
+        if (field.ValueKind != JsonValueKind.Number || !field.TryGetInt64(out var seconds))
+            return false;
+        try { value = DateTimeOffset.FromUnixTimeSeconds(seconds); return true; }
+        catch (ArgumentOutOfRangeException) { return false; }
     }
 
     /// <summary>

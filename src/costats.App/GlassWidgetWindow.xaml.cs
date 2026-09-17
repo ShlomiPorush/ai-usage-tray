@@ -7,6 +7,10 @@ using System.Windows.Threading;
 using System.Windows.Navigation;
 using costats.App.ViewModels;
 using costats.Application.Shell;
+using costats.Application.Settings;
+using costats.Application.Pulse;
+using costats.Infrastructure.Providers;
+using costats.Core.Pulse;
 
 namespace costats.App
 {
@@ -16,13 +20,21 @@ namespace costats.App
         private readonly SettingsWindow _settingsWindow;
         private readonly UsageWindow _usageWindow;
         private readonly OnboardingWindow _onboardingWindow;
+        private readonly AppSettings _appSettings;
+        private readonly CodexResetCreditService _resetCredits;
+        private readonly IPulseOrchestrator _orchestrator;
+        private ResetCreditsViewModel? _resetCreditsViewModel;
+        private string? _resetCreditsProviderId;
 
         public GlassWidgetWindow(
             PulseViewModel viewModel,
             SettingsWindow settingsWindow,
             UsageWindow usageWindow,
             OnboardingWindow onboardingWindow,
-            IGlassBackdropService backdropService)
+            IGlassBackdropService backdropService,
+            AppSettings appSettings,
+            CodexResetCreditService resetCredits,
+            IPulseOrchestrator orchestrator)
         {
             InitializeComponent();
             DataContext = viewModel;
@@ -30,9 +42,13 @@ namespace costats.App
             _settingsWindow = settingsWindow;
             _usageWindow = usageWindow;
             _onboardingWindow = onboardingWindow;
+            _appSettings = appSettings;
+            _resetCredits = resetCredits;
+            _orchestrator = orchestrator;
             SourceInitialized += OnSourceInitialized;
             MouseLeftButtonDown += OnMouseLeftButtonDown;
             Deactivated += OnDeactivated;
+            PreviewKeyDown += OnPreviewKeyDown;
 
             // Subscribe to ViewModel property changes for dynamic height
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -62,6 +78,10 @@ namespace costats.App
 
         private void OnDeactivated(object? sender, EventArgs e)
         {
+            // Keep an in-flight result available when the widget is reopened.
+            // A dismissed confirmation must never survive an ordinary close.
+            if (_resetCreditsViewModel?.IsBusy != true)
+                CloseResetCredits(restoreAccount: false);
             // The main widget remains a tray popup. The optional always-on
             // surface is the separate compact status panel.
             Hide();
@@ -117,6 +137,51 @@ namespace costats.App
             // The widget hides itself the moment the dashboard takes focus,
             // which is what we want: the dashboard is a full window.
             _usageWindow.ShowUsage();
+        }
+
+        private async void OnResetCreditsClick(object sender, RoutedEventArgs e)
+        {
+            if (_resetCreditsViewModel is not null) return;
+            if (sender is not FrameworkElement { DataContext: ProviderPulseViewModel provider }) return;
+            var account = _appSettings.GetEffectiveAccounts().FirstOrDefault(candidate =>
+                candidate.IsCodex && "codex:" + candidate.Id == provider.ProviderId);
+            if (account is null) return;
+            var viewModel = new ResetCreditsViewModel(provider.DisplayName, account.ConfigDir, _resetCredits,
+                () => _orchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None));
+            _resetCreditsViewModel = viewModel;
+            _resetCreditsProviderId = provider.ProviderId;
+            ResetCreditsPanel.DataContext = viewModel;
+            // Hidden retains the existing layout, so the widget does not resize.
+            WidgetContent.Visibility = Visibility.Hidden;
+            ResetCreditsPanel.Visibility = Visibility.Visible;
+            await viewModel.RefreshCommand.ExecuteAsync(null);
+        }
+
+        private void OnResetCreditsBack(object? sender, EventArgs e) => CloseResetCredits(restoreAccount: true);
+
+        private void CloseResetCredits(bool restoreAccount)
+        {
+            if (_resetCreditsViewModel is null || _resetCreditsViewModel.IsBusy) return;
+            if (restoreAccount && DataContext is PulseViewModel pulse)
+            {
+                var account = pulse.Providers.FirstOrDefault(candidate => candidate.ProviderId == _resetCreditsProviderId);
+                if (account is not null) pulse.SelectedAccount = account;
+                pulse.IsOverview = account is null;
+            }
+            ResetCreditsPanel.Visibility = Visibility.Collapsed;
+            ResetCreditsPanel.DataContext = null;
+            WidgetContent.Visibility = Visibility.Visible;
+            _resetCreditsViewModel = null;
+            _resetCreditsProviderId = null;
+        }
+
+        private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key != Key.Escape || _resetCreditsViewModel is not { } resets) return;
+            e.Handled = true;
+            if (resets.IsBusy) return;
+            if (resets.IsConfirming) resets.CancelReviewCommand.Execute(null);
+            else CloseResetCredits(restoreAccount: true);
         }
 
         private void OnFinishSetupClick(object sender, RoutedEventArgs e)

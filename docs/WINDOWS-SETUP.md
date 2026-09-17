@@ -119,7 +119,7 @@ Click the tray icon or press `Ctrl+Alt+U`. The widget opens on an overview of al
 - Quota windows as reported by each provider: 5-hour and weekly for Claude and Codex.
 - Model-scoped limits reported by Claude, for example the Fable weekly limit, listed per account.
 - Plan chips: Claude plans including the Max multiplier (`Max 5x`, `Max 20x`), and Codex plans (`Plus`, `Pro Lite`, ...).
-- Redeemable Codex usage-limit reset credits, when Codex reports any, with how many days are left before they expire. Redeem them in the Codex CLI with `/usage`.
+- Available Codex usage-limit resets, with their expiry dates. Choose **View all resets** in the account details to see each reset's description, grant date and expiry inside the same widget, then select one and confirm its use. The back arrow returns to the account details. The app refreshes the list before using the selected reset and blocks use if any details are missing. Using a reset requires Codex 0.154.0 or newer; background monitoring never uses one automatically.
 - Daily and 30-day cost estimates where the provider supplies them.
 
 The buttons in the widget header open the usage dashboard, the remote view link (when remote view is enabled), Settings and a manual refresh.

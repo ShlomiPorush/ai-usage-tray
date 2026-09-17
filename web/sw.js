@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v16: compacts the header version and test-notification control.
-var CACHE = "ai-usage-tray-shell-v16";
+// v17: adds reset details and expiry notices.
+var CACHE = "ai-usage-tray-shell-v17";
 
 var SHELL = [
   "./",

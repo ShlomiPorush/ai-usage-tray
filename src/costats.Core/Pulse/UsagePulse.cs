@@ -30,9 +30,12 @@ public sealed record UsagePulse(
     /// <summary>
     /// Redeemable "usage limit reset" credits the provider says are available
     /// right now (Codex <c>rateLimitResetCredits.availableCount</c>). Zero when
-    /// the provider reports none. Display only: redeeming stays in the Codex CLI.
+    /// the provider reports none.
     /// </summary>
     public long ResetCreditsAvailable { get; init; }
+
+    /// <summary>All available detail rows returned by the provider; null means details are unknown.</summary>
+    public IReadOnlyList<ResetCredit>? ResetCredits { get; init; }
 
     /// <summary>
     /// When the next redeemable reset credit expires; null when the provider

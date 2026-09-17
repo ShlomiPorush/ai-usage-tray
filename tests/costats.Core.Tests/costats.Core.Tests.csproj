@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>
@@ -27,5 +28,6 @@
     <Compile Include="../../src/costats.App/Services/Updates/UpdateOptions.cs" Link="Updates/UpdateOptions.cs" />
     <Compile Include="../../src/costats.App/Services/Updates/StartupUpdateCoordinator.cs" Link="Updates/StartupUpdateCoordinator.cs" />
     <Compile Include="../../src/costats.App/Services/Updates/WidgetUpdateAvailability.cs" Link="Updates/WidgetUpdateAvailability.cs" />
+    <Compile Include="../../src/costats.App/ViewModels/ResetCreditsViewModel.cs" Link="ViewModels/ResetCreditsViewModel.cs" />
   </ItemGroup>
 </Project>
