@@ -542,7 +542,10 @@ namespace costats.App
                     services.AddSingleton<PulseBroadcaster>();
                     services.AddSingleton<ISourceSelector, SourceSelector>();
                     services.AddSingleton<CopilotUsageFetcher>();
-                    services.AddSingleton<ICodexAppServerClient, CodexAppServerClient>();
+                    services.AddSingleton<CodexAppServerClient>();
+                    services.AddSingleton<ICodexAppServerClient>(sp => sp.GetRequiredService<CodexAppServerClient>());
+                    services.AddSingleton<ICodexResetCreditClient>(sp => sp.GetRequiredService<CodexAppServerClient>());
+                    services.AddSingleton<CodexResetCreditService>();
                     services.AddSingleton<ISessionActivationWindowRegistry, SessionActivationWindowRegistry>();
 
                     // Per-account sources live in a registry so Settings edits

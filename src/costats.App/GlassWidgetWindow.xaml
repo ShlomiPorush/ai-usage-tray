@@ -173,7 +173,7 @@
     <Border CornerRadius="8" BorderBrush="{DynamicResource WindowBorderBrush}" BorderThickness="1"
             Background="{DynamicResource WidgetBgBrush}">
         <Grid>
-            <Grid Margin="20">
+            <Grid x:Name="WidgetContent" Margin="20">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -430,6 +430,13 @@
                                                        Visibility="{Binding IsPrimary, Converter={StaticResource BoolToVisibilityConverter}}" />
                                         </Grid>
                                     </DockPanel>
+
+                                    <Border Margin="0,6,0,8" Padding="8,6" CornerRadius="5"
+                                            Background="{DynamicResource KindBadgeBrush}"
+                                            Visibility="{Binding HasResetExpiryNotice, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="{Binding ResetExpiryNotice}" TextWrapping="Wrap" FontSize="11"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" AutomationProperties.LiveSetting="Polite" />
+                                    </Border>
 
                                     <!-- Session row -->
                                     <DockPanel Margin="0,0,0,4"
@@ -773,14 +780,20 @@
                     </TextBlock>
                 </StackPanel>
 
-                <!-- Redeemable usage-limit resets. Display only: the app never
-                     spends one, the Codex CLI does. -->
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,16"
+                <!-- Open the full bank before choosing a specific reset. -->
+                <StackPanel Margin="0,0,0,16"
                             Visibility="{Binding HasResetCredits, Converter={StaticResource BoolToVisibilityConverter}}">
-                    <Ellipse Width="6" Height="6" Margin="0,0,7,0" VerticalAlignment="Center"
-                             Fill="{DynamicResource AccentBrush}" />
                     <TextBlock Text="{Binding ResetCreditsText}" FontSize="11.5" VerticalAlignment="Center"
-                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                               Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" />
+                    <Border Margin="0,6,0,8" Padding="8,6" CornerRadius="5"
+                                            Background="{DynamicResource KindBadgeBrush}"
+                                            Visibility="{Binding HasResetExpiryNotice, Converter={StaticResource BoolToVisibilityConverter}}">
+                                        <TextBlock Text="{Binding ResetExpiryNotice}" TextWrapping="Wrap" FontSize="11"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" AutomationProperties.LiveSetting="Polite" />
+                                    </Border>
+                    <Button Content="View all resets" Click="OnResetCreditsClick" HorizontalAlignment="Left"
+                            Margin="0,7,0,0" Padding="10,6" Foreground="{DynamicResource TextPrimaryBrush}"
+                            Background="{DynamicResource ButtonBgBrush}" BorderBrush="{DynamicResource DividerBrush}" />
                 </StackPanel>
 
                 <!-- Model-scoped limits section (e.g. Fable weekly limit) -->
@@ -896,6 +909,10 @@
 
             </StackPanel>
             </Grid>
+            <local:ResetCreditsView x:Name="ResetCreditsPanel" Margin="20"
+                                    Height="{Binding ActualHeight, ElementName=WidgetContent}"
+                                    VerticalAlignment="Top" Visibility="Collapsed"
+                                    BackRequested="OnResetCreditsBack" />
         </Grid>
     </Border>
         </Window>

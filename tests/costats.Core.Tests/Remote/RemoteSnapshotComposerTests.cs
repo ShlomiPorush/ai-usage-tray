@@ -263,6 +263,30 @@ public sealed class RemoteSnapshotComposerTests
         Assert.All(snapshot.Accounts, account => Assert.Null(account.ResetCredits));
     }
 
+    [Theory]
+    [InlineData(2, true)]
+    [InlineData(3, false)]
+    public void Compose_preserves_details_and_completeness_without_redemption_ids(long count, bool complete)
+    {
+        var usage = Pulse(weekUsed: 12, resetCreditsAvailable: count) with
+        {
+            ResetCredits = [
+                new ResetCredit("private-credit-a", "codexRateLimits", "First reset", "Description", Now, Now.AddDays(7)),
+                new ResetCredit("private-credit-b", "otherType", null, null, null, null)]
+        };
+        var snapshot = RemoteSnapshotComposer.Compose(null,
+            [new RemoteSnapshotEntry("codex:one", "Codex", "Plus", usage)], Now);
+        var bank = Assert.Single(snapshot.Accounts).ResetCredits!;
+        Assert.Equal(complete, bank.DetailsComplete);
+        Assert.Equal(2, bank.Credits!.Count);
+        Assert.Equal("Description", bank.Credits[0].Description);
+        Assert.Equal(Now.AddDays(7), bank.Credits[0].ExpiresAt);
+        Assert.Null(bank.Credits[1].ExpiresAt);
+        var json = JsonSerializer.Serialize(snapshot, WebOptions);
+        Assert.DoesNotContain("private-credit", json);
+        Assert.Contains("detailsComplete", json);
+    }
+
     [Fact]
     public void Serialized_snapshot_keeps_reset_credits_out_of_the_json_unless_present()
     {

@@ -35,10 +35,14 @@ public sealed record RemoteWindowSnapshot(
 
 /// <summary>
 /// Redeemable "usage limit reset" credits on one account (Codex). Display only:
-/// redeeming stays in the Codex CLI. <c>ExpiresAt</c> is null when the provider
+/// redemption is available in the desktop app. <c>ExpiresAt</c> is null when the provider
 /// gives no expiry.
 /// </summary>
-public sealed record RemoteResetCredits(long Available, DateTimeOffset? ExpiresAt);
+public sealed record RemoteResetCredit(string ResetType, string? Title, string? Description,
+    DateTimeOffset? GrantedAt, DateTimeOffset? ExpiresAt);
+
+public sealed record RemoteResetCredits(long Available, DateTimeOffset? ExpiresAt,
+    IReadOnlyList<RemoteResetCredit>? Credits = null, bool DetailsComplete = false);
 
 /// <summary>One account in the published snapshot.</summary>
 public sealed record RemoteAccountSnapshot(
@@ -159,7 +163,10 @@ public static class RemoteSnapshotComposer
     /// </summary>
     private static RemoteResetCredits? ResetCreditsOf(UsagePulse? usage) =>
         usage is { ResetCreditsAvailable: > 0 } credited
-            ? new RemoteResetCredits(credited.ResetCreditsAvailable, credited.ResetCreditExpiresAt)
+            ? new RemoteResetCredits(credited.ResetCreditsAvailable, credited.ResetCreditExpiresAt,
+                credited.ResetCredits?.Select(credit => new RemoteResetCredit(credit.ResetType,
+                    credit.Title, credit.Description, credit.GrantedAt, credit.ExpiresAt)).ToArray(),
+                new ResetCreditBank(credited.ResetCreditsAvailable, credited.ResetCredits).IsComplete)
             : null;
 
     private static string WindowLabelFor(string group) =>

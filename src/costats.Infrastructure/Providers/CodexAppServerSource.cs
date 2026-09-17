@@ -116,8 +116,8 @@ public sealed class CodexAppServerSource : ISignalSource
             // Only the account-wide entry can block the account; the parser
             // already ignores per-model entries for this flag.
             IsBlocked = snapshot.IsBlocked,
-            // Shown, never spent: the app has no redeem path by design.
             ResetCreditsAvailable = snapshot.ResetCreditsAvailable,
+            ResetCredits = snapshot.ResetCredits,
             ResetCreditExpiresAt = snapshot.ResetCreditExpiresAt
         };
 

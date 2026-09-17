@@ -34,7 +34,7 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 - An optional always-on floating panel reuses those status rows and lets you choose which accounts stay visible.
 - The widget (click the icon or `Ctrl+Alt+U`) opens on an overview of all accounts, sized to fit them; click a card for details.
 - **Usage dashboard** (tray menu → **Usage stats**, or the chart button in the widget): token and cost analytics read from the local Claude Code and Codex logs, over the last 7, 30 or 90 days. Cost is priced at the published OpenAI and Anthropic API rates, so it answers "what would this have cost without a subscription". Filter by account, break the range down by model or by day, and see an account's cost in its detail view in the widget, with a link that opens the dashboard already filtered to it.
-- **Codex reset credits**: when Codex reports a redeemable usage-limit reset, the widget shows it, along with when it expires.
+- **Codex resets**: view every available reset with its description, expiry date and days remaining inside the widget, choose a specific reset and confirm its use. An information notice appears when a reset expires within 7 days. Click the reset chip in the web viewer for the full details. Incomplete lists cannot be redeemed. Requires Codex 0.154.0 or newer for redemption.
 - Model-scoped limits reported by Claude (e.g. the Fable weekly limit) shown per account.
 - Plan chips for Claude (`Max 5x`, `Max 20x`, `Pro`...) and Codex (`Plus`, `Pro Lite`...).
 - Optional primary account (star in Settings): drives the tray icon and is pinned to the top of the overview.
