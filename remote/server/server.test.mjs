@@ -263,6 +263,7 @@ test("matches worker validation and error responses", async () => {
 test("serves the viewer, same-origin config, demo, and health endpoint", async () => {
   const page = await fetch(`${fixture.baseUrl}/`);
   assert.equal(page.status, 200);
+  assert.match(page.headers.get("cache-control"), /\bno-transform\b/);
   assert.match(page.headers.get("content-security-policy"), /script-src 'self' 'sha256-/);
   assert.equal(page.headers.get("x-frame-options"), "DENY");
   const pageHtml = await page.text();
@@ -272,6 +273,20 @@ test("serves the viewer, same-origin config, demo, and health endpoint", async (
     /<h1>AI usage<\/h1>\s*<span class="version-badge" id="remote-version" hidden><\/span>/,
   );
   assert.doesNotMatch(pageHtml, /class="site-footer"/);
+
+  // Page assets must be served by this container, including any future fonts.
+  for (const tag of pageHtml.matchAll(/<(?:script|link)\b[^>]*>/gi)) {
+    const reference = tag[0].match(/(?:src|href)="([^"]+)"/i)?.[1];
+    if (!reference) continue;
+    const resource = new URL(reference, fixture.baseUrl);
+    assert.equal(resource.origin, fixture.baseUrl);
+    assert.equal((await fetch(resource)).status, 200);
+  }
+  const stylesheet = await (await fetch(`${fixture.baseUrl}/styles.css`)).text();
+  assert.doesNotMatch(stylesheet, /@import\b/i);
+  for (const match of stylesheet.matchAll(/url\(\s*["']?([^"')\s]+)/gi)) {
+    assert.equal(new URL(match[1], fixture.baseUrl).origin, fixture.baseUrl);
+  }
 
   const config = await fetch(`${fixture.baseUrl}/config.js`);
   assert.equal(await config.text(), 'window.REMOTE_VIEW_CONFIG = { apiBase: "" };\n');

@@ -332,6 +332,8 @@ function sendAsset(response, entry, csp) {
     "Cache-Control": entry.cache ?? STATIC_CACHE,
   };
   if (entry.html) {
+    // Keep proxies from injecting third-party scripts into the self-contained viewer.
+    headers["Cache-Control"] += ", no-transform";
     headers["Content-Security-Policy"] = csp;
     headers["X-Frame-Options"] = "DENY";
     headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";

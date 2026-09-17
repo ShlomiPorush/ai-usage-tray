@@ -165,7 +165,10 @@ function asset(entry) {
     "Content-Type": entry.type,
     "Cache-Control": entry.cache || STATIC_CACHE,
   };
-  if (entry.html) Object.assign(headers, HTML_HEADERS);
+  if (entry.html) {
+    headers["Cache-Control"] += ", no-transform";
+    Object.assign(headers, HTML_HEADERS);
+  }
   return new Response(entry.base64 === undefined ? entry.body : decode(entry), {
     status: 200,
     headers,

@@ -893,9 +893,6 @@ if (typeof module !== "undefined" && module.exports) {
 
   function fillResetDetails(account, now) {
     resetDialogBody.replaceChildren();
-    var heading = el("h2", "", "Usage resets");
-    heading.id = "reset-dialog-title";
-    resetDialogBody.appendChild(heading);
     resetDialogBody.appendChild(el("p", "reset-account", account.name || "Account"));
     var source = account.resetCredits || {};
     var credits = Array.isArray(source.credits) ? source.credits.filter(function (credit) { return credit && typeof credit === "object"; }) : null;
@@ -926,11 +923,16 @@ if (typeof module !== "undefined" && module.exports) {
     if (!resetDialog) {
       resetDialog = el("dialog", "reset-dialog");
       resetDialog.setAttribute("aria-labelledby", "reset-dialog-title");
+      var header = el("div", "reset-dialog-header");
+      var heading = el("h2", "", "Usage resets");
+      heading.id = "reset-dialog-title";
+      header.appendChild(heading);
       var close = el("button", "reset-close", "Close");
       close.type = "button";
       close.autofocus = true;
       close.addEventListener("click", function () { resetDialog.close(); });
-      resetDialog.appendChild(close);
+      header.appendChild(close);
+      resetDialog.appendChild(header);
       resetDialogBody = el("div", "reset-dialog-body");
       resetDialog.appendChild(resetDialogBody);
       resetDialog.addEventListener("click", function (event) {
