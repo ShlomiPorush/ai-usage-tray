@@ -246,11 +246,30 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// </summary>
     public bool ShowRemoteViewUrlFields => !_settings.HasRemoteViewDefaults;
 
-    /// <summary>Explains what leaves the machine, worded for the shipped relay or for a self-hosted endpoint.</summary>
-    public string RemoteViewHint =>
-        _settings.HasRemoteViewDefaults
-            ? "After each refresh, uploads a small snapshot to the built-in relay: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The share link is read-only, and the snapshot expires server-side after about a week without updates."
-            : "After each refresh, uploads a small snapshot to your endpoint: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The snapshot expires server-side after about a week without updates.";
+    /// <summary>
+    /// Explains what leaves the machine, worded for the endpoint actually in
+    /// use: the shipped relay, a self-hosted one, or nothing at all when the
+    /// configured upload endpoint was rejected and uploads are off.
+    /// </summary>
+    public string RemoteViewHint
+    {
+        get
+        {
+            var endpoint = _settings.EffectiveRemoteViewUploadUrl;
+            if (endpoint is null)
+            {
+                // Point at the box only on builds that show one; otherwise the
+                // only place this value can live is the settings file.
+                return ShowRemoteViewUrlFields
+                    ? "Nothing is uploaded: the upload endpoint is not a valid https address. Fix it below to start uploading."
+                    : "Nothing is uploaded: the upload endpoint in settings.json is not a valid https address. Fix it, or remove it to use the built-in relay.";
+            }
+
+            return string.Equals(endpoint, RemoteViewEndpoints.Normalize(_settings.DefaultRemoteViewUploadUrl), StringComparison.OrdinalIgnoreCase)
+                ? "After each refresh, uploads a small snapshot to the built-in relay: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The share link is read-only, and the snapshot expires server-side after about a week without updates."
+                : "After each refresh, uploads a small snapshot to your endpoint: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The snapshot expires server-side after about a week without updates.";
+        }
+    }
 
     public static IReadOnlyList<ThemeOption> ThemeOptions { get; } =
     [
@@ -943,6 +962,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         _settings.RemoteViewUploadUrl = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         RemoteViewMessage = DescribeRemoteViewUrlProblems();
         SaveSettingsInBackground();
+
+        // The hint names the endpoint in use, which this box just changed.
+        OnPropertyChanged(nameof(RemoteViewHint));
     }
 
     partial void OnRemoteViewPageUrlChanged(string value)
@@ -955,22 +977,24 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>
-    /// Names any endpoint override that was rejected. An override that is not
-    /// https (or http on loopback) is ignored rather than used, because the
-    /// snapshot and the write id travel over it.
+    /// Names any endpoint override that was rejected, read off the effective
+    /// endpoints so the notice cannot disagree with what the app actually does.
+    /// A rejected override switches the feature off instead of falling back to
+    /// the built-in service, because the snapshot and the write id travel over
+    /// this URL.
     /// </summary>
     private string DescribeRemoteViewUrlProblems()
     {
         var badUpload = !string.IsNullOrWhiteSpace(_settings.RemoteViewUploadUrl) &&
-                        !RemoteViewEndpoints.IsAllowed(_settings.RemoteViewUploadUrl);
+                        _settings.EffectiveRemoteViewUploadUrl is null;
         var badPage = !string.IsNullOrWhiteSpace(_settings.RemoteViewPageUrl) &&
-                      !RemoteViewEndpoints.IsAllowed(_settings.RemoteViewPageUrl);
+                      _settings.EffectiveRemoteViewPageUrl is null;
 
         return (badUpload, badPage) switch
         {
-            (true, true) => "Both URLs must start with https. They are ignored until you fix them.",
-            (true, false) => "Upload endpoint must start with https. It is ignored until you fix it.",
-            (false, true) => "Viewer page must start with https. It is ignored until you fix it.",
+            (true, true) => "Both URLs must start with https. Nothing is uploaded and there is no share link until you fix them.",
+            (true, false) => "Upload endpoint must start with https. Nothing is uploaded until you fix it.",
+            (false, true) => "Viewer page must start with https. There is no share link until you fix it.",
             _ => string.Empty
         };
     }
