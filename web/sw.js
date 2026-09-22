@@ -5,8 +5,9 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v18: compacts the reset dialog header and refreshes unmodified HTML responses.
-var CACHE = "ai-usage-tray-shell-v19";
+// v20: stops caching dynamic routes such as /version; the bump also drops
+// the stale copies older workers already stored.
+var CACHE = "ai-usage-tray-shell-v20";
 
 var SHELL = [
   "./",
@@ -18,6 +19,13 @@ var SHELL = [
   "./icon-192.png",
   "./icon-512.png"
 ];
+
+// The absolute pathnames of SHELL: the only requests ever answered from the
+// cache. Everything else must reflect the running relay, not the first visit.
+var SHELL_PATHS = SHELL.reduce(function (paths, entry) {
+  paths[new URL(entry, self.location.href).pathname] = true;
+  return paths;
+}, {});
 
 self.addEventListener("install", function (event) {
   event.waitUntil(
@@ -52,10 +60,12 @@ self.addEventListener("fetch", function (event) {
     return;
   }
 
-  // Usage snapshots and anything cross-origin go straight to the network,
-  // uncached: stale usage numbers would be worse than none.
+  // Only the static shell is served from the cache. Usage snapshots (/u/...),
+  // /version, /health, the push key and anything cross-origin go straight to
+  // the network: this worker used to cache whatever it fetched, which pinned
+  // /version to the first visit's value until the site data was cleared.
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.indexOf("/u/") !== -1) return;
+  if (!SHELL_PATHS[url.pathname]) return;
 
   // ignoreSearch so a shared link (/?id=…) still matches the cached shell.
   event.respondWith(
