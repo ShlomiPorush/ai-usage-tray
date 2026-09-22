@@ -308,7 +308,7 @@ public sealed class AppSettings
     /// Base URL of the remote-view upload endpoint, e.g.
     /// <c>https://usage-api.example.com</c>. Snapshots are PUT to
     /// <c>{url}/u/{writeId}</c>. Must be https (or http on a loopback host);
-    /// anything else is ignored.
+    /// anything else turns uploads off instead of falling back to the default.
     /// </summary>
     public string? RemoteViewUploadUrl { get; set; }
 
@@ -339,15 +339,14 @@ public sealed class AppSettings
     public string? DefaultRemoteViewPageUrl { get; set; }
 
     /// <summary>
-    /// Upload endpoint actually used: a hand-edited user value wins, otherwise
-    /// the built-in default, otherwise null (remote view stays inert). A value
-    /// that is not https (or http on loopback) counts as absent, so a bad
-    /// override cannot downgrade the connection that carries the write id.
+    /// Upload endpoint actually used, resolved fail-closed by
+    /// <see cref="ResolveEndpoint"/>: the user's own value when it passes the
+    /// https rule, null when they set one that does not, and the built-in
+    /// default only when they set none.
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string? EffectiveRemoteViewUploadUrl =>
-        RemoteViewEndpoints.Normalize(RemoteViewUploadUrl)
-        ?? RemoteViewEndpoints.Normalize(DefaultRemoteViewUploadUrl);
+        ResolveEndpoint(RemoteViewUploadUrl, DefaultRemoteViewUploadUrl);
 
     /// <summary>
     /// Viewer page actually used, resolved like
@@ -355,8 +354,20 @@ public sealed class AppSettings
     /// </summary>
     [System.Text.Json.Serialization.JsonIgnore]
     public string? EffectiveRemoteViewPageUrl =>
-        RemoteViewEndpoints.Normalize(RemoteViewPageUrl)
-        ?? RemoteViewEndpoints.Normalize(DefaultRemoteViewPageUrl);
+        ResolveEndpoint(RemoteViewPageUrl, DefaultRemoteViewPageUrl);
+
+    /// <summary>
+    /// Picks the endpoint to use. A user value that fails the https rule
+    /// resolves to null rather than to the shipped default: the snapshot and
+    /// the secret write id must never go to the built-in relay when the user
+    /// pointed the app somewhere else, even if what they typed is unusable.
+    /// Remote view then stays inert until they fix or clear the value. The
+    /// default applies only when the user value is absent or blank.
+    /// </summary>
+    private static string? ResolveEndpoint(string? userValue, string? shippedDefault) =>
+        string.IsNullOrWhiteSpace(userValue)
+            ? RemoteViewEndpoints.Normalize(shippedDefault)
+            : RemoteViewEndpoints.Normalize(userValue);
 
     /// <summary>
     /// The public id derived from <see cref="RemoteViewId"/>: what the share

@@ -141,8 +141,10 @@ namespace costats.App.Services
 
         /// <summary>
         /// The upload endpoint, or null when none is configured or the user's
-        /// override fails the https rule. Warns once per session about a
-        /// rejected override so the feature does not just look broken.
+        /// override fails the https rule. A rejected override disables uploads
+        /// rather than falling back to the built-in endpoint, so the snapshot
+        /// never goes somewhere the user configured away from. Warns once per
+        /// session so the feature does not just look broken.
         /// </summary>
         private string? ResolveUploadUrl()
         {
@@ -154,7 +156,7 @@ namespace costats.App.Services
                 Interlocked.Exchange(ref _warnedAboutRejectedUrl, 1) == 0)
             {
                 Log.Warning(
-                    "Remote view upload URL is not https and was ignored; using the built-in endpoint instead");
+                    "Remote view upload URL is not https; uploads stay off until it is fixed or cleared");
             }
 
             return resolved;
