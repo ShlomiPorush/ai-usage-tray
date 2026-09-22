@@ -5,7 +5,6 @@ using CommunityToolkit.Mvvm.Input;
 using costats.Application.Pulse;
 using costats.Application.Settings;
 using costats.Core.Pulse;
-using costats.Core.Shell;
 using costats.Infrastructure.Analytics;
 using Serilog;
 
@@ -218,7 +217,7 @@ public sealed partial class OnboardingViewModel : ObservableObject, IObserver<Pu
     {
         var path = GetSelectedAccount(MonitoredAccountSettings.ClaudeType)?.ConfigDir
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude");
-        var literal = PowerShellLiteral.Quote(path);
+        var literal = QuotePowerShellLiteral(path);
         var command = $"$env:CLAUDE_CONFIG_DIR={literal}; Write-Host 'Claude Code will open. Use /login if needed, then return to AI Usage Tray and click Retry.' -ForegroundColor Cyan; claude";
         if (TryOpenPowerShell(command))
         {
@@ -235,7 +234,7 @@ public sealed partial class OnboardingViewModel : ObservableObject, IObserver<Pu
     {
         var path = GetSelectedAccount(MonitoredAccountSettings.CodexType)?.ConfigDir
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
-        var literal = PowerShellLiteral.Quote(path);
+        var literal = QuotePowerShellLiteral(path);
         var command = $"$env:CODEX_HOME={literal}; Write-Host 'Complete Codex sign-in, then return to AI Usage Tray and click Retry.' -ForegroundColor Cyan; codex login";
         if (TryOpenPowerShell(command))
         {
@@ -438,6 +437,8 @@ public sealed partial class OnboardingViewModel : ObservableObject, IObserver<Pu
                 isClaude ? ".claude" : ".codex")
         };
     }
+
+    private static string QuotePowerShellLiteral(string value) => $"'{value.Replace("'", "''")}'";
 
     private static bool TryOpenPowerShell(string command)
     {

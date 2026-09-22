@@ -580,88 +580,6 @@ public sealed class SessionAutoStartCoordinatorTests
         Assert.Single(harness.Activator.Calls);
     }
 
-    [Fact]
-    public async Task Moving_stale_reset_timestamps_never_extend_the_attempt_budget()
-    {
-        var harness = Harness.Claude(Baseline.AddMinutes(-1), Baseline);
-        harness.Activator.DefaultResult = SessionActivationResult.Failure("expected test failure");
-
-        // The provider keeps republishing a reset timestamp that moves but
-        // never reaches the future. That must not buy a new attempt series.
-        for (var step = 0; step < 40; step++)
-        {
-            var now = Baseline.AddMinutes(5 * step);
-            harness.Clock.UtcNow = now;
-            harness.Orchestrator.CurrentState = State("claude:work", now.AddSeconds(-1));
-            await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
-        }
-
-        Assert.Equal(SessionAutoStartCoordinator.MaximumAttempts, harness.Activator.Calls.Count);
-        var checkpoint = harness.Store.Current["claude:work"];
-        Assert.True(checkpoint.Completed);
-        Assert.Equal(SessionAutoStartCoordinator.MaximumAttempts, checkpoint.Attempts);
-    }
-
-    [Fact]
-    public async Task A_constant_past_reset_timestamp_allows_one_activation_per_window()
-    {
-        var stale = Baseline.AddMinutes(-1);
-        var harness = Harness.Claude(stale, Baseline);
-
-        // Ten simulated minutes of polling against an account whose reported
-        // reset never advances after a successful activation.
-        for (var step = 0; step < 40; step++)
-        {
-            harness.Clock.UtcNow = Baseline.AddSeconds(15 * step);
-            harness.Orchestrator.CurrentState = State("claude:work", stale, sessionUsed: 1);
-            await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
-        }
-
-        Assert.Single(harness.Activator.Calls);
-        Assert.Equal(Baseline, harness.Store.Current["claude:work"].LastSuccessfulActivationAt);
-
-        harness.Clock.UtcNow = Baseline + SessionAutoStartCoordinator.ProviderWindowLength - TimeSpan.FromMinutes(1);
-        harness.Orchestrator.CurrentState = State("claude:work", stale, sessionUsed: 1);
-        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
-        Assert.Single(harness.Activator.Calls);
-
-        harness.Clock.UtcNow = Baseline + SessionAutoStartCoordinator.ProviderWindowLength + TimeSpan.FromSeconds(1);
-        harness.Orchestrator.CurrentState = State("claude:work", stale, sessionUsed: 1);
-        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
-        Assert.Equal(2, harness.Activator.Calls.Count);
-    }
-
-    [Fact]
-    public async Task A_genuinely_future_window_refills_the_attempt_budget()
-    {
-        var harness = Harness.Claude(Baseline.AddMinutes(-1), Baseline);
-        harness.Activator.DefaultResult = SessionActivationResult.Failure("expected test failure");
-
-        for (var step = 0; step < 4; step++)
-        {
-            harness.Clock.UtcNow = Baseline.AddMinutes(5 * step);
-            await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
-        }
-
-        Assert.Equal(SessionAutoStartCoordinator.MaximumAttempts, harness.Activator.Calls.Count);
-        Assert.True(harness.Store.Current["claude:work"].Completed);
-
-        // The user starts a session by hand, so a real future window appears.
-        harness.Clock.UtcNow = Baseline.AddMinutes(20);
-        harness.Orchestrator.CurrentState = State("claude:work", Baseline.AddHours(2));
-        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
-
-        var armed = harness.Store.Current["claude:work"];
-        Assert.Equal(0, armed.Attempts);
-        Assert.False(armed.Completed);
-        Assert.Equal(Baseline.AddMinutes(15), armed.LastActivationAttemptAt);
-
-        harness.Clock.UtcNow = Baseline.AddHours(2).AddSeconds(1);
-        await harness.Coordinator.CheckOnceAsync(CancellationToken.None);
-
-        Assert.Equal(5, harness.Activator.Calls.Count);
-    }
-
     private static SessionAutoStartCoordinator CreateCoordinator(
         FakeOrchestrator orchestrator,
         AppSettings settings,
@@ -875,9 +793,7 @@ public sealed class SessionAutoStartCoordinatorTests
                     Attempts = pair.Value.Attempts,
                     NextAttemptAt = pair.Value.NextAttemptAt,
                     Completed = pair.Value.Completed,
-                    Succeeded = pair.Value.Succeeded,
-                    LastActivationAttemptAt = pair.Value.LastActivationAttemptAt,
-                    LastSuccessfulActivationAt = pair.Value.LastSuccessfulActivationAt
+                    Succeeded = pair.Value.Succeeded
                 },
                 StringComparer.OrdinalIgnoreCase);
     }

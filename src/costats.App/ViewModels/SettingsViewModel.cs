@@ -16,7 +16,6 @@ using costats.Application.Settings;
 using costats.Application.Windowing;
 using costats.Core.Pulse;
 using costats.Core.RemoteView;
-using costats.Core.Shell;
 using costats.Infrastructure.Analytics;
 using costats.Infrastructure.Providers;
 using Microsoft.Win32;
@@ -603,7 +602,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        var literal = PowerShellLiteral.Quote(row.Detail);
+        var literal = QuotePowerShellLiteral(row.Detail);
         var command = row.IsCodex
             ? $"$env:CODEX_HOME={literal}; Write-Host 'Complete Codex sign-in, then close this window.' -ForegroundColor Cyan; codex login"
             : $"$env:CLAUDE_CONFIG_DIR={literal}; Write-Host 'If needed, type /login in Claude Code, then close this window.' -ForegroundColor Cyan; claude";
@@ -788,6 +787,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         });
         System.Windows.Application.Current.Shutdown(0);
     }
+
+    private static string QuotePowerShellLiteral(string value) => $"'{value.Replace("'", "''")}'";
 
     private static bool TryOpenPowerShell(string command, out Process? process)
     {

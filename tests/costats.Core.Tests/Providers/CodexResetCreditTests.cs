@@ -5,17 +5,8 @@ using Xunit;
 
 namespace costats.Core.Tests.Providers;
 
-public sealed class CodexResetCreditTests : IDisposable
+public sealed class CodexResetCreditTests
 {
-    // The service persists idempotency keys, so every test gets its own state
-    // root instead of touching the real application data folder.
-    private readonly string _root = Path.Combine(
-        Path.GetTempPath(),
-        "costats-tests",
-        Guid.NewGuid().ToString("N"));
-
-    private CodexResetCreditService Service(ResetClientFake fake) => new(fake, fake, _root);
-
     [Fact]
     public void Parser_preserves_all_available_details_and_unknown_types()
     {
@@ -127,7 +118,7 @@ public sealed class CodexResetCreditTests : IDisposable
     public async Task Service_rechecks_bank_and_uses_only_selected_credit_and_account()
     {
         var fake = new ResetClientFake();
-        var service = Service(fake);
+        var service = new CodexResetCreditService(fake, fake);
         await service.LoadAsync("account-a", CancellationToken.None);
         fake.Snapshot = fake.Snapshot! with { ResetCreditsAvailable = 3 };
         Assert.Equal(ResetCreditOutcome.IncompleteList, await service.RedeemAsync("account-a", "second", CancellationToken.None));
@@ -158,7 +149,7 @@ public sealed class CodexResetCreditTests : IDisposable
             }]
         };
         Assert.Equal(ResetCreditOutcome.CreditUnavailable,
-            await Service(fake).RedeemAsync("account", selection, CancellationToken.None));
+            await new CodexResetCreditService(fake, fake).RedeemAsync("account", selection, CancellationToken.None));
         Assert.Empty(fake.Calls);
     }
 
@@ -166,7 +157,7 @@ public sealed class CodexResetCreditTests : IDisposable
     public async Task Failed_authentication_or_read_never_consumes()
     {
         var fake = new ResetClientFake { Snapshot = null };
-        var service = Service(fake);
+        var service = new CodexResetCreditService(fake, fake);
         Assert.Equal(ResetCreditOutcome.Unavailable, await service.RedeemAsync("account", "first", CancellationToken.None));
         fake.Snapshot = ResetClientFake.FullBank() with { RequiresSignIn = true };
         Assert.Equal(ResetCreditOutcome.SignInRequired, await service.RedeemAsync("account", "first", CancellationToken.None));
@@ -177,7 +168,7 @@ public sealed class CodexResetCreditTests : IDisposable
     public async Task Retries_reuse_key_after_uncertainty_but_new_attempts_follow_definite_refusal()
     {
         var fake = new ResetClientFake { Outcome = ResetCreditOutcome.Unknown };
-        var service = Service(fake);
+        var service = new CodexResetCreditService(fake, fake);
         await service.RedeemAsync("account", "first", CancellationToken.None);
         fake.Outcome = ResetCreditOutcome.NothingToReset;
         await service.RedeemAsync("account", "first", CancellationToken.None);
@@ -190,79 +181,12 @@ public sealed class CodexResetCreditTests : IDisposable
     public async Task Concurrent_redemptions_are_blocked_until_first_finishes()
     {
         var fake = new ResetClientFake { Pending = new(TaskCreationOptions.RunContinuationsAsynchronously) };
-        var service = Service(fake);
+        var service = new CodexResetCreditService(fake, fake);
         var first = service.RedeemAsync("account", "first", CancellationToken.None);
         Assert.Equal(ResetCreditOutcome.Busy, await service.RedeemAsync("account", "second", CancellationToken.None));
         fake.Pending.SetResult(ResetCreditOutcome.Reset);
         Assert.Equal(ResetCreditOutcome.Reset, await first);
         Assert.Single(fake.Calls);
-    }
-
-    [Fact]
-    public async Task A_restart_retries_an_uncertain_redemption_with_the_same_key()
-    {
-        var fake = new ResetClientFake { Outcome = ResetCreditOutcome.Unknown };
-        await Service(fake).RedeemAsync("account", "first", CancellationToken.None);
-
-        // A new instance stands in for a restarted app: Codex must still see
-        // one redemption, not two.
-        await Service(fake).RedeemAsync("account", "first", CancellationToken.None);
-
-        Assert.Equal(2, fake.Calls.Count);
-        Assert.Equal(fake.Calls[0].Key, fake.Calls[1].Key);
-    }
-
-    [Fact]
-    public async Task A_restart_keeps_accounts_and_credits_apart()
-    {
-        var fake = new ResetClientFake { Outcome = ResetCreditOutcome.Unknown };
-        await Service(fake).RedeemAsync("account-a", "first", CancellationToken.None);
-        await Service(fake).RedeemAsync("account-a", "second", CancellationToken.None);
-        await Service(fake).RedeemAsync("account-b", "first", CancellationToken.None);
-
-        Assert.Equal(3, fake.Calls.Select(call => call.Key).Distinct().Count());
-    }
-
-    [Fact]
-    public async Task A_definite_refusal_clears_the_key_across_a_restart()
-    {
-        var fake = new ResetClientFake { Outcome = ResetCreditOutcome.NothingToReset };
-        await Service(fake).RedeemAsync("account", "first", CancellationToken.None);
-        fake.Outcome = ResetCreditOutcome.Reset;
-        await Service(fake).RedeemAsync("account", "first", CancellationToken.None);
-
-        Assert.NotEqual(fake.Calls[0].Key, fake.Calls[1].Key);
-    }
-
-    [Theory]
-    [InlineData("not json")]
-    [InlineData("[]")]
-    [InlineData("")]
-    public async Task A_damaged_key_file_never_blocks_redemption(string content)
-    {
-        Directory.CreateDirectory(Path.Combine(_root, "costats"));
-        await File.WriteAllTextAsync(
-            Path.Combine(_root, "costats", "codex-reset-credit-keys.json"), content);
-
-        var fake = new ResetClientFake { Outcome = ResetCreditOutcome.Unknown };
-        Assert.Equal(ResetCreditOutcome.Unknown,
-            await Service(fake).RedeemAsync("account", "first", CancellationToken.None));
-        await Service(fake).RedeemAsync("account", "first", CancellationToken.None);
-
-        Assert.Equal(2, fake.Calls.Count);
-        Assert.Equal(fake.Calls[0].Key, fake.Calls[1].Key);
-    }
-
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(_root, recursive: true);
-        }
-        catch
-        {
-            // Temp cleanup is best effort.
-        }
     }
 
     private const string Initialize = "{\"id\":1,\"result\":{\"userAgent\":\"ai_usage_tray/0.154.0 (Windows)\"}}";
