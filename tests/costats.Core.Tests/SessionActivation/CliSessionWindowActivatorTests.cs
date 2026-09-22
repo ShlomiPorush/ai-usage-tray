@@ -31,6 +31,24 @@ public sealed class CliSessionWindowActivatorTests : IDisposable
     }
 
     [Fact]
+    public void The_child_working_directory_is_pinned_to_a_rooted_app_controlled_folder()
+    {
+        // A pinned rooted working directory keeps the CLI from inheriting or
+        // searching an attacker-writable current directory.
+        var activator = new CliSessionWindowActivator(new AppSettings(), _root);
+        var startInfo = activator.CreateStartInfo(
+            new SessionActivationTarget(
+                "claude:work",
+                SessionActivationProvider.Claude,
+                @"C:\profiles\claude-work"));
+
+        Assert.NotNull(startInfo);
+        Assert.True(Path.IsPathRooted(startInfo!.WorkingDirectory));
+        Assert.StartsWith(_root, startInfo.WorkingDirectory);
+        Assert.Contains("session-activation-work", startInfo.WorkingDirectory);
+    }
+
+    [Fact]
     public void Codex_invocation_is_ephemeral_read_only_and_uses_only_the_account_authentication()
     {
         var activator = new CliSessionWindowActivator(new AppSettings(), _root);

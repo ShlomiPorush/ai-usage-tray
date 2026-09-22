@@ -781,7 +781,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         // before the new process tries to acquire it.
         Process.Start(new ProcessStartInfo
         {
-            FileName = "cmd.exe",
+            // Absolute System32 path and a pinned working directory so a bare
+            // "cmd.exe" cannot be resolved from an attacker-writable directory.
+            FileName = SystemExecutables.Cmd,
+            WorkingDirectory = SystemExecutables.TrustedWorkingDirectory,
             Arguments = $"/c timeout /t 2 /nobreak >nul & start \"\" \"{exe}\"",
             CreateNoWindow = true,
             UseShellExecute = false
@@ -796,7 +799,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             var startInfo = new ProcessStartInfo
             {
-                FileName = "powershell.exe",
+                // Absolute System32 path so a bare image name cannot be
+                // hijacked from the current directory or PATH.
+                FileName = SystemExecutables.PowerShell,
                 UseShellExecute = true,
                 WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
             };
