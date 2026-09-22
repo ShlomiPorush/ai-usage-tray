@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { findResetAlerts, findThresholdCrossings } from "../shared/usage-alerts.mjs";
@@ -23,6 +23,22 @@ const MAX_STRING = 256;
 const MAX_DEPTH = 8;
 const MAX_PUSH_SUBSCRIPTIONS = 8;
 const DEMO_ID = "demo";
+
+// The write-ahead log grows with the largest transaction (a sweep of many expired
+// rows), and SQLite keeps that size forever unless a limit is set. The limit is
+// applied when a checkpoint completes, so the file shrinks back afterwards.
+export const JOURNAL_SIZE_LIMIT_BYTES = 8 * 1024 * 1024;
+
+// VACUUM rewrites the whole database, so it only pays off once a large part of
+// the file is free pages and the file is big enough for the rewrite to matter.
+export const VACUUM_MIN_DATABASE_BYTES = 32 * 1024 * 1024;
+export const VACUUM_MIN_FREELIST_RATIO = 0.5;
+
+// /health is public and its probe writes, so reuse a recent result instead of
+// letting a flood of requests turn into a flood of transactions. The container
+// health check runs every 30 seconds, well outside this window.
+export const HEALTH_WRITE_PROBE_INTERVAL_MS = 5_000;
+
 const STATIC_CACHE = "public, max-age=300";
 const CONFIG_BODY = 'window.REMOTE_VIEW_CONFIG = { apiBase: "" };\n';
 
@@ -90,6 +106,29 @@ export function deriveReadId(writeId) {
   return createHash("sha256").update(writeId, "utf8").digest("hex").slice(0, 32);
 }
 
+// Deleting rows only moves pages to the freelist, so a burst of writes keeps the
+// file at its high-water mark. Reclaim it only when the waste is both relatively
+// and absolutely large.
+export function shouldVacuum({ freelistCount = 0, pageCount = 0, databaseBytes = 0 } = {}) {
+  if (!Number.isFinite(pageCount) || pageCount <= 0) return false;
+  if (!Number.isFinite(freelistCount) || freelistCount <= 0) return false;
+  if (!Number.isFinite(databaseBytes) || databaseBytes <= VACUUM_MIN_DATABASE_BYTES) return false;
+  return freelistCount / pageCount > VACUUM_MIN_FREELIST_RATIO;
+}
+
+// A default data directory keeps the push signing key next to the disposable
+// snapshots. VAPID_KEY_PATH moves it out without changing existing deployments.
+export function resolveVapidKeyPath(databasePath, environment = process.env) {
+  const configured = environment.VAPID_KEY_PATH?.trim();
+  if (configured) {
+    if (!isAbsolute(configured)) {
+      throw new Error("VAPID_KEY_PATH must be an absolute path");
+    }
+    return configured;
+  }
+  return databasePath === ":memory:" ? null : join(dirname(databasePath), "vapid.json");
+}
+
 export class SnapshotStore {
   constructor(databasePath) {
     if (databasePath !== ":memory:") mkdirSync(dirname(databasePath), { recursive: true });
@@ -98,6 +137,7 @@ export class SnapshotStore {
     this.database.exec("PRAGMA busy_timeout = 5000");
     this.database.exec("PRAGMA journal_mode = WAL");
     this.database.exec("PRAGMA synchronous = NORMAL");
+    this.database.exec(`PRAGMA journal_size_limit = ${JOURNAL_SIZE_LIMIT_BYTES}`);
     this.database.exec(`
       CREATE TABLE IF NOT EXISTS snapshots (
         read_id TEXT PRIMARY KEY,
@@ -111,6 +151,10 @@ export class SnapshotStore {
         subscription TEXT NOT NULL
       ) STRICT;
       CREATE INDEX IF NOT EXISTS push_subscriptions_read_id ON push_subscriptions (read_id);
+      CREATE TABLE IF NOT EXISTS health_probe (
+        id INTEGER PRIMARY KEY,
+        checked_at INTEGER NOT NULL
+      ) STRICT;
     `);
 
     this.upsertStatement = this.database.prepare(`
@@ -152,6 +196,11 @@ export class SnapshotStore {
       WHERE read_id IN (SELECT read_id FROM snapshots WHERE expires_at <= ?)
     `);
     this.pingStatement = this.database.prepare("SELECT 1 AS healthy");
+    this.writeProbeStatement = this.database.prepare(`
+      INSERT INTO health_probe (id, checked_at)
+      VALUES (1, ?)
+      ON CONFLICT (id) DO UPDATE SET checked_at = excluded.checked_at
+    `);
   }
 
   put(readId, payload, expiresAt) {
@@ -199,7 +248,74 @@ export class SnapshotStore {
   }
 
   ping() {
-    return this.pingStatement.get()?.healthy === 1;
+    try {
+      return this.pingStatement.get()?.healthy === 1;
+    } catch (error) {
+      console.error("Remote-view database read probe failed", error);
+      return false;
+    }
+  }
+
+  // A full disk or a read-only mount leaves reads working while every write
+  // fails, so liveness needs a real write to stay meaningful.
+  canWrite(now = Date.now()) {
+    try {
+      this.writeProbeStatement.run(now);
+      return true;
+    } catch (error) {
+      console.error("Remote-view database write probe failed", error);
+      return false;
+    }
+  }
+
+  readPragma(name) {
+    const row = this.database.prepare(`PRAGMA ${name}`).get();
+    const value = row === undefined ? undefined : Object.values(row)[0];
+    return Number(value ?? 0);
+  }
+
+  spaceStats() {
+    const pageCount = this.readPragma("page_count");
+    const pageSize = this.readPragma("page_size");
+    return {
+      pageCount,
+      freelistCount: this.readPragma("freelist_count"),
+      databaseBytes: pageCount * pageSize,
+    };
+  }
+
+  checkpoint() {
+    this.database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  }
+
+  // Returns the write-ahead log to its floor and, only when the file is mostly
+  // free pages, returns that space to the filesystem.
+  compact() {
+    const result = { checkpointed: false, vacuumed: false };
+    try {
+      this.checkpoint();
+      result.checkpointed = true;
+    } catch (error) {
+      console.error("Remote-view WAL checkpoint failed", error);
+    }
+
+    let stats = null;
+    try {
+      stats = this.spaceStats();
+    } catch (error) {
+      console.error("Remote-view database size probe failed", error);
+      return result;
+    }
+    if (!shouldVacuum(stats)) return result;
+
+    try {
+      this.database.exec("VACUUM");
+      result.vacuumed = true;
+      this.checkpoint();
+    } catch (error) {
+      console.error("Remote-view VACUUM failed", error);
+    }
+    return result;
   }
 
   close() {
@@ -370,6 +486,15 @@ export function createRemoteViewServer({
   // Empty or unset keeps the built-in browser push-service list.
   const pushOptions = { allowedEndpointHosts: allowedEndpointHosts ?? undefined };
 
+  let writeProbe = { at: null, writable: true };
+  function probeWritable(at) {
+    if (writeProbe.at !== null && at - writeProbe.at < HEALTH_WRITE_PROBE_INTERVAL_MS) {
+      return writeProbe.writable;
+    }
+    writeProbe = { at, writable: store.canWrite(at) };
+    return writeProbe.writable;
+  }
+
   async function readJsonRequest(request, response) {
     const contentType = request.headers["content-type"] ?? "";
     if (!contentType.toLowerCase().includes("application/json")) {
@@ -442,6 +567,9 @@ export function createRemoteViewServer({
 
       if (request.method === "GET" && path === "/health") {
         if (!store.ping()) return sendJson(response, 503, { status: "unhealthy" });
+        // Reads keep working when the volume is full or read-only; without this
+        // probe the relay reports "ok" while every upload fails.
+        if (!probeWritable(now())) return sendJson(response, 503, { status: "degraded" });
         return sendJson(response, 200, { status: "ok" });
       }
 
@@ -571,6 +699,8 @@ export function createRemoteViewServer({
       } catch (error) {
         console.error("Remote-view expiry cleanup failed", error);
       }
+      // Runs even when the sweep failed: the log can still need truncating.
+      store.compact();
     }, cleanupIntervalMs);
     cleanupTimer.unref();
   }
@@ -617,7 +747,7 @@ async function startFromEnvironment() {
   const runtimeVersion = readFileSync(join(here, "VERSION"), "utf8").trim();
   const allowedEndpointHosts = readAllowedEndpointHosts();
   const vapidConfiguration = await ensureVapidConfiguration({
-    path: databasePath === ":memory:" ? null : join(dirname(databasePath), "vapid.json"),
+    path: resolveVapidKeyPath(databasePath),
   });
   const app = createRemoteViewServer({
     databasePath,
