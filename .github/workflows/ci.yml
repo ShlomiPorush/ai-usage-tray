@@ -47,6 +47,35 @@ jobs:
         shell: powershell
         run: powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\tests\scripts\InstallChecksum.Tests.ps1
 
+  remote-worker:
+    name: Remote View Worker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Test worker
+        run: docker run --rm -v "$PWD:/work" -w /work/remote/worker node:24-alpine node --test
+
+      # worker.bundle.js is generated from worker.js, remote/shared/*.mjs and web/*.
+      # Regenerating it here proves the committed rollback artifact is not stale.
+      # The container runs as the runner user so the rewritten file stays checkout-owned.
+      - name: Regenerate worker bundle
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$PWD:/work" -w /work/remote/worker \
+            node:24-alpine node bundle.mjs
+
+      - name: Verify worker bundle matches its sources
+        run: |
+          if ! git diff --exit-code -- remote/worker/worker.bundle.js; then
+            echo "worker.bundle.js is stale. Run 'cd remote/worker && node bundle.mjs' and commit the result." >&2
+            exit 1
+          fi
+
   remote-view:
     name: Remote View Server
     runs-on: ubuntu-latest
