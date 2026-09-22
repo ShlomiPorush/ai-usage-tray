@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v21: adds the GitHub footer to the shell.
-var CACHE = "ai-usage-tray-shell-v21";
+// v22: pins the GitHub footer to the bottom of the page.
+var CACHE = "ai-usage-tray-shell-v22";
 
 var SHELL = [
   "./",
