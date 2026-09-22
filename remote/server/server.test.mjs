@@ -6,10 +6,13 @@ import { afterEach, beforeEach, test } from "node:test";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
+  cloudflarePurgeUrls,
   createRemoteViewServer,
   deriveReadId,
   HEALTH_WRITE_PROBE_INTERVAL_MS,
+  purgeCloudflareCache,
   readAllowedEndpointHosts,
+  readCloudflarePurgeConfig,
   SnapshotStore,
 } from "./server.mjs";
 import {
@@ -851,4 +854,126 @@ test("CORS advertises the signing headers and Retry-After", async () => {
   assert.match(preflight.headers.get("access-control-allow-headers"), /X-Costats-Timestamp/);
   assert.match(preflight.headers.get("access-control-allow-headers"), /X-Costats-Signature/);
   assert.match(preflight.headers.get("access-control-expose-headers"), /Retry-After/);
+});
+
+test("Cloudflare purge config is off by default and rejects half-set configuration", () => {
+  assert.equal(readCloudflarePurgeConfig({}), null);
+  assert.equal(readCloudflarePurgeConfig({ CLOUDFLARE_PURGE_ON_START: "0" }), null);
+  assert.equal(readCloudflarePurgeConfig({ CLOUDFLARE_PURGE_ON_START: "off" }), null);
+
+  const zone = "a".repeat(32);
+  // Unknown mode, missing zone, malformed zone and missing token all stop startup.
+  assert.throws(() => readCloudflarePurgeConfig({ CLOUDFLARE_PURGE_ON_START: "yes" }), /must be/);
+  assert.throws(() => readCloudflarePurgeConfig({ CLOUDFLARE_PURGE_ON_START: "everything" }), /CLOUDFLARE_ZONE_ID/);
+  assert.throws(() => readCloudflarePurgeConfig({
+    CLOUDFLARE_PURGE_ON_START: "everything", CLOUDFLARE_ZONE_ID: "not-hex",
+  }), /CLOUDFLARE_ZONE_ID/);
+  assert.throws(() => readCloudflarePurgeConfig({
+    CLOUDFLARE_PURGE_ON_START: "everything", CLOUDFLARE_ZONE_ID: zone,
+  }), /CLOUDFLARE_API_TOKEN/);
+  // files mode additionally needs the public origin, and only an origin.
+  assert.throws(() => readCloudflarePurgeConfig({
+    CLOUDFLARE_PURGE_ON_START: "files", CLOUDFLARE_ZONE_ID: zone, CLOUDFLARE_API_TOKEN: "t",
+  }), /PUBLIC_BASE_URL/);
+  assert.throws(() => readCloudflarePurgeConfig({
+    CLOUDFLARE_PURGE_ON_START: "files", CLOUDFLARE_ZONE_ID: zone, CLOUDFLARE_API_TOKEN: "t",
+    PUBLIC_BASE_URL: "https://ai.example.net/viewer",
+  }), /origin/);
+
+  const files = readCloudflarePurgeConfig({
+    CLOUDFLARE_PURGE_ON_START: "FILES", CLOUDFLARE_ZONE_ID: zone, CLOUDFLARE_API_TOKEN: "token-1",
+    PUBLIC_BASE_URL: "https://ai.example.net/",
+  });
+  assert.deepEqual(files, { mode: "files", zoneId: zone, apiToken: "token-1", baseUrl: "https://ai.example.net" });
+
+  const everything = readCloudflarePurgeConfig({
+    CLOUDFLARE_PURGE_ON_START: "everything", CLOUDFLARE_ZONE_ID: zone, CLOUDFLARE_API_TOKEN: "token-1",
+  });
+  assert.deepEqual(everything, { mode: "everything", zoneId: zone, apiToken: "token-1", baseUrl: null });
+});
+
+test("Cloudflare purge lists exactly the served shell addresses", () => {
+  const urls = cloudflarePurgeUrls("https://ai.example.net");
+  // Exactly the shell the relay serves: reader snapshots (/u/...) are
+  // no-store and never purged, and the list stays far under Cloudflare's
+  // 30-URLs-per-request limit.
+  assert.deepEqual([...urls].sort(), [
+    "https://ai.example.net/",
+    "https://ai.example.net/app.js",
+    "https://ai.example.net/config.js",
+    "https://ai.example.net/icon-192.png",
+    "https://ai.example.net/icon-512.png",
+    "https://ai.example.net/index.html",
+    "https://ai.example.net/manifest.webmanifest",
+    "https://ai.example.net/styles.css",
+    "https://ai.example.net/sw.js",
+  ]);
+});
+
+test("Cloudflare purge sends one authorized request per mode and never logs the token", async () => {
+  const zone = "b".repeat(32);
+  const calls = [];
+  const lines = [];
+  const log = { log: (line) => lines.push(line), error: (line) => lines.push(line) };
+  const okFetch = async (url, options) => {
+    calls.push({ url, options });
+    return { ok: true, status: 200, json: async () => ({ success: true }) };
+  };
+
+  const filesConfig = {
+    mode: "files", zoneId: zone, apiToken: "secret-token-value", baseUrl: "https://ai.example.net",
+  };
+  assert.equal(await purgeCloudflareCache(filesConfig, { fetchImpl: okFetch, log }), true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, `https://api.cloudflare.com/client/v4/zones/${zone}/purge_cache`);
+  assert.equal(calls[0].options.headers.Authorization, "Bearer secret-token-value");
+  assert.deepEqual(JSON.parse(calls[0].options.body), { files: cloudflarePurgeUrls("https://ai.example.net") });
+
+  assert.equal(await purgeCloudflareCache(
+    { mode: "everything", zoneId: zone, apiToken: "secret-token-value", baseUrl: null },
+    { fetchImpl: okFetch, log },
+  ), true);
+  assert.deepEqual(JSON.parse(calls[1].options.body), { purge_everything: true });
+
+  assert.ok(lines.every((line) => !String(line).includes("secret-token-value")));
+});
+
+test("Cloudflare purge retries transient failures but not rejected credentials", async () => {
+  const zone = "c".repeat(32);
+  const config = { mode: "everything", zoneId: zone, apiToken: "secret-token-value", baseUrl: null };
+  const lines = [];
+  const log = { log: (line) => lines.push(line), error: (line) => lines.push(line) };
+  const noSleep = async () => {};
+
+  // A 403 is a configuration problem: one call, no retries.
+  let denied = 0;
+  const deniedFetch = async () => {
+    denied++;
+    return {
+      ok: false, status: 403,
+      json: async () => ({ success: false, errors: [{ code: 9109, message: "Unauthorized to access requested resource" }] }),
+    };
+  };
+  assert.equal(await purgeCloudflareCache(config, { fetchImpl: deniedFetch, log, sleep: noSleep }), false);
+  assert.equal(denied, 1);
+  assert.ok(lines.some((line) => String(line).includes("9109")));
+
+  // Server errors and network failures retry up to the attempt budget.
+  let flaky = 0;
+  const flakyFetch = async () => {
+    flaky++;
+    if (flaky < 3) throw new Error("connect timeout");
+    return { ok: true, status: 200, json: async () => ({ success: true }) };
+  };
+  assert.equal(await purgeCloudflareCache(config, { fetchImpl: flakyFetch, log, sleep: noSleep }), true);
+  assert.equal(flaky, 3);
+
+  let down = 0;
+  const downFetch = async () => {
+    down++;
+    return { ok: false, status: 500, json: async () => ({ success: false, errors: [] }) };
+  };
+  assert.equal(await purgeCloudflareCache(config, { fetchImpl: downFetch, log, sleep: noSleep, attempts: 2 }), false);
+  assert.equal(down, 2);
+  assert.ok(lines.every((line) => !String(line).includes("secret-token-value")));
 });

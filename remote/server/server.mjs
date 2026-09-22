@@ -908,6 +908,119 @@ export function readTrustProxy(environment = process.env) {
   return environment.TRUST_PROXY?.trim() === "1";
 }
 
+// --- Cloudflare cache purge on startup ---
+// A deploy replaces the viewer shell, but a caching proxy in front of the
+// relay keeps serving the old files until its edge TTL expires. When enabled,
+// the container asks Cloudflare to drop those cached copies once at startup,
+// so a deploy is visible immediately.
+const CLOUDFLARE_API_BASE = "https://api.cloudflare.com/client/v4";
+const CLOUDFLARE_ZONE_ID_RE = /^[a-f0-9]{32}$/i;
+
+// Broken configuration stops startup instead of silently skipping the purge,
+// like the VAPID settings: an operator who asked for it must not believe it
+// runs while it quietly does nothing.
+export function readCloudflarePurgeConfig(environment = process.env) {
+  const mode = (environment.CLOUDFLARE_PURGE_ON_START ?? "").trim().toLowerCase();
+  if (mode === "" || mode === "0" || mode === "off") return null;
+  if (mode !== "files" && mode !== "everything") {
+    throw new Error('CLOUDFLARE_PURGE_ON_START must be "files", "everything", "off" or unset');
+  }
+
+  const zoneId = (environment.CLOUDFLARE_ZONE_ID ?? "").trim();
+  if (!CLOUDFLARE_ZONE_ID_RE.test(zoneId)) {
+    throw new Error("CLOUDFLARE_PURGE_ON_START is set, but CLOUDFLARE_ZONE_ID is missing or is not a 32-character hex zone id");
+  }
+
+  const apiToken = (environment.CLOUDFLARE_API_TOKEN ?? "").trim();
+  if (apiToken === "") {
+    throw new Error("CLOUDFLARE_PURGE_ON_START is set, but CLOUDFLARE_API_TOKEN is missing");
+  }
+
+  let baseUrl = null;
+  if (mode === "files") {
+    const raw = (environment.PUBLIC_BASE_URL ?? "").trim();
+    let parsed;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      throw new Error('CLOUDFLARE_PURGE_ON_START="files" requires PUBLIC_BASE_URL, the address readers use (e.g. https://ai.yaaps.net)');
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new Error("PUBLIC_BASE_URL must be an http(s) URL");
+    }
+    if ((parsed.pathname !== "/" && parsed.pathname !== "") || parsed.search !== "" || parsed.hash !== "") {
+      // The viewer is served from the root, so a path here would purge
+      // addresses that are never actually served.
+      throw new Error("PUBLIC_BASE_URL must be an origin without a path, query or fragment");
+    }
+    baseUrl = parsed.origin;
+  }
+
+  return { mode, zoneId, apiToken, baseUrl };
+}
+
+// The exact addresses the relay serves the shell from; nothing else on the
+// zone is touched. Well under Cloudflare's 30-URLs-per-request limit.
+export function cloudflarePurgeUrls(baseUrl) {
+  const paths = ["/", "/config.js", ...ASSET_DEFINITIONS.map((definition) => definition.path)];
+  return paths.map((path) => baseUrl + path);
+}
+
+export async function purgeCloudflareCache(config, {
+  fetchImpl = fetch,
+  log = console,
+  attempts = 3,
+  delayMs = 2_000,
+  sleep = (ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)),
+} = {}) {
+  const body = config.mode === "everything"
+    ? { purge_everything: true }
+    : { files: cloudflarePurgeUrls(config.baseUrl) };
+  const url = `${CLOUDFLARE_API_BASE}/zones/${config.zoneId}/purge_cache`;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    let status = null;
+    let detail = "network error";
+    try {
+      const response = await fetchImpl(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${config.apiToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      status = response.status;
+      const result = await response.json().catch(() => null);
+      if (response.ok && result?.success === true) {
+        log.log(`Cloudflare cache purge (${config.mode}) succeeded.`);
+        return true;
+      }
+      // Cloudflare's own error rows name the problem (bad token, wrong zone,
+      // missing permission) better than the bare status code does.
+      detail = Array.isArray(result?.errors) && result.errors.length > 0
+        ? result.errors.map((error) => `${error.code}: ${error.message}`).join("; ")
+        : `HTTP ${status}`;
+    } catch (error) {
+      detail = error?.message ?? "network error";
+    }
+
+    // A rejected token or zone id will not heal by retrying.
+    if (status !== null && status >= 400 && status < 500 && status !== 429) {
+      log.error(`Cloudflare cache purge failed (${detail}); check the zone id and the token's cache-purge permission.`);
+      return false;
+    }
+
+    if (attempt < attempts) {
+      log.error(`Cloudflare cache purge attempt ${attempt} failed (${detail}); retrying.`);
+      await sleep(delayMs * attempt);
+    } else {
+      log.error(`Cloudflare cache purge failed (${detail}); the viewer may serve stale files until the edge cache expires.`);
+    }
+  }
+  return false;
+}
+
 async function startFromEnvironment() {
   const here = dirname(fileURLToPath(import.meta.url));
   const port = readPositiveInteger("PORT", 8080);
@@ -928,6 +1041,9 @@ async function startFromEnvironment() {
   const vapidConfiguration = await ensureVapidConfiguration({
     path: resolveVapidKeyPath(databasePath),
   });
+  // Validated before the server starts so a broken purge configuration is a
+  // loud startup failure, not a silently skipped purge.
+  const cloudflarePurge = readCloudflarePurgeConfig();
   const app = createRemoteViewServer({
     databasePath,
     webRoot,
@@ -947,6 +1063,14 @@ async function startFromEnvironment() {
     app.server.listen(port, "0.0.0.0", resolveListen);
   });
   console.log(`Remote view listening on port ${port}`);
+
+  if (cloudflarePurge !== null) {
+    // Fire-and-forget: an unreachable Cloudflare API must not take the relay
+    // down with it. Failures are logged inside, loudly.
+    purgeCloudflareCache(cloudflarePurge).catch((error) => {
+      console.error("Cloudflare cache purge crashed", error);
+    });
+  }
 
   const shutdown = async () => {
     try {
