@@ -26,7 +26,9 @@ public sealed class JsonSessionActivationStateStoreTests : IDisposable
                 Attempts = 2,
                 NextAttemptAt = resetAt.AddMinutes(10),
                 Completed = false,
-                Succeeded = false
+                Succeeded = false,
+                LastActivationAttemptAt = resetAt.AddMinutes(1),
+                LastSuccessfulActivationAt = resetAt.AddMinutes(2)
             }
         };
 
@@ -41,6 +43,8 @@ public sealed class JsonSessionActivationStateStoreTests : IDisposable
         Assert.Equal(2, checkpoint.Attempts);
         Assert.Equal(resetAt.AddMinutes(10), checkpoint.NextAttemptAt);
         Assert.False(checkpoint.Completed);
+        Assert.Equal(resetAt.AddMinutes(1), checkpoint.LastActivationAttemptAt);
+        Assert.Equal(resetAt.AddMinutes(2), checkpoint.LastSuccessfulActivationAt);
         Assert.False(File.Exists(Path.Combine(_root, "costats", "session-activation-state.json.tmp")));
     }
 
