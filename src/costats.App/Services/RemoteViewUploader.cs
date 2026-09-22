@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -141,8 +142,10 @@ namespace costats.App.Services
 
         /// <summary>
         /// The upload endpoint, or null when none is configured or the user's
-        /// override fails the https rule. Warns once per session about a
-        /// rejected override so the feature does not just look broken.
+        /// override fails the https rule. A rejected override disables uploads
+        /// rather than falling back to the built-in endpoint, so the snapshot
+        /// never goes somewhere the user configured away from. Warns once per
+        /// session so the feature does not just look broken.
         /// </summary>
         private string? ResolveUploadUrl()
         {
@@ -154,7 +157,7 @@ namespace costats.App.Services
                 Interlocked.Exchange(ref _warnedAboutRejectedUrl, 1) == 0)
             {
                 Log.Warning(
-                    "Remote view upload URL is not https and was ignored; using the built-in endpoint instead");
+                    "Remote view upload URL is not https; uploads stay off until it is fixed or cleared");
             }
 
             return resolved;
@@ -184,7 +187,10 @@ namespace costats.App.Services
             var url = $"{uploadUrl.TrimEnd('/')}/u/{writeId}";
             try
             {
-                using var response = await _http.DeleteAsync(url).ConfigureAwait(false);
+                using var request = new HttpRequestMessage(HttpMethod.Delete, url);
+                Sign(request, string.Empty);
+
+                using var response = await _http.SendAsync(request).ConfigureAwait(false);
                 if (response.IsSuccessStatusCode)
                 {
                     return true;
@@ -201,6 +207,37 @@ namespace costats.App.Services
             }
         }
 
+        /// <summary>
+        /// Adds the remote-view signing headers. The relay never requires them:
+        /// they buy a larger share of its per-address write budget, and an older
+        /// relay ignores them, so signing can only ever help. Failing to sign is
+        /// therefore not a reason to skip the upload.
+        /// </summary>
+        private void Sign(HttpRequestMessage request, string body)
+        {
+            try
+            {
+                var timestamp = RemoteViewSignature.Timestamp(DateTimeOffset.UtcNow);
+                var signature = RemoteViewSignature.Sign(
+                    _settings.EffectiveRemoteViewSigningKey,
+                    timestamp,
+                    request.Method.Method,
+                    request.RequestUri!.AbsolutePath,
+                    body);
+
+                request.Headers.TryAddWithoutValidation(
+                    RemoteViewSignature.TimestampHeader,
+                    timestamp.ToString(CultureInfo.InvariantCulture));
+                request.Headers.TryAddWithoutValidation(
+                    RemoteViewSignature.SignatureHeader,
+                    signature);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Remote view request could not be signed; sending it unsigned");
+            }
+        }
+
         private async Task UploadAsync(string url, RemoteSnapshot snapshot)
         {
             try
@@ -209,7 +246,12 @@ namespace costats.App.Services
                 using var content = new StringContent(json, Encoding.UTF8);
                 content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
-                using var response = await _http.PutAsync(url, content).ConfigureAwait(false);
+                using var request = new HttpRequestMessage(HttpMethod.Put, url) { Content = content };
+                // The signature covers the exact bytes of the body, so it is
+                // taken over the serialized JSON that is about to be sent.
+                Sign(request, json);
+
+                using var response = await _http.SendAsync(request).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
 
                 _lastSuccessfulUpload = DateTimeOffset.UtcNow;

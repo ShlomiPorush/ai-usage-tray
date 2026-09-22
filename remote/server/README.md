@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.1.7
+ghcr.io/shlomiporush/ai-usage-tray:1.2.0
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -104,6 +104,95 @@ Either `503` marks the container `unhealthy`, so the usual restart and alerting 
 write probe result is reused for a few seconds, so polling the public endpoint cannot turn into a
 flood of database transactions.
 
+## Write throttling
+
+`PUT /u/{writeId}` is unauthenticated by design: any 32-hex id creates a row that lives for the
+seven-day TTL. A measured flood of 20,000 invented ids produced about 395 MB of stored rows, so the
+relay throttles writes per client address.
+
+**What actually protects the relay is the per-address limit.** Requests may carry a signature, and a
+valid one buys a much larger budget, but that is a tiering hint, not authentication. See the honest
+limits below before relying on it.
+
+### Request signing
+
+Two optional headers on `PUT /u/{writeId}` and `DELETE /u/{writeId}`:
+
+| Header | Value |
+| --- | --- |
+| `X-Costats-Timestamp` | Unix time in whole seconds. |
+| `X-Costats-Signature` | Lowercase hex HMAC-SHA256 over the canonical string, using the signing key. |
+
+The canonical string is five newline-separated fields:
+
+```text
+v1\n<timestamp>\n<METHOD>\n<path>\n<sha256hex(body)>
+```
+
+`METHOD` is uppercase, `path` is the request path without the query string, and the digest is taken
+over the raw request body exactly as sent (a `DELETE` has an empty body, so its digest is the
+SHA-256 of the empty string). A request counts as signed when the signature matches and the
+timestamp is within 300 seconds of the relay clock. Anything else, including a missing header, a
+malformed value, a stale timestamp, or a signature made with another key, is simply treated as
+unsigned. Nothing is rejected for being unsigned.
+
+Known-answer vector, asserted by both the relay tests and the desktop client tests:
+
+```text
+key       = ai-usage-tray-public-default-key-v1
+timestamp = 1767225600
+method    = PUT
+path      = /u/0123456789abcdef0123456789abcdef
+body      = {"version":2,"generatedAt":"2026-08-27T12:00:00Z","accounts":[]}
+sha256hex(body)
+          = f7d294d301e5c845b8ff9f6d4da1888a94e90bde065fbd3d4ab33b6c74eead9d
+signature = 550e42d03d30c657c7a483a2a7b7c91e63e2f0aeb49e7a8bf1feb9366b915cb0
+```
+
+`SNAPSHOT_SIGNING_KEY` sets the key. When it is unset the relay uses the built-in default shown
+above, which is also the default compiled into the desktop app.
+
+**That default key is published in this repository, so it is public knowledge.** A signature made
+with it proves only that the sender implemented this format. It stops naive scripted floods and lets
+a real client be told apart from one, and that is all it is for. It is worth setting a private
+`SNAPSHOT_SIGNING_KEY` only on a relay whose desktop clients are all configured with the same value
+(`Costats:RemoteView:SigningKey` in the app's `appsettings.json`); on that relay every other client
+falls to the strict budget. On the shared public relay the key separates nothing.
+
+### Per-address limits
+
+Writes are counted per client address in a fixed one-minute window, with one counter per address
+whatever the tier. The limit applied is the one for the current request, so the most any single
+address can push through in a minute is the larger of the two limits, not their sum. Only accepted
+writes are counted, so a client stuck on the strict budget cannot lock out a correctly signed write
+from the same address. Over the limit the relay answers:
+
+```text
+429 Retry-After: <seconds>
+{"error":"rate_limited","retryAfterSeconds":<seconds>}
+```
+
+The desktop app uploads at most once a minute, so the strict default of ten is far above any real
+single user and existing unsigned clients keep working unchanged. The counters live in memory only:
+they are per process, they reset on restart, and the map is pruned every request and capped at
+20,000 live entries.
+
+### Client address and reverse proxies
+
+By default the counter keys on the socket peer address, the one value a client cannot choose. The
+container is published on loopback and normally runs behind a reverse proxy, which would make every
+request share the proxy's address, so the shipped Compose file sets `TRUST_PROXY=1`; the relay then
+keys on the **last** `X-Forwarded-For` entry, the one appended by the proxy directly in front of the
+container. Earlier entries are whatever the caller sent and are ignored, so a forged header cannot
+mint a fresh address per request. This is correct for exactly one trusted proxy, whether it appends
+to or replaces the incoming header (Caddy, nginx and Traefik append by default; no proxy
+configuration change is needed). Set `TRUST_PROXY=0` when nothing is in front of the container, and
+keep it `0` if there are ever two chained proxies, since then the last entry is the inner proxy's
+address, not the client's.
+
+Keeping an edge rate limit for `/u/` at Cloudflare or in the proxy is still worthwhile. The relay
+limit is a floor that survives a misconfigured edge, not a replacement for one.
+
 ### Environment variables
 
 | Variable | Default | Purpose |
@@ -116,6 +205,10 @@ flood of database transactions.
 | `VAPID_KEY_PATH` | `<data dir>/vapid.json` | Absolute path of the generated push signing key. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | unset | Managed key pair; overrides the key file. |
 | `PUSH_ENDPOINT_ALLOWED_HOSTS` | built-in list | Replaces the accepted push-service host list. |
+| `SNAPSHOT_SIGNING_KEY` | public default key | HMAC key for write signatures. Public unless every client is reconfigured. |
+| `UNSIGNED_PUT_PER_MINUTE` | `10` | Writes per minute per address without a valid signature. |
+| `SIGNED_PUT_PER_MINUTE` | `120` | Writes per minute per address with a valid signature. |
+| `TRUST_PROXY` | `0` (`1` in the shipped Compose file) | `1` keys the limit on the last `X-Forwarded-For` entry (the one the proxy appended). |
 
 The first successful Container workflow creates the GitHub package. Confirm once in the package
 settings that its visibility is **Public**. Public GHCR images can be pulled anonymously. If it is
@@ -166,7 +259,8 @@ Migration for an existing deployment: replace the local `compose.yaml` with the 
 now has `CHOWN`. Only a deployment that pins `user:` in its own Compose file has to keep the data
 directory writable by that UID (`chown -R <uid>:<gid> data`).
 
-Example Caddy configuration:
+Example Caddy configuration. Caddy's default forwarding is fine: the relay reads the last
+`X-Forwarded-For` entry, which is the one Caddy appends.
 
 ```caddyfile
 ai.yaaps.net {
@@ -218,8 +312,8 @@ only when more than half of its pages are free and it is larger than 32 MB. `jou
 | `GET` | `/health` | Reads and writes SQLite. `200 {"status":"ok"}`, or `503` when degraded. |
 | `GET` | `/version` | Returns the deployed remote-view version shown in the viewer. |
 | `GET` | `/push/vapid-public-key` | Returns the public VAPID key used for browser subscriptions. |
-| `PUT` | `/u/{writeId}` | Validates and stores a snapshot. Returns `204` and `X-Read-Id`. |
-| `DELETE` | `/u/{writeId}` | Deletes a snapshot. Always returns `204` for a valid ID. |
+| `PUT` | `/u/{writeId}` | Validates and stores a snapshot. Returns `204` and `X-Read-Id`, or `429` over the write limit. |
+| `DELETE` | `/u/{writeId}` | Deletes a snapshot. Returns `204` for a valid ID, or `429` over the write limit. |
 | `GET` | `/u/{readId}` | Returns unexpired JSON or `404 {"error":"not_found"}`. |
 | `POST` | `/u/{readId}/push-subscription` | Registers this browser for the shared view. |
 | `DELETE` | `/u/{readId}/push-subscription` | Removes this browser subscription. |
@@ -228,6 +322,10 @@ only when more than half of its pages are free and it is larger than 32 MB. `jou
 
 Bodies must use `application/json` and must not exceed 16 KB. Payload validation, security headers,
 ID derivation, the seven-day TTL, and error bodies match the Cloudflare Worker implementation.
+
+Write signing and the per-address write limit exist only here. The Worker ignores the two signing
+headers, which is compatible in both directions because neither implementation ever requires them:
+a client that signs is accepted by the Worker as an ordinary unsigned request.
 
 The write ID remains a lowercase 32-character hex secret. The public read ID is:
 
