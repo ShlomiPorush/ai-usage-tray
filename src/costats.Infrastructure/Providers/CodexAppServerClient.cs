@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using costats.Core.Shell;
 
 namespace costats.Infrastructure.Providers;
 
@@ -278,6 +279,9 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
         var startInfo = new ProcessStartInfo
         {
             FileName = _codexExecutable,
+            // Pin a trusted rooted working directory so the child does not
+            // inherit or search an attacker-writable current directory.
+            WorkingDirectory = SystemExecutables.TrustedWorkingDirectory,
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,

@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using costats.Core.Pulse;
+using costats.Core.Shell;
 
 namespace costats.Infrastructure.Providers;
 
@@ -265,6 +266,9 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             {
                 FileName = claudePath,
                 Arguments = "/status",
+                // Pin to a trusted rooted directory so the CLI does not inherit
+                // and search an attacker-writable current directory.
+                WorkingDirectory = SystemExecutables.TrustedWorkingDirectory,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
@@ -351,8 +355,14 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             using var process = new Process();
             process.StartInfo = new ProcessStartInfo
             {
-                FileName = OperatingSystem.IsWindows() ? "where" : "which",
+                // On Windows use the absolute System32 where.exe and pin its
+                // working directory: a bare "where" is itself hijackable from
+                // the current directory, and where.exe searches its own current
+                // directory first, so a poisoned cwd would return a planted
+                // claude.exe. Off Windows fall back to bare "which".
+                FileName = OperatingSystem.IsWindows() ? SystemExecutables.Where : "which",
                 Arguments = "claude",
+                WorkingDirectory = SystemExecutables.TrustedWorkingDirectory,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true
@@ -369,7 +379,9 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                 .Select(line => line.Trim())
                 .FirstOrDefault(line => line.Length > 0);
 
-            if (!string.IsNullOrWhiteSpace(output) && File.Exists(output))
+            // Only trust a fully rooted path that exists. A relative result
+            // would be resolved against the current directory when launched.
+            if (!string.IsNullOrWhiteSpace(output) && Path.IsPathRooted(output) && File.Exists(output))
             {
                 return output;
             }

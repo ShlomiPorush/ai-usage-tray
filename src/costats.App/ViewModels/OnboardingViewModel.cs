@@ -445,7 +445,9 @@ public sealed partial class OnboardingViewModel : ObservableObject, IObserver<Pu
         {
             var startInfo = new ProcessStartInfo
             {
-                FileName = "powershell.exe",
+                // Absolute System32 path so a bare image name cannot be
+                // hijacked from the current directory or PATH.
+                FileName = SystemExecutables.PowerShell,
                 UseShellExecute = true,
                 WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
             };

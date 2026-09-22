@@ -11,6 +11,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Reflection;
+using costats.Core.Shell;
 
 namespace costats.App.Services.Updates;
 
@@ -139,7 +140,11 @@ public sealed class StartupUpdateCoordinator
 
             var psi = new ProcessStartInfo
             {
-                FileName = "powershell",
+                // Absolute System32 path and a pinned working directory: a bare
+                // "powershell" image name would let an attacker-writable current
+                // directory or PATH entry supply the interpreter.
+                FileName = SystemExecutables.PowerShell,
+                WorkingDirectory = SystemExecutables.TrustedWorkingDirectory,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden
