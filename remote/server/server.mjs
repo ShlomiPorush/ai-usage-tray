@@ -6,6 +6,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { findResetAlerts, findThresholdCrossings } from "../shared/usage-alerts.mjs";
 import {
+  MAX_CLOCK_SKEW_SECONDS,
+  resolveSigningKey,
+  SIGNATURE_HEADER,
+  TIMESTAMP_HEADER,
+  verifyRequestSignature,
+} from "../shared/request-signing.mjs";
+import {
   parsePushEndpointHosts,
   sendWebPush,
   validatePushSubscription,
@@ -45,8 +52,8 @@ const CONFIG_BODY = 'window.REMOTE_VIEW_CONFIG = { apiBase: "" };\n';
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, PUT, POST, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Expose-Headers": "X-Read-Id",
+  "Access-Control-Allow-Headers": `Content-Type, ${TIMESTAMP_HEADER}, ${SIGNATURE_HEADER}`,
+  "Access-Control-Expose-Headers": "X-Read-Id, Retry-After",
 };
 
 const SECURITY = {
@@ -127,6 +134,110 @@ export function resolveVapidKeyPath(databasePath, environment = process.env) {
     return configured;
   }
   return databasePath === ":memory:" ? null : join(dirname(databasePath), "vapid.json");
+}
+
+// Every write to /u/{writeId} creates or refreshes a row that lives for the
+// whole TTL, and the endpoint is unauthenticated by design, so a scripted flood
+// of invented ids is the one way to turn this service into storage. The limit
+// below is the actual defence; the signature only decides which budget applies.
+export const RATE_LIMIT_WINDOW_MS = 60_000;
+export const DEFAULT_UNSIGNED_WRITES_PER_MINUTE = 10;
+export const DEFAULT_SIGNED_WRITES_PER_MINUTE = 120;
+
+// One entry is a short string key and two numbers. The cap exists so a spray
+// across many source addresses cannot grow the map without bound; reaching it
+// drops the oldest entries, which at worst forgives some counted requests.
+export const MAX_RATE_LIMIT_BUCKETS = 20_000;
+
+/**
+ * Fixed one-minute window per client, with the limit chosen per request.
+ *
+ * A single bucket per client counts every write, whatever its tier, so the
+ * total a client can push through in a minute is the largest configured limit
+ * and not the sum of both. Only accepted writes are counted: a client already
+ * over the strict budget cannot keep inflating the counter and lock out a
+ * correctly signed request from the same address.
+ */
+export class WriteRateLimiter {
+  constructor({ windowMs = RATE_LIMIT_WINDOW_MS, maxBuckets = MAX_RATE_LIMIT_BUCKETS } = {}) {
+    this.windowMs = windowMs;
+    this.maxBuckets = maxBuckets;
+    this.buckets = new Map();
+  }
+
+  get size() {
+    return this.buckets.size;
+  }
+
+  /** Forgets windows that have already elapsed. */
+  prune(now) {
+    for (const [key, bucket] of this.buckets) {
+      if (now - bucket.startedAt >= this.windowMs) this.buckets.delete(key);
+    }
+  }
+
+  /**
+   * Returns `{ allowed, retryAfterSeconds, count }`. `retryAfterSeconds` is the
+   * whole number of seconds until the current window ends, never below 1.
+   */
+  check(key, limit, now) {
+    this.prune(now);
+
+    let bucket = this.buckets.get(key);
+    if (bucket === undefined || now - bucket.startedAt >= this.windowMs) {
+      bucket = { startedAt: now, count: 0 };
+      this.buckets.set(key, bucket);
+    }
+
+    if (bucket.count >= limit) {
+      const remaining = this.windowMs - (now - bucket.startedAt);
+      return {
+        allowed: false,
+        count: bucket.count,
+        retryAfterSeconds: Math.max(1, Math.ceil(remaining / 1000)),
+      };
+    }
+
+    bucket.count += 1;
+
+    // Pruning already removed everything stale, so anything left is live and
+    // the oldest insertion is the least bad thing to forget.
+    while (this.buckets.size > this.maxBuckets) {
+      const oldest = this.buckets.keys().next();
+      if (oldest.done || oldest.value === key) break;
+      this.buckets.delete(oldest.value);
+    }
+
+    return { allowed: true, count: bucket.count, retryAfterSeconds: 0 };
+  }
+}
+
+/**
+ * The address the rate limit is keyed on. The socket peer is the only value a
+ * client cannot choose, so it is the default. Behind a reverse proxy every
+ * request would share the proxy's address, so `TRUST_PROXY=1` switches to the
+ * first `X-Forwarded-For` entry instead: correct only when a proxy you control
+ * rewrites that header, and an open door for limit evasion when it does not.
+ */
+export function resolveClientAddress(request, { trustProxy = false } = {}) {
+  if (trustProxy) {
+    const header = request?.headers?.["x-forwarded-for"];
+    const raw = Array.isArray(header) ? header[0] : header;
+    const first = typeof raw === "string" ? raw.split(",")[0].trim() : "";
+    if (first !== "") return normalizeAddress(first);
+  }
+  return normalizeAddress(request?.socket?.remoteAddress ?? "") || "unknown";
+}
+
+// "::ffff:203.0.113.7" and "203.0.113.7" are the same client, and a forwarded
+// entry may arrive bracketed or with a port.
+function normalizeAddress(value) {
+  let address = value.trim().toLowerCase();
+  const bracketed = /^\[(.+)\](?::\d+)?$/.exec(address);
+  if (bracketed) address = bracketed[1];
+  else if (/^\d{1,3}(\.\d{1,3}){3}:\d+$/.test(address)) address = address.slice(0, address.lastIndexOf(":"));
+  if (address.startsWith("::ffff:") && address.includes(".")) address = address.slice(7);
+  return address;
 }
 
 export class SnapshotStore {
@@ -469,6 +580,12 @@ export function createRemoteViewServer({
   vapidConfiguration = null,
   allowedEndpointHosts = null,
   pushSender = sendWebPush,
+  signingKey = resolveSigningKey(),
+  unsignedWritesPerMinute = DEFAULT_UNSIGNED_WRITES_PER_MINUTE,
+  signedWritesPerMinute = DEFAULT_SIGNED_WRITES_PER_MINUTE,
+  maxClockSkewSeconds = MAX_CLOCK_SKEW_SECONDS,
+  rateLimitWindowMs = RATE_LIMIT_WINDOW_MS,
+  trustProxy = false,
 } = {}) {
   if (!databasePath) throw new Error("databasePath is required");
   if (!webRoot || !existsSync(join(webRoot, "index.html"))) {
@@ -485,6 +602,44 @@ export function createRemoteViewServer({
 
   // Empty or unset keeps the built-in browser push-service list.
   const pushOptions = { allowedEndpointHosts: allowedEndpointHosts ?? undefined };
+
+  const writeLimiter = new WriteRateLimiter({ windowMs: rateLimitWindowMs });
+
+  /**
+   * Decides whether a write to /u/{writeId} may proceed, and answers 429 itself
+   * when it may not. Unsigned requests keep working exactly as before as long
+   * as they fit the strict budget, which a desktop app uploading once a minute
+   * never approaches.
+   */
+  async function admitWrite(request, response, { method, path, body }) {
+    const verification = await verifyRequestSignature({
+      key: signingKey,
+      timestamp: request.headers[TIMESTAMP_HEADER.toLowerCase()],
+      signature: request.headers[SIGNATURE_HEADER.toLowerCase()],
+      method,
+      path,
+      body,
+      nowSeconds: now() / 1000,
+      maxSkewSeconds: maxClockSkewSeconds,
+    });
+
+    const limit = verification.signed ? signedWritesPerMinute : unsignedWritesPerMinute;
+    const address = resolveClientAddress(request, { trustProxy });
+    const verdict = writeLimiter.check(address, limit, now());
+    if (verdict.allowed) return true;
+
+    writeHead(response, 429, {
+      ...CORS,
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+      "Retry-After": String(verdict.retryAfterSeconds),
+    });
+    response.end(JSON.stringify({
+      error: "rate_limited",
+      retryAfterSeconds: verdict.retryAfterSeconds,
+    }));
+    return false;
+  }
 
   let writeProbe = { at: null, writable: true };
   function probeWritable(at) {
@@ -653,6 +808,8 @@ export function createRemoteViewServer({
 
       const readId = deriveReadId(id);
       if (method === "DELETE") {
+        // A DELETE carries no body, so its canonical string is fixed.
+        if (!await admitWrite(request, response, { method, path, body: "" })) return;
         store.delete(readId);
         return sendEmpty(response, 204, { "X-Read-Id": readId });
       }
@@ -660,6 +817,11 @@ export function createRemoteViewServer({
       const parsed = await readJsonRequest(request, response);
       if (parsed === null) return;
       const { body, data } = parsed;
+
+      // The signature covers the raw body, so the tier is only known once the
+      // body has been read. Reading is already capped at MAX_BODY, and what the
+      // limit protects is the stored row, not the parse.
+      if (!await admitWrite(request, response, { method, path, body })) return;
 
       const reason = validatePayload(data);
       if (reason !== null) {
@@ -718,7 +880,7 @@ export function createRemoteViewServer({
     store.close();
   }
 
-  return { server, store, close };
+  return { server, store, writeLimiter, close };
 }
 
 // Replaces the built-in push-service host list when set, for operators who run
@@ -737,6 +899,11 @@ function readPositiveInteger(name, fallback) {
   return value;
 }
 
+// Only behind a proxy you control. See resolveClientAddress.
+export function readTrustProxy(environment = process.env) {
+  return environment.TRUST_PROXY?.trim() === "1";
+}
+
 async function startFromEnvironment() {
   const here = dirname(fileURLToPath(import.meta.url));
   const port = readPositiveInteger("PORT", 8080);
@@ -746,6 +913,14 @@ async function startFromEnvironment() {
   const cleanupIntervalMs = readPositiveInteger("CLEANUP_INTERVAL_SECONDS", 3600) * 1000;
   const runtimeVersion = readFileSync(join(here, "VERSION"), "utf8").trim();
   const allowedEndpointHosts = readAllowedEndpointHosts();
+  const unsignedWritesPerMinute = readPositiveInteger(
+    "UNSIGNED_PUT_PER_MINUTE",
+    DEFAULT_UNSIGNED_WRITES_PER_MINUTE,
+  );
+  const signedWritesPerMinute = readPositiveInteger(
+    "SIGNED_PUT_PER_MINUTE",
+    DEFAULT_SIGNED_WRITES_PER_MINUTE,
+  );
   const vapidConfiguration = await ensureVapidConfiguration({
     path: resolveVapidKeyPath(databasePath),
   });
@@ -757,6 +932,10 @@ async function startFromEnvironment() {
     runtimeVersion,
     vapidConfiguration,
     allowedEndpointHosts,
+    signingKey: resolveSigningKey(process.env),
+    unsignedWritesPerMinute,
+    signedWritesPerMinute,
+    trustProxy: readTrustProxy(),
   });
 
   await new Promise((resolveListen, rejectListen) => {

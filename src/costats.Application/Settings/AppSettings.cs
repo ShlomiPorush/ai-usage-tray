@@ -339,6 +339,26 @@ public sealed class AppSettings
     public string? DefaultRemoteViewPageUrl { get; set; }
 
     /// <summary>
+    /// Key used to sign remote-view uploads, read at startup from
+    /// <c>appsettings.json</c> (<c>Costats:RemoteView:SigningKey</c>). Never
+    /// serialized, for the same reason as
+    /// <see cref="DefaultRemoteViewUploadUrl"/>. Blank or unset falls back to
+    /// <see cref="RemoteViewSignature.DefaultSigningKey"/>, which is public;
+    /// only a self-hosted relay configured with a matching
+    /// <c>SNAPSHOT_SIGNING_KEY</c> gains anything from a private value.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? DefaultRemoteViewSigningKey { get; set; }
+
+    /// <summary>
+    /// The signing key actually used. Never null: an unconfigured build signs
+    /// with the public default, which the relay still accepts.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string EffectiveRemoteViewSigningKey =>
+        RemoteViewSignature.ResolveKey(DefaultRemoteViewSigningKey);
+
+    /// <summary>
     /// Upload endpoint actually used: a hand-edited user value wins, otherwise
     /// the built-in default, otherwise null (remote view stays inert). A value
     /// that is not https (or http on loopback) counts as absent, so a bad

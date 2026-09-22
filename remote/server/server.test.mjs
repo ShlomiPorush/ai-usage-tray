@@ -13,6 +13,10 @@ import {
   SnapshotStore,
 } from "./server.mjs";
 import {
+  DEFAULT_SIGNING_KEY,
+  signRequest,
+} from "../shared/request-signing.mjs";
+import {
   base64UrlEncode,
   sendWebPush,
   validatePushSubscription,
@@ -108,6 +112,7 @@ beforeEach(async () => {
     baseUrl: `http://127.0.0.1:${address.port}`,
     pushCalls,
     vapidConfiguration,
+    nowMs: () => currentTime,
     advance(milliseconds) {
       currentTime += milliseconds;
     },
@@ -671,4 +676,179 @@ test("web push delivery refuses redirects, times out, and stays on allowed hosts
     { allowedEndpointHosts: ["push.example.test"] },
   ));
   assert.equal(requests.length, 2);
+});
+
+// --- Write signing and per-IP rate limiting -------------------------------
+
+const PUT_PATH = `/u/${WRITE_ID}`;
+
+/** A PUT with the two signing headers, computed over the body actually sent. */
+async function signedPut(
+  baseUrl,
+  { timestamp, body = PAYLOAD, key = DEFAULT_SIGNING_KEY, signature } = {},
+) {
+  return fetch(`${baseUrl}${PUT_PATH}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Costats-Timestamp": String(timestamp),
+      "X-Costats-Signature": signature ?? await signRequest({
+        key,
+        timestamp,
+        method: "PUT",
+        path: PUT_PATH,
+        body,
+      }),
+    },
+    body,
+  });
+}
+
+function unsignedPut(baseUrl, body = PAYLOAD) {
+  return fetch(`${baseUrl}${PUT_PATH}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+}
+
+test("unsigned uploads keep working and are capped at the strict per-IP budget", async () => {
+  // The existing client sends no headers at all. Ten a minute is far above the
+  // one upload a minute the desktop app makes, so nothing else changes for it.
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    const response = await unsignedPut(fixture.baseUrl);
+    assert.equal(response.status, 204, `attempt ${attempt}`);
+    assert.equal(response.headers.get("x-read-id"), READ_ID);
+  }
+
+  const refused = await unsignedPut(fixture.baseUrl);
+  assert.equal(refused.status, 429);
+  assert.equal(refused.headers.get("retry-after"), "60");
+  assert.deepEqual(await refused.json(), { error: "rate_limited", retryAfterSeconds: 60 });
+
+  // The refused write never reached storage.
+  assert.equal(await (await fetch(`${fixture.baseUrl}/u/${READ_ID}`)).text(), PAYLOAD);
+
+  fixture.advance(60_000);
+  assert.equal((await unsignedPut(fixture.baseUrl)).status, 204);
+});
+
+test("a valid signature earns the generous budget, and a broken one does not", async () => {
+  const seconds = () => Math.floor(fixture.nowMs() / 1000);
+
+  for (let attempt = 1; attempt <= 10; attempt += 1) {
+    assert.equal((await unsignedPut(fixture.baseUrl)).status, 204, `attempt ${attempt}`);
+  }
+  assert.equal((await unsignedPut(fixture.baseUrl)).status, 429);
+
+  // Same address, same minute: the signature is what moves it to the high tier.
+  const signed = await signedPut(fixture.baseUrl, { timestamp: seconds() });
+  assert.equal(signed.status, 204);
+  assert.equal(signed.headers.get("x-read-id"), READ_ID);
+
+  // A signature made with another key is not a signature here.
+  assert.equal(
+    (await signedPut(fixture.baseUrl, { timestamp: seconds(), key: "someone-elses-key" })).status,
+    429,
+  );
+  // Neither is a well-formed value that simply does not match.
+  assert.equal(
+    (await signedPut(fixture.baseUrl, { timestamp: seconds(), signature: "a".repeat(64) })).status,
+    429,
+  );
+  // A signature replayed outside the five-minute window drops to the strict tier.
+  assert.equal((await signedPut(fixture.baseUrl, { timestamp: seconds() - 301 })).status, 429);
+
+  // So does a signature taken over a different body.
+  const swappedBody = await fetch(`${fixture.baseUrl}${PUT_PATH}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Costats-Timestamp": String(seconds()),
+      "X-Costats-Signature": await signRequest({
+        timestamp: seconds(),
+        method: "PUT",
+        path: PUT_PATH,
+        body: PAYLOAD,
+      }),
+    },
+    body: PAYLOAD.replace('"remaining"', '"used"'),
+  });
+  assert.equal(swappedBody.status, 429);
+
+  // Inside the window a correctly signed write still goes through.
+  assert.equal((await signedPut(fixture.baseUrl, { timestamp: seconds() + 299 })).status, 204);
+});
+
+test("a signed flood is capped at its own budget", async () => {
+  const currentTime = Date.parse("2026-08-27T12:00:00Z");
+  const app = createRemoteViewServer({
+    databasePath: join(fixture.directory, "signed-limit.db"),
+    webRoot: WEB_ROOT,
+    now: () => currentTime,
+    cleanupIntervalMs: 0,
+    signedWritesPerMinute: 2,
+    unsignedWritesPerMinute: 1,
+  });
+  try {
+    await new Promise((listening) => app.server.listen(0, "127.0.0.1", listening));
+    const baseUrl = `http://127.0.0.1:${app.server.address().port}`;
+    const timestamp = Math.floor(currentTime / 1000);
+
+    assert.equal((await signedPut(baseUrl, { timestamp })).status, 204);
+    assert.equal((await signedPut(baseUrl, { timestamp })).status, 204);
+
+    const refused = await signedPut(baseUrl, { timestamp });
+    assert.equal(refused.status, 429);
+    assert.equal(refused.headers.get("retry-after"), "60");
+    assert.equal((await refused.json()).error, "rate_limited");
+
+    // One bucket per client, not one per tier.
+    assert.equal(app.writeLimiter.size, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("DELETE shares the write budget and accepts the same signature scheme", async () => {
+  const currentTime = Date.parse("2026-08-27T12:00:00Z");
+  const app = createRemoteViewServer({
+    databasePath: join(fixture.directory, "delete-limit.db"),
+    webRoot: WEB_ROOT,
+    now: () => currentTime,
+    cleanupIntervalMs: 0,
+    signedWritesPerMinute: 2,
+    unsignedWritesPerMinute: 1,
+  });
+  try {
+    await new Promise((listening) => app.server.listen(0, "127.0.0.1", listening));
+    const baseUrl = `http://127.0.0.1:${app.server.address().port}`;
+    const timestamp = Math.floor(currentTime / 1000);
+    const signature = await signRequest({
+      timestamp,
+      method: "DELETE",
+      path: PUT_PATH,
+      body: "",
+    });
+    const remove = (headers) => fetch(`${baseUrl}${PUT_PATH}`, { method: "DELETE", headers });
+
+    // One unsigned delete still works, exactly as before.
+    assert.equal((await remove()).status, 204);
+    assert.equal((await remove()).status, 429);
+
+    assert.equal((await remove({
+      "X-Costats-Timestamp": String(timestamp),
+      "X-Costats-Signature": signature,
+    })).status, 204);
+  } finally {
+    await app.close();
+  }
+});
+
+test("CORS advertises the signing headers and Retry-After", async () => {
+  const preflight = await fetch(`${fixture.baseUrl}${PUT_PATH}`, { method: "OPTIONS" });
+  assert.equal(preflight.status, 204);
+  assert.match(preflight.headers.get("access-control-allow-headers"), /X-Costats-Timestamp/);
+  assert.match(preflight.headers.get("access-control-allow-headers"), /X-Costats-Signature/);
+  assert.match(preflight.headers.get("access-control-expose-headers"), /Retry-After/);
 });

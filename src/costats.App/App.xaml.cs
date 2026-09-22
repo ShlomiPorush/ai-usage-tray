@@ -144,8 +144,9 @@ namespace costats.App
                 // to tick the checkbox. These are runtime-only defaults: they are
                 // never written back to settings.json, which lets a later release
                 // change the service.
-                settings.DefaultRemoteViewUploadUrl = ReadConfiguredUrl(startupConfiguration, "Costats:RemoteView:UploadUrl");
-                settings.DefaultRemoteViewPageUrl = ReadConfiguredUrl(startupConfiguration, "Costats:RemoteView:PageUrl");
+                settings.DefaultRemoteViewUploadUrl = ReadConfiguredValue(startupConfiguration, "Costats:RemoteView:UploadUrl");
+                settings.DefaultRemoteViewPageUrl = ReadConfiguredValue(startupConfiguration, "Costats:RemoteView:PageUrl");
+                settings.DefaultRemoteViewSigningKey = ReadConfiguredValue(startupConfiguration, "Costats:RemoteView:SigningKey");
 
                 // The ZIP install leaves no uninstall entry behind, so the app
                 // writes its own on every start. Idempotent, HKCU only, and it
@@ -398,8 +399,8 @@ namespace costats.App
             return value.Length == 0 ? null : value;
         }
 
-        /// <summary>Reads a URL from configuration, treating blank as "not shipped".</summary>
-        private static string? ReadConfiguredUrl(IConfiguration configuration, string key)
+        /// <summary>Reads a value from configuration, treating blank as "not shipped".</summary>
+        private static string? ReadConfiguredValue(IConfiguration configuration, string key)
         {
             var value = configuration[key];
             return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
