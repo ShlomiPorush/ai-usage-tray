@@ -63,23 +63,35 @@ namespace costats.App
             _singleInstance = new SingleInstanceCoordinator("costats");
             if (!_singleInstance.IsPrimary)
             {
+                // We did not create the single-instance mutex. Usually that means a
+                // genuine primary is already running, so we hand our activation to
+                // it and exit. But the mutex name is only same-user scoped: it can
+                // be squatted by another same-user process that is not this app, or
+                // left held by a primary that died without releasing it. In those
+                // cases nobody answers the activation pipe, so exiting would suppress
+                // the tray silently. We therefore exit only when the hand-off is
+                // accepted, and otherwise fall through and run as the primary.
                 _ = Task.Run(async () =>
                 {
-                    try
+                    var handedOff = await SingleInstanceCoordinator.TryHandoffToPrimaryAsync(
+                        _singleInstance.PipeName,
+                        ActivationMessage.ShowWidget,
+                        TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+
+                    await Dispatcher.InvokeAsync(() =>
                     {
-                        await SingleInstanceCoordinator.SignalPrimaryAsync(
-                            _singleInstance.PipeName,
-                            ActivationMessage.ShowWidget,
-                            TimeSpan.FromSeconds(2));
-                    }
-                    catch
-                    {
-                        // Ignore activation errors on secondary instances.
-                    }
-                    finally
-                    {
-                        Dispatcher.Invoke(() => Shutdown(0));
-                    }
+                        if (handedOff)
+                        {
+                            // A real primary received the activation; this instance is done.
+                            Shutdown(0);
+                        }
+                        else
+                        {
+                            Log.Warning(
+                                "Single-instance lock was held but no primary answered the activation pipe; starting anyway");
+                            _ = InitializeAsync();
+                        }
+                    });
                 });
                 return;
             }

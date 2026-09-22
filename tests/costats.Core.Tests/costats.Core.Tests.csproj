@@ -5,6 +5,10 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- This assembly compiles Windows-only app sources (named pipes in Message
+         mode, WindowsIdentity) and only ever runs on Windows, so the platform
+         compatibility analyzer's CA1416 notices here are expected. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
@@ -15,6 +19,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="ZXing.Net.Bindings.ImageSharp.V3" />
+    <PackageReference Include="Serilog" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/costats.Core/costats.Core.csproj" />
@@ -29,5 +34,9 @@
     <Compile Include="../../src/costats.App/Services/Updates/StartupUpdateCoordinator.cs" Link="Updates/StartupUpdateCoordinator.cs" />
     <Compile Include="../../src/costats.App/Services/Updates/WidgetUpdateAvailability.cs" Link="Updates/WidgetUpdateAvailability.cs" />
     <Compile Include="../../src/costats.App/ViewModels/ResetCreditsViewModel.cs" Link="ViewModels/ResetCreditsViewModel.cs" />
+    <!-- Single-instance coordinator: no WPF dependency, so it compiles here to
+         let the pipe hand-off and listener be exercised without launching WPF. -->
+    <Compile Include="../../src/costats.App/Services/ActivationMessage.cs" Link="Services/ActivationMessage.cs" />
+    <Compile Include="../../src/costats.App/Services/SingleInstanceCoordinator.cs" Link="Services/SingleInstanceCoordinator.cs" />
   </ItemGroup>
 </Project>
