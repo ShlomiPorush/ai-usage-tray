@@ -52,3 +52,11 @@ services:
       # the proxy's own address. Configure the proxy to REPLACE X-Forwarded-For
       # (see README.md); set 0 when nothing is in front of the container.
       - TRUST_PROXY=1
+      # Optional: purge the Cloudflare cache once at startup so a deploy is
+      # visible immediately. "files" purges only the viewer shell addresses
+      # under PUBLIC_BASE_URL; "everything" drops the zone's whole cache.
+      # The token needs the zone's Cache Purge permission; see README.md.
+      - CLOUDFLARE_PURGE_ON_START
+      - CLOUDFLARE_ZONE_ID
+      - CLOUDFLARE_API_TOKEN
+      - PUBLIC_BASE_URL

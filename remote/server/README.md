@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.3.0
+ghcr.io/shlomiporush/ai-usage-tray:1.4.0
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -209,6 +209,28 @@ limit is a floor that survives a misconfigured edge, not a replacement for one.
 | `UNSIGNED_PUT_PER_MINUTE` | `10` | Writes per minute per address without a valid signature. |
 | `SIGNED_PUT_PER_MINUTE` | `120` | Writes per minute per address with a valid signature. |
 | `TRUST_PROXY` | `0` (`1` in the shipped Compose file) | `1` keys the limit on the last `X-Forwarded-For` entry (the one the proxy appended). |
+| `CLOUDFLARE_PURGE_ON_START` | unset | `files` or `everything` purges the Cloudflare cache once at startup. See below. |
+| `CLOUDFLARE_ZONE_ID` | unset | Cloudflare zone id (32 hex characters). Required when the purge is enabled. |
+| `CLOUDFLARE_API_TOKEN` | unset | API token with the zone's **Cache Purge** permission. Required when the purge is enabled. Keep it secret. |
+| `PUBLIC_BASE_URL` | unset | The address readers use, e.g. `https://ai.yaaps.net`. Required for `files` mode. |
+
+### Cloudflare cache purge on startup
+
+When the relay sits behind Cloudflare, a new container keeps serving the previous viewer files from
+the edge cache until the cached copies expire. Setting `CLOUDFLARE_PURGE_ON_START` makes the
+container purge them once, right after it starts listening, so a deploy is visible immediately.
+
+- `files` purges exactly the shell addresses this relay serves (`/`, `index.html`, `app.js`,
+  `styles.css`, `sw.js`, `config.js`, the manifest and the icons) under `PUBLIC_BASE_URL`. Nothing
+  else on the zone is touched, so this is the right mode when the zone hosts other sites.
+- `everything` drops the zone's whole cache. Only use it on a zone dedicated to this relay.
+
+Create the token in the Cloudflare dashboard under **My Profile > API Tokens** with a single
+permission, `Zone > Cache Purge > Purge`, scoped to the one zone. The token is used only for the
+startup purge and is never logged. Incomplete configuration (a mode without a zone id, token, or,
+for `files`, `PUBLIC_BASE_URL`) stops startup with a clear error instead of silently skipping the
+purge. A purge that fails at runtime (Cloudflare unreachable, rejected token) is logged and retried
+a few times but never takes the relay down.
 
 The first successful Container workflow creates the GitHub package. Confirm once in the package
 settings that its visibility is **Public**. Public GHCR images can be pulled anonymously. If it is
