@@ -176,7 +176,10 @@ function asset(entry) {
 }
 
 export default {
-  async fetch(request, env) {
+  // The execution context must travel with the request: the API defers push
+  // delivery through context.waitUntil, and without it a threshold-crossing PUT
+  // would stay open until every notification had been sent.
+  async fetch(request, env, context) {
     if (request.method === "GET") {
       const path = new URL(request.url).pathname;
       const key = path === "/" ? "/index.html" : path;
@@ -185,7 +188,7 @@ export default {
       }
     }
     // /u/{id}, CORS preflight, and every 404/405 stay with the API logic above.
-    return api.fetch(request, env);
+    return api.fetch(request, env, context);
   },
 };
 `;
