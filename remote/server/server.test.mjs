@@ -894,15 +894,20 @@ test("Cloudflare purge config is off by default and rejects half-set configurati
 
 test("Cloudflare purge lists exactly the served shell addresses", () => {
   const urls = cloudflarePurgeUrls("https://ai.example.net");
-  assert.ok(urls.includes("https://ai.example.net/"));
-  assert.ok(urls.includes("https://ai.example.net/index.html"));
-  assert.ok(urls.includes("https://ai.example.net/app.js"));
-  assert.ok(urls.includes("https://ai.example.net/sw.js"));
-  assert.ok(urls.includes("https://ai.example.net/styles.css"));
-  assert.ok(urls.includes("https://ai.example.net/config.js"));
-  assert.ok(urls.includes("https://ai.example.net/manifest.webmanifest"));
-  assert.ok(urls.length <= 30, "Cloudflare accepts at most 30 URLs per purge request");
-  assert.ok(urls.every((url) => !url.includes("//u/")), "reader snapshots are no-store and never purged");
+  // Exactly the shell the relay serves: reader snapshots (/u/...) are
+  // no-store and never purged, and the list stays far under Cloudflare's
+  // 30-URLs-per-request limit.
+  assert.deepEqual([...urls].sort(), [
+    "https://ai.example.net/",
+    "https://ai.example.net/app.js",
+    "https://ai.example.net/config.js",
+    "https://ai.example.net/icon-192.png",
+    "https://ai.example.net/icon-512.png",
+    "https://ai.example.net/index.html",
+    "https://ai.example.net/manifest.webmanifest",
+    "https://ai.example.net/styles.css",
+    "https://ai.example.net/sw.js",
+  ]);
 });
 
 test("Cloudflare purge sends one authorized request per mode and never logs the token", async () => {
