@@ -857,6 +857,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         _pulseOrchestrator.RepublishLastState();
     }
 
+    public void SaveFloatingPanelSize(double width, double height)
+    {
+        _settings.FloatingPanelWidth = width;
+        _settings.FloatingPanelHeight = height;
+        SaveSettingsInBackground();
+    }
+
     partial void OnShowFloatingStatusPanelChanged(bool value)
     {
         _settings.ShowFloatingStatusPanel = value;
