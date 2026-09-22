@@ -46,6 +46,20 @@ public sealed class SessionActivationCheckpoint
     /// <summary>The initial attempt plus completed retries for this reset.</summary>
     public int Attempts { get; set; }
 
+    /// <summary>
+    /// When this app last ran an activation for the provider. Unlike
+    /// <see cref="ObservedResetAt"/> it is never rewritten by a provider
+    /// timestamp, so it is what limits how often activation can run.
+    /// </summary>
+    public DateTimeOffset LastActivationAttemptAt { get; set; }
+
+    /// <summary>
+    /// When this app last started a window successfully. No further activation
+    /// runs for the provider until a full window has passed, whatever reset
+    /// timestamp the provider reports meanwhile.
+    /// </summary>
+    public DateTimeOffset LastSuccessfulActivationAt { get; set; }
+
     public DateTimeOffset NextAttemptAt { get; set; }
 
     /// <summary>True after success or after the retry budget is exhausted.</summary>
