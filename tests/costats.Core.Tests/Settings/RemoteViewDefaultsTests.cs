@@ -29,6 +29,8 @@ public sealed class RemoteViewDefaultsTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
+    [InlineData("\t")]
+    [InlineData(" \t\r\n ")]
     public void Default_is_used_when_the_user_value_is_missing_or_blank(string? userValue)
     {
         var settings = new AppSettings
@@ -125,18 +127,61 @@ public sealed class RemoteViewDefaultsTests
     [InlineData("ftp://relay.example.com")]
     [InlineData("relay.example.com")]
     [InlineData("javascript:alert(1)")]
-    public void A_non_https_override_is_ignored_and_the_default_is_used(string badUrl)
+    [InlineData("   http://relay.example.com   ")]
+    public void A_rejected_override_turns_remote_view_off_instead_of_using_the_default(string badUrl)
     {
         var settings = new AppSettings
         {
+            RemoteViewEnabled = true,
+            RemoteViewId = WriteId,
             RemoteViewUploadUrl = badUrl,
             RemoteViewPageUrl = badUrl,
             DefaultRemoteViewUploadUrl = "https://relay.example.com",
             DefaultRemoteViewPageUrl = "https://view.example.com"
         };
 
+        // Falling back here would send the snapshot and the secret write id to
+        // the very service the user configured away from.
+        Assert.Null(settings.EffectiveRemoteViewUploadUrl);
+        Assert.Null(settings.EffectiveRemoteViewPageUrl);
+        Assert.Null(settings.RemoteViewShareLink);
+    }
+
+    [Fact]
+    public void A_rejected_upload_override_does_not_disturb_a_valid_page_url()
+    {
+        var settings = new AppSettings
+        {
+            RemoteViewEnabled = true,
+            RemoteViewId = WriteId,
+            RemoteViewUploadUrl = "http://nas.lan:8080",
+            RemoteViewPageUrl = "https://mine-page.example.com",
+            DefaultRemoteViewUploadUrl = "https://relay.example.com",
+            DefaultRemoteViewPageUrl = "https://view.example.com"
+        };
+
+        Assert.Null(settings.EffectiveRemoteViewUploadUrl);
+        Assert.Equal("https://mine-page.example.com", settings.EffectiveRemoteViewPageUrl);
+        Assert.Equal($"https://mine-page.example.com/?id={ReadId}", settings.RemoteViewShareLink);
+    }
+
+    [Fact]
+    public void A_rejected_page_override_leaves_no_share_link_to_hand_out()
+    {
+        var settings = new AppSettings
+        {
+            RemoteViewEnabled = true,
+            RemoteViewId = WriteId,
+            RemoteViewPageUrl = "http://view.example.com",
+            DefaultRemoteViewUploadUrl = "https://relay.example.com",
+            DefaultRemoteViewPageUrl = "https://view.example.com"
+        };
+
+        Assert.Null(settings.EffectiveRemoteViewPageUrl);
+        Assert.Null(settings.RemoteViewShareLink);
+
+        // The upload endpoint was never overridden, so it keeps the default.
         Assert.Equal("https://relay.example.com", settings.EffectiveRemoteViewUploadUrl);
-        Assert.Equal("https://view.example.com", settings.EffectiveRemoteViewPageUrl);
     }
 
     [Fact]

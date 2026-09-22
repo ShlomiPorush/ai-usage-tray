@@ -105,7 +105,7 @@ Optional and off by default. Enable it in Settings → Remote view and press **C
 
 Live demo: [https://ai.yaaps.net/?id=demo](https://ai.yaaps.net/?id=demo) (sample data, no account needed).
 
-Self-hosting is optional: pull the published SQLite-backed container from GitHub Container Registry ([remote/server/README.md](remote/server/README.md), serves both page and API) or host the page separately ([web/README.md](web/README.md)), then override `RemoteViewUploadUrl` / `RemoteViewPageUrl` in `settings.json`. The previous Cloudflare Worker remains documented as a temporary rollback option.
+Self-hosting is optional: pull the published SQLite-backed container from GitHub Container Registry ([remote/server/README.md](remote/server/README.md), serves both page and API) or host the page separately ([web/README.md](web/README.md)), then override `RemoteViewUploadUrl` / `RemoteViewPageUrl` in `settings.json`. Both must be https (or http on localhost); an override that is not stops remote view entirely instead of falling back to the built-in relay, so a typo can never send your snapshot somewhere you did not choose. Clear the value to go back to the built-in relay. The previous Cloudflare Worker remains documented as a temporary rollback option.
 
 ## Data sources & privacy
 - **OpenAI / Codex**: the official local `codex app-server` JSON-RPC method `account/rateLimits/read`, one short-lived process per account. The app never reads or copies account tokens; Codex owns authentication and refresh.
