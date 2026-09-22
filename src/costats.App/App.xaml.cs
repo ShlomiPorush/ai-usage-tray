@@ -601,6 +601,7 @@ namespace costats.App
                     services.AddSingleton<GlassWidgetWindow>();
                     services.AddSingleton<OnboardingWindow>();
                     services.AddSingleton<SettingsWindow>();
+                    services.AddSingleton<IFloatingPanelSettings>(sp => sp.GetRequiredService<SettingsViewModel>());
                     services.AddSingleton<TrayStatusPanelWindow>();
                     services.AddSingleton<UsageWindow>();
                     services.AddSingleton<TaskbarPositionService>();

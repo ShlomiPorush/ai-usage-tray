@@ -14,10 +14,17 @@ namespace costats.App.Services;
 /// </summary>
 internal static class TrayAccountRowsPresenter
 {
+    /// <param name="rowToolTips">
+    /// Adds the full row text as a tooltip. Only the resizable floating panel
+    /// wants this, where a narrow layout can ellipsis-trim the status text;
+    /// the hover popup already shows everything and a tooltip over a tooltip
+    /// would just duplicate it.
+    /// </param>
     public static void Rebuild(
         Panel panel,
         IReadOnlyList<TrayAccountRow> rows,
-        string emptyText = "No AI usage data available")
+        string emptyText = "No AI usage data available",
+        bool rowToolTips = false)
     {
         ArgumentNullException.ThrowIfNull(panel);
         ArgumentNullException.ThrowIfNull(rows);
@@ -35,9 +42,12 @@ internal static class TrayAccountRowsPresenter
         {
             var line = new Grid
             {
-                Margin = new Thickness(0, 2, 0, 2),
-                ToolTip = $"{row.Label}  {row.WindowsText}"
+                Margin = new Thickness(0, 2, 0, 2)
             };
+            if (rowToolTips)
+            {
+                line.ToolTip = $"{row.Label}  {row.WindowsText}";
+            }
             line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });

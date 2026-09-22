@@ -25,7 +25,7 @@ using System.Linq;
 
 namespace costats.App.ViewModels;
 
-public sealed partial class SettingsViewModel : ObservableObject
+public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanelSettings
 {
     private readonly ISettingsStore _settingsStore;
     private readonly AppSettings _settings;
@@ -863,6 +863,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         _settings.FloatingPanelHeight = height;
         SaveSettingsInBackground();
     }
+
+    public void HideFloatingPanel() => ShowFloatingStatusPanel = false;
 
     partial void OnShowFloatingStatusPanelChanged(bool value)
     {

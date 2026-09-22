@@ -11,6 +11,19 @@ using costats.App.Services;
 using costats.Application.Settings;
 using costats.Core.Tray;
 
+// Records the settings actions the panel performs, keeping the fixture
+// isolated from user settings and providers while every code path that
+// touches settings stays exercisable.
+class RecordingPanelSettings : IFloatingPanelSettings
+{
+    public readonly List<(double Width, double Height)> SavedSizes = [];
+    public int HideCalls;
+
+    public void SaveFloatingPanelSize(double width, double height) => SavedSizes.Add((width, height));
+
+    public void HideFloatingPanel() => HideCalls++;
+}
+
 class Program
 {
     [DllImport("user32.dll")]
@@ -31,7 +44,8 @@ class Program
             new TrayAccountRow("GPT", "Weekly 59% · 5.8d  |  Session 100% · 3h13m", 100),
             new TrayAccountRow("PA", "Weekly 20% · 4.5d", 20)
         };
-        var window = new TrayStatusPanelWindow(null!, new AppSettings());
+        var panelSettings = new RecordingPanelSettings();
+        var window = new TrayStatusPanelWindow(panelSettings, new AppSettings());
         window.Update(rows);
         var panel = (UniformGrid)window.FindName("StatusRowsPanel");
         Pump(window);
@@ -77,16 +91,40 @@ class Program
             Check(SendMessage(hwnd, 0x84, IntPtr.Zero, coordinates).ToInt32() == expected,
                 $"Native resize target at {position}");
         }
+        // The close button reaches into the right resize strip; a point on the
+        // button must hit the button, not start a horizontal resize.
+        var overClose = window.PointToScreen(new Point(window.ActualWidth - 5, 20));
+        Check(SendMessage(hwnd, 0x84, IntPtr.Zero,
+                new IntPtr(((int)overClose.Y << 16) | ((int)overClose.X & 0xffff))).ToInt32() != 11,
+            "The right resize edge must not cover the close button");
         // Enter/exit move without resizing must not try to persist dimensions.
-        // A null view model keeps the fixture isolated from user settings and providers.
         SendMessage(hwnd, 0x231, IntPtr.Zero, IntPtr.Zero);
         SendMessage(hwnd, 0x232, IntPtr.Zero, IntPtr.Zero);
         Check(window.IsManuallyPositioned, "A manually moved panel must not be re-anchored by the tray host");
+        Check(panelSettings.SavedSizes.Count == 0, "A move without a size change must not persist dimensions");
+        // An automatic size follows the number of accounts, so a freshly added
+        // provider never hides behind the scrollbar.
+        window.Update(rows.Take(2).ToArray());
+        Pump(window);
+        var twoRowHeight = window.Height;
+        window.Update(rows);
+        Pump(window);
+        Check(window.Height > twoRowHeight + 1, "An added account must grow an automatically sized panel");
+        // A size the user dragged is kept, persisted once, and survives account changes.
+        SendMessage(hwnd, 0x231, IntPtr.Zero, IntPtr.Zero);
+        window.Width = 500;
+        window.Height = 200;
+        Pump(window);
+        SendMessage(hwnd, 0x232, IntPtr.Zero, IntPtr.Zero);
+        Check(panelSettings.SavedSizes.Count == 1, "A drag that changed the size must persist it once");
+        window.Update(rows.Take(2).ToArray());
+        Pump(window);
+        Check(Math.Abs(window.Height - 200) < 1, "A user-chosen size must survive account changes");
         window.Update([]);
         Pump(window);
         Check(panel.Children.Count == 1, "Empty state remains visible");
         window.Close();
-        var restored = new TrayStatusPanelWindow(null!, new AppSettings
+        var restored = new TrayStatusPanelWindow(new RecordingPanelSettings(), new AppSettings
         {
             FloatingPanelWidth = 650,
             FloatingPanelHeight = 90
@@ -95,7 +133,7 @@ class Program
         Pump(restored);
         Check(Math.Abs(restored.Width - 650) < 1 && Math.Abs(restored.Height - 90) < 1, "Saved dimensions must restore");
         restored.Close();
-        var narrow = new TrayStatusPanelWindow(null!, new AppSettings
+        var narrow = new TrayStatusPanelWindow(new RecordingPanelSettings(), new AppSettings
         {
             FloatingPanelWidth = 462,
             FloatingPanelHeight = 79
@@ -113,7 +151,7 @@ class Program
             Check(Math.Abs(right - narrowPanel.ActualWidth) < 1, "Single-column text must fill the space before X without a trailing gutter");
         }
         narrow.Close();
-        var invalid = new TrayStatusPanelWindow(null!, new AppSettings
+        var invalid = new TrayStatusPanelWindow(new RecordingPanelSettings(), new AppSettings
         {
             FloatingPanelWidth = double.NaN,
             FloatingPanelHeight = -100
@@ -125,7 +163,7 @@ class Program
         Check(((UniformGrid)invalid.FindName("StatusRowsPanel")).Columns == 2,
             "Invalid saved dimensions and an initial empty state must recover to the default layout");
         invalid.Close();
-        Console.WriteLine("PASS: two-column default, narrow/wide reflow, refresh stability, native resize hit target, empty state, saved dimensions.");
+        Console.WriteLine("PASS: two-column default, narrow/wide reflow, refresh stability, native resize hit targets, close-button hit test, account-change auto-size, user-size latch and persistence, empty state, saved dimensions.");
     }
 
     static void Pump(Window window)

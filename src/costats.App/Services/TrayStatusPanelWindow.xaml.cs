@@ -4,10 +4,20 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using costats.Application.Settings;
-using costats.App.ViewModels;
 using costats.Core.Tray;
 
 namespace costats.App.Services;
+
+/// <summary>
+/// The two settings actions the floating panel performs. Narrower than the
+/// full settings view model so the panel can be exercised in isolation.
+/// </summary>
+public interface IFloatingPanelSettings
+{
+    void SaveFloatingPanelSize(double width, double height);
+
+    void HideFloatingPanel();
+}
 
 /// <summary>
 /// Movable status panel that stays above other windows. It is separate
@@ -24,23 +34,28 @@ public partial class TrayStatusPanelWindow : Window
     // Border (2), horizontal padding (15), close button (22), and button margin (2).
     private const double HorizontalChrome = 41;
 
-    private readonly SettingsViewModel _settingsViewModel;
-    private bool _hasSize;
+    private readonly IFloatingPanelSettings _settings;
+    // A size the user chose, by restoring saved dimensions or by dragging an
+    // edge, is kept forever. An automatic size is recomputed whenever the
+    // number of accounts changes, so a freshly added account never hides
+    // behind a scrollbar in a panel that froze on its first layout.
+    private bool _userSized;
+    private int _autoSizedRowCount = -1;
     private double _cellWidth = 360;
     private Size? _sizeBeforeMove;
 
     public bool IsManuallyPositioned { get; private set; }
 
-    public TrayStatusPanelWindow(SettingsViewModel settingsViewModel, AppSettings settings)
+    public TrayStatusPanelWindow(IFloatingPanelSettings settingsSink, AppSettings settings)
     {
         InitializeComponent();
-        _settingsViewModel = settingsViewModel;
+        _settings = settingsSink;
         if (settings.FloatingPanelWidth is { } width && double.IsFinite(width) && width >= MinWidth &&
             settings.FloatingPanelHeight is { } height && double.IsFinite(height) && height >= MinHeight)
         {
             Width = Math.Min(width, SystemParameters.WorkArea.Width);
             Height = Math.Min(height, SystemParameters.WorkArea.Height);
-            _hasSize = true;
+            _userSized = true;
         }
 
         SourceInitialized += (_, _) =>
@@ -54,7 +69,7 @@ public partial class TrayStatusPanelWindow : Window
     /// </summary>
     public bool Update(IReadOnlyList<TrayAccountRow> rows)
     {
-        TrayAccountRowsPresenter.Rebuild(StatusRowsPanel, rows);
+        TrayAccountRowsPresenter.Rebuild(StatusRowsPanel, rows, rowToolTips: true);
         _cellWidth = 0;
         foreach (FrameworkElement child in StatusRowsPanel.Children)
         {
@@ -66,7 +81,7 @@ public partial class TrayStatusPanelWindow : Window
         // Reserve the inter-column gap when measuring so the default layout does
         // not truncate the widest provider just to make room for its separator.
         _cellWidth = Math.Max(240, _cellWidth + ColumnGap);
-        if (!_hasSize)
+        if (!_userSized && rows.Count != _autoSizedRowCount)
         {
             var columns = Math.Min(2, Math.Max(1, rows.Count));
             Width = Math.Min(Math.Ceiling(_cellWidth * columns) + HorizontalChrome + 2, SystemParameters.WorkArea.Width);
@@ -76,7 +91,7 @@ public partial class TrayStatusPanelWindow : Window
                 .Max(child => child.DesiredSize.Height);
             Height = Math.Clamp(Math.Ceiling(Math.Max(1, rows.Count) / (double)columns) * Math.Ceiling(rowHeight) + 22,
                 MinHeight, Math.Max(MinHeight, SystemParameters.WorkArea.Height));
-            _hasSize = rows.Count > 0;
+            _autoSizedRowCount = rows.Count;
         }
         UpdateColumns();
 
@@ -102,14 +117,33 @@ public partial class TrayStatusPanelWindow : Window
 
     private void UpdateColumns()
     {
-        if (StatusScrollViewer.ActualWidth <= 0)
+        var width = StatusScrollViewer.ActualWidth;
+        var count = StatusRowsPanel.Children.Count;
+        if (width <= 0 || count == 0)
         {
             return;
         }
 
-        StatusRowsPanel.Columns = Math.Clamp(
-            (int)((StatusScrollViewer.ActualWidth + 1) / _cellWidth),
-            1, Math.Max(1, StatusRowsPanel.Children.Count));
+        var columns = Math.Clamp((int)((width + 1) / _cellWidth), 1, count);
+
+        // When the chosen layout overflows the viewport, the vertical
+        // scrollbar appears and narrows it, squeezing cells below the width
+        // the text was measured for. Recompute against the narrowed width in
+        // that case; deriving it from the layout rather than from the live
+        // viewport keeps the answer stable instead of feeding back on itself.
+        var rowHeight = StatusRowsPanel.Children.Cast<FrameworkElement>()
+            .Max(child => child.DesiredSize.Height);
+        var viewportHeight = StatusScrollViewer.ViewportHeight > 0
+            ? StatusScrollViewer.ViewportHeight
+            : StatusScrollViewer.ActualHeight;
+        if (Math.Ceiling(count / (double)columns) * rowHeight > viewportHeight + 1)
+        {
+            columns = Math.Clamp(
+                (int)((width - SystemParameters.VerticalScrollBarWidth + 1) / _cellWidth),
+                1, count);
+        }
+
+        StatusRowsPanel.Columns = columns;
 
         foreach (var (child, index) in StatusRowsPanel.Children.Cast<FrameworkElement>().Select((child, index) => (child, index)))
         {
@@ -137,8 +171,8 @@ public partial class TrayStatusPanelWindow : Window
             _sizeBeforeMove = null;
             if (originalSize != new Size(ActualWidth, ActualHeight))
             {
-                _hasSize = true;
-                _settingsViewModel.SaveFloatingPanelSize(ActualWidth, ActualHeight);
+                _userSized = true;
+                _settings.SaveFloatingPanelSize(ActualWidth, ActualHeight);
             }
         }
         else if (message == hitTest)
@@ -157,7 +191,10 @@ public partial class TrayStatusPanelWindow : Window
             var hit = top ? (left ? 13 : right ? 14 : 12)
                 : bottom ? (left ? 16 : right ? 17 : 15)
                 : left ? 10 : right ? 11 : 0;
-            if (hit != 0)
+            // The close button reaches within the right resize strip; a resize
+            // hit there would steal its clicks and show a resize cursor over
+            // the button, so interactive controls win over the edge.
+            if (hit != 0 && !IsInteractiveControl(InputHitTest(point) as DependencyObject))
             {
                 handled = true;
                 return new IntPtr(hit);
@@ -220,7 +257,7 @@ public partial class TrayStatusPanelWindow : Window
 
     private void OnCloseClick(object sender, RoutedEventArgs e)
     {
-        _settingsViewModel.ShowFloatingStatusPanel = false;
+        _settings.HideFloatingPanel();
         HidePanel();
     }
 
