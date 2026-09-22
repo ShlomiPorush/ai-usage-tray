@@ -143,18 +143,26 @@
 
 body {
   margin: 0;
-  padding: 20px 16px 48px;
+  padding: 20px 16px 24px;
   background: var(--page);
   color: var(--ink);
   font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   font-size: 15px;
   line-height: 1.45;
   -webkit-text-size-adjust: 100%;
+  /* Sticky footer: the page fills the viewport and the footer sits at its
+     bottom edge, or after the cards when they are taller than the screen. */
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
 
 .page {
   max-width: 1100px;
   margin: 0 auto;
+  width: 100%;
+  flex: 1 0 auto;
 }
 
 .page-header {
@@ -210,10 +218,11 @@ h1 {
   letter-spacing: 0.01em;
 }
 
-/* Quiet source link under the cards; visible in both themes, never louder
-   than the data above it. */
+/* Quiet source link pinned to the bottom of the page; visible in both
+   themes, never louder than the data above it. */
 .page-footer {
   margin-top: 30px;
+  flex: none;
   display: flex;
   justify-content: center;
 }
