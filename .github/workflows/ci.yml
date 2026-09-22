@@ -117,6 +117,46 @@ jobs:
       - name: Validate Compose configuration
         run: docker compose -f remote/server/compose.yaml config --quiet
 
+      # Runs the Compose file operators actually download, so a missing
+      # capability or a broken entrypoint fallback fails here and not in
+      # production. Only the image reference is overridden.
+      - name: Smoke test the shipped Compose file
+        run: |
+          override="${RUNNER_TEMP:?}/remote-view-compose-override.yaml"
+          data_dir="$PWD/remote/server/data"
+          cat > "$override" <<'YAML'
+          services:
+            remote-view:
+              image: ai-usage-tray-remote-view:ci
+              pull_policy: never
+          YAML
+          compose() { docker compose -f remote/server/compose.yaml -f "$override" "$@"; }
+          as_root() {
+            docker run --rm --user 0:0 --entrypoint sh \
+              --mount "type=bind,src=$data_dir,dst=/data" \
+              ai-usage-tray-remote-view:ci -c "$1"
+          }
+          cleanup() {
+            compose logs --no-color >/dev/null 2>&1 || true
+            compose down --remove-orphans --timeout 10 >/dev/null 2>&1 || true
+            as_root 'rm -rf /data/* /data/.[!.]* /data/..?*' >/dev/null 2>&1 || true
+            rmdir "$data_dir" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          mkdir -p "$data_dir"
+          # The documented bootstrap leaves the mapped directory owned by root.
+          as_root 'chown -R 0:0 /data && chmod 755 /data'
+          if ! compose up -d --wait --wait-timeout 90; then
+            compose logs --no-color
+            exit 1
+          fi
+          container="$(compose ps -q remote-view)"
+          # PID 1 is the server after the entrypoint dropped privileges; a plain
+          # exec would report the image user instead.
+          test "$(docker exec --user 0:0 "$container" awk '/^Uid:/ { print $2 }' /proc/1/status)" = "10001"
+          test "$(docker exec --user 0:0 "$container" awk '/^CapEff:/ { print $2 }' /proc/1/status)" = "0000000000000000"
+          test "$(curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/health)" = "200"
+
       - name: Smoke test bind-mounted data directory
         run: |
           data_dir="${RUNNER_TEMP:?}/remote-view-ci-data-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"

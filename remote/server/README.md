@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.1.6
+ghcr.io/shlomiporush/ai-usage-tray:1.1.7
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -37,6 +37,32 @@ proxy in front of it.
 Browser notifications use a persistent VAPID key pair. By default, the server creates
 `data/vapid.json` on first startup and reuses it across restarts and image updates. Keep this file
 private and include it in backups if browser subscriptions must survive moving to another host.
+
+Set `VAPID_KEY_PATH` to an absolute path to keep the key somewhere else, for example a separate
+mount that holds only secrets:
+
+```yaml
+    environment:
+      - VAPID_KEY_PATH=/secrets/vapid.json
+    volumes:
+      - ./data:/data
+      - ./secrets:/secrets
+```
+
+The path must be absolute and its directory must be writable by the container (the root filesystem
+is read-only, so it has to be a mapped volume). Leaving `VAPID_KEY_PATH` unset keeps the existing
+`data/vapid.json` location, so nothing changes for a running deployment.
+
+The key file is created with mode `0600` and owned by UID `10001`. A backup taken as any other
+non-root user skips it with `tar: Cannot open: Permission denied` and still exits successfully, so
+such a backup silently contains the snapshots but not the key. Take backups as root, or as UID
+`10001`, and verify that the key file is present in the archive.
+
+To rotate the key pair, stop the container, delete the key file (or replace the `VAPID_*`
+environment values), and start it again; a new pair is generated on the next startup. Rotation
+invalidates every stored browser subscription, so each viewer must turn notifications off and on
+again to re-subscribe. Stale subscriptions are dropped automatically when the push service rejects
+them.
 
 To supply a managed key pair instead, generate one from the repository:
 
@@ -71,20 +97,74 @@ operation and any registry error visible before the running container is replace
 The image and Compose service define the same health check. Compose reports the container as
 `healthy` or `unhealthy` in `docker compose ps`.
 
+`GET /health` both reads and writes SQLite, because a full or read-only data volume leaves reads
+working while every upload fails. A failing read answers `503 {"status":"unhealthy"}` and a failing
+write answers `503 {"status":"degraded"}`; a healthy server answers `200 {"status":"ok"}` as before.
+Either `503` marks the container `unhealthy`, so the usual restart and alerting paths see it. The
+write probe result is reused for a few seconds, so polling the public endpoint cannot turn into a
+flood of database transactions.
+
+### Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `8080` | Listening port inside the container. |
+| `DATABASE_PATH` | `/data/usage.db` | SQLite file. Its directory must be writable. |
+| `SNAPSHOT_TTL_SECONDS` | `604800` | Snapshot lifetime. |
+| `CLEANUP_INTERVAL_SECONDS` | `3600` | Expiry sweep, log truncation and guarded `VACUUM`. |
+| `RELAY_REQUIRE_NONROOT` | unset | `1` refuses to start when the server would run as container root. |
+| `VAPID_KEY_PATH` | `<data dir>/vapid.json` | Absolute path of the generated push signing key. |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | unset | Managed key pair; overrides the key file. |
+| `PUSH_ENDPOINT_ALLOWED_HOSTS` | built-in list | Replaces the accepted push-service host list. |
+
 The first successful Container workflow creates the GitHub package. Confirm once in the package
 settings that its visibility is **Public**. Public GHCR images can be pulled anonymously. If it is
 kept private, authenticate the server with `docker login ghcr.io` before `docker compose pull`.
 
+### Data directory, user and capabilities
+
 The `./data` host directory is mapped to `/data`; no Docker volume is created. On startup, the
 entrypoint prepares the mapped directory (mkdir, chown to UID and GID `10001`, mode fixes, each as
-far as the granted capabilities allow) and verifies with a real write probe that the database files
-can be created and modified. It then picks the most restricted user that works: with
-`CAP_SETUID`/`CAP_SETGID` available it drops to the dedicated non-root `remoteview` account; under
-`cap_drop: ALL` privilege dropping is impossible, so the process keeps running as the started user
-with an empty capability set, a read-only root filesystem, `no-new-privileges`, and write access
-only to `/data`. A Compose `user` override is also supported when the host `data` directory and any
-existing database files are writable by that UID; otherwise the container exits with an error that
-names the exact `chown` to run on the host.
+far as the granted capabilities allow), verifies with a real write probe that the database files can
+be created and modified, and then switches to the dedicated non-root `remoteview` account.
+
+Switching users needs capabilities that `cap_drop: ALL` removes, so the Compose file grants exactly
+four back:
+
+```yaml
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - SETGID
+      - SETUID
+```
+
+`CHOWN` and `DAC_OVERRIDE` let the entrypoint prepare `/data` whoever owns it today, and
+`SETGID`/`SETUID` let it become UID `10001`. Only the entrypoint uses them: the server process it
+executes ends up with an empty effective and permitted capability set, a read-only root filesystem,
+`no-new-privileges`, and write access only to `/data` and `/tmp`. Verify it on a running container:
+
+```sh
+docker compose exec -u 0 remote-view awk '/^Uid:|^CapEff:/' /proc/1/status
+```
+
+The expected result is `Uid: 10001 10001 10001 10001` and `CapEff: 0000000000000000`.
+
+Without those capabilities the entrypoint cannot drop privileges. It then prints a multi-line
+warning and, unless `RELAY_REQUIRE_NONROOT=1` is set, keeps the server running as container root so
+an older deployment does not break on an image update. The shipped Compose file sets
+`RELAY_REQUIRE_NONROOT=1`, which turns that fallback into a startup failure instead.
+
+A Compose `user` override is also supported when the host `data` directory and any existing database
+files are writable by that UID; otherwise the container exits with an error that names the exact
+`chown` to run on the host.
+
+Migration for an existing deployment: replace the local `compose.yaml` with the current one and run
+`docker compose up -d`. No host change is needed, whoever owns `data` today, because the entrypoint
+now has `CHOWN`. Only a deployment that pins `user:` in its own Compose file has to keep the data
+directory writable by that UID (`chown -R <uid>:<gid> data`).
 
 Example Caddy configuration:
 
@@ -115,16 +195,27 @@ CREATE TABLE push_subscriptions (
     read_id TEXT NOT NULL,
     subscription TEXT NOT NULL
 ) STRICT;
+
+CREATE TABLE health_probe (
+    id INTEGER PRIMARY KEY,
+    checked_at INTEGER NOT NULL
+) STRICT;
 ```
 
-The JSON is stored unchanged. The server does not extract account data into columns.
+The JSON is stored unchanged. The server does not extract account data into columns. `health_probe`
+holds a single row that `/health` rewrites to prove the database is still writable.
+
+Deleted rows leave free pages behind, so the database keeps its high-water mark. The periodic
+cleanup truncates the write-ahead log after each expiry sweep, and rewrites the file with `VACUUM`
+only when more than half of its pages are free and it is larger than 32 MB. `journal_size_limit` is
+8 MB, so a large sweep no longer leaves a permanently oversized `usage.db-wal`.
 
 ## API compatibility
 
 | Method | Path | Behaviour |
 | --- | --- | --- |
 | `GET` | `/`, viewer assets | Serves the installable viewer. |
-| `GET` | `/health` | Checks that the process and SQLite connection are healthy. |
+| `GET` | `/health` | Reads and writes SQLite. `200 {"status":"ok"}`, or `503` when degraded. |
 | `GET` | `/version` | Returns the deployed remote-view version shown in the viewer. |
 | `GET` | `/push/vapid-public-key` | Returns the public VAPID key used for browser subscriptions. |
 | `PUT` | `/u/{writeId}` | Validates and stores a snapshot. Returns `204` and `X-Read-Id`. |
@@ -183,7 +274,11 @@ curl -i -X DELETE "$BASE/u/$WRITE_ID"
 
 SQLite uses `data/usage.db`, `data/usage.db-wal`, and `data/usage.db-shm` while the service is running.
 For a simple consistent backup, stop the container before copying the `data` directory. Restore the
-files into `data`, then start Compose again; the image restores ownership for UID and GID `10001`.
+files into `data`, then start Compose again; with the capabilities above the entrypoint chowns the
+restored files to UID and GID `10001` itself, so the restore works whatever the archive contained.
+
+Back up as root or as UID `10001`. `data/vapid.json` is mode `0600` and owned by UID `10001`, so a
+backup taken as another non-root user silently omits it while reporting success.
 
 Snapshots are disposable seven-day data, so backup is optional. The write credentials remain on the
 desktop applications and are not stored in this database.

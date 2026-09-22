@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
   createRemoteViewServer,
   deriveReadId,
+  HEALTH_WRITE_PROBE_INTERVAL_MS,
   readAllowedEndpointHosts,
   SnapshotStore,
 } from "./server.mjs";
@@ -331,7 +332,75 @@ test("serves the viewer, same-origin config, demo, and health endpoint", async (
   assert.equal((await fetch(`${fixture.baseUrl}/u/demo`, { method: "DELETE" })).status, 405);
 
   const health = await fetch(`${fixture.baseUrl}/health`);
+  assert.equal(health.status, 200);
   assert.deepEqual(await health.json(), { status: "ok" });
+});
+
+test("health reports degraded while the database cannot be written", async () => {
+  const store = fixture.app.store;
+  const canWrite = store.canWrite.bind(store);
+  store.canWrite = () => false;
+  try {
+    const degraded = await fetch(`${fixture.baseUrl}/health`);
+    assert.equal(degraded.status, 503);
+    assert.deepEqual(await degraded.json(), { status: "degraded" });
+  } finally {
+    store.canWrite = canWrite;
+  }
+
+  // The probe result is reused for a few seconds, so recovery needs a new window.
+  fixture.advance(HEALTH_WRITE_PROBE_INTERVAL_MS + 1);
+  const recovered = await fetch(`${fixture.baseUrl}/health`);
+  assert.equal(recovered.status, 200);
+  assert.deepEqual(await recovered.json(), { status: "ok" });
+
+  // A public endpoint must not turn a request flood into a transaction flood.
+  let probes = 0;
+  store.canWrite = (at) => {
+    probes += 1;
+    return canWrite(at);
+  };
+  try {
+    assert.equal((await fetch(`${fixture.baseUrl}/health`)).status, 200);
+    assert.equal(probes, 0, "expected the recent probe result to be reused");
+    fixture.advance(HEALTH_WRITE_PROBE_INTERVAL_MS + 1);
+    assert.equal((await fetch(`${fixture.baseUrl}/health`)).status, 200);
+    assert.equal(probes, 1);
+  } finally {
+    store.canWrite = canWrite;
+  }
+});
+
+test("periodic cleanup sweeps expired rows and compacts the database", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ai-usage-cleanup-"));
+  let currentTime = Date.parse("2026-08-27T12:00:00Z");
+  const app = createRemoteViewServer({
+    databasePath: join(directory, "usage.db"),
+    webRoot: WEB_ROOT,
+    now: () => currentTime,
+    ttlMs: 1000,
+    cleanupIntervalMs: 10,
+  });
+  const compactCalls = [];
+  const compact = app.store.compact.bind(app.store);
+  app.store.compact = () => {
+    const result = compact();
+    compactCalls.push(result);
+    return result;
+  };
+  try {
+    app.store.put(READ_ID, PAYLOAD, currentTime + 1000);
+    currentTime += 5000;
+    while (compactCalls.length === 0) {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    }
+    assert.equal(app.store.get(READ_ID, currentTime), null);
+    assert.equal(compactCalls[0].checkpointed, true);
+    assert.equal(compactCalls[0].vacuumed, false);
+  } finally {
+    await app.close();
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("viewer exposes browser alerts only when an account opted in", () => {
