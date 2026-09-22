@@ -1308,32 +1308,96 @@ try {
     }
 
     # --- Swap: move current install to backup ---
+    # The rename is atomic and preferred, but it fails whenever anything holds
+    # a handle to the folder itself; an open Explorer window on the install
+    # directory is enough, and such a handle can live for days. The files
+    # inside are still free once the app has exited, so on failure the update
+    # falls back to replacing the contents file by file inside the held folder.
+    $renamedWholeDirectory = $true
     try {
-        Invoke-WithRetry { Move-Item -Path $InstallDir -Destination $backupDir }
+        Invoke-WithRetry { Move-Item -Path $InstallDir -Destination $backupDir } -Attempts 5 -DelayMs 2000
         Write-Log "Moved install to backup."
     } catch {
         Write-Log "Cannot move install to backup: $($_.Exception.Message)"
-        Write-Log "Update deferred to next startup. Relaunching current app."
-        Increment-FailedAttempts
-        Relaunch-App
-        return
+        Write-Log "Falling back to in-place file replacement."
+        $renamedWholeDirectory = $false
     }
 
-    # --- Swap: move staging to install ---
-    try {
-        Invoke-WithRetry { Move-Item -Path $StagingDir -Destination $InstallDir }
-        Write-Log "Moved staging to install."
-    } catch {
-        Write-Log "Cannot move staging to install: $($_.Exception.Message)"
-        # Rollback: restore backup to install dir
+    if ($renamedWholeDirectory) {
+        # --- Swap: move staging to install ---
         try {
-            Move-Item -Path $backupDir -Destination $InstallDir -Force
-            Write-Log "Rollback completed."
+            Invoke-WithRetry { Move-Item -Path $StagingDir -Destination $InstallDir }
+            Write-Log "Moved staging to install."
         } catch {
-            Write-Log "CRITICAL: Rollback also failed: $($_.Exception.Message)"
+            Write-Log "Cannot move staging to install: $($_.Exception.Message)"
+            # Rollback: restore backup to install dir
+            try {
+                Move-Item -Path $backupDir -Destination $InstallDir -Force
+                Write-Log "Rollback completed."
+            } catch {
+                Write-Log "CRITICAL: Rollback also failed: $($_.Exception.Message)"
+            }
+            Relaunch-App
+            return
         }
-        Relaunch-App
-        return
+    } else {
+        try {
+            # A content copy serves as the rollback reference; copying needs
+            # no handle on the directory object itself.
+            New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+            Copy-Item -Path (Join-Path $InstallDir "*") -Destination $backupDir -Recurse -Force
+
+            # Relative paths are cut from enumerated full names, so the roots
+            # must match their long form exactly; a short (8.3) root would cut
+            # at the wrong offset and scatter files into wrong folders.
+            $stagingRoot = (Get-Item -LiteralPath $StagingDir).FullName
+            $installRoot = (Get-Item -LiteralPath $InstallDir).FullName
+
+            # Overwrite every staged file inside the held folder.
+            Get-ChildItem -LiteralPath $stagingRoot -Recurse -File | ForEach-Object {
+                $source = $_.FullName
+                $relative = $source.Substring($stagingRoot.Length).TrimStart("\", "/")
+                $target = Join-Path $installRoot $relative
+                $targetParent = Split-Path -Parent $target
+                if ($targetParent -and -not (Test-Path -LiteralPath $targetParent)) {
+                    New-Item -ItemType Directory -Force -Path $targetParent | Out-Null
+                }
+                Invoke-WithRetry { Copy-Item -LiteralPath $source -Destination $target -Force } -Attempts 10 -DelayMs 1000
+            }
+
+            # Drop files the new version no longer ships. The install marker
+            # stays: it is what allows the next update to run at all.
+            $staged = @{}
+            Get-ChildItem -LiteralPath $stagingRoot -Recurse -File | ForEach-Object {
+                $staged[$_.FullName.Substring($stagingRoot.Length).TrimStart("\", "/").ToLowerInvariant()] = $true
+            }
+            Get-ChildItem -LiteralPath $installRoot -Recurse -File | ForEach-Object {
+                $relative = $_.FullName.Substring($installRoot.Length).TrimStart("\", "/")
+                if (-not $staged.ContainsKey($relative.ToLowerInvariant()) -and $relative -ne $installMarkerName) {
+                    try { Remove-Item -LiteralPath $_.FullName -Force } catch {
+                        Write-Log "Could not remove stale file ${relative}: $($_.Exception.Message)"
+                    }
+                }
+            }
+
+            try { Invoke-WithRetry { Remove-Item -Recurse -Force $StagingDir } -Attempts 5 -DelayMs 500 } catch {
+                Write-Log "Staging cleanup failed (non-fatal): $($_.Exception.Message)"
+            }
+            Write-Log "Replaced install contents in place."
+        } catch {
+            Write-Log "In-place replacement failed: $($_.Exception.Message)"
+            # Put the copied contents back so the install is not left half new.
+            try {
+                Copy-Item -Path (Join-Path $backupDir "*") -Destination $InstallDir -Recurse -Force
+                Write-Log "Rollback completed."
+            } catch {
+                Write-Log "CRITICAL: Rollback also failed: $($_.Exception.Message)"
+            }
+            Write-Log "Update deferred to next startup. Relaunching current app."
+            Increment-FailedAttempts
+            Relaunch-App
+            return
+        }
     }
 
     # --- Verify new executable ---
@@ -1341,8 +1405,12 @@ try {
     if (-not (Test-Path $newExePath)) {
         Write-Log "New executable not found after swap: $newExePath. Rolling back."
         try {
-            if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue }
-            Move-Item -Path $backupDir -Destination $InstallDir -Force
+            if ($renamedWholeDirectory) {
+                if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir -ErrorAction SilentlyContinue }
+                Move-Item -Path $backupDir -Destination $InstallDir -Force
+            } else {
+                Copy-Item -Path (Join-Path $backupDir "*") -Destination $InstallDir -Recurse -Force
+            }
             Write-Log "Rollback completed."
         } catch {
             Write-Log "Rollback failed: $($_.Exception.Message)"
