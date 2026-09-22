@@ -6,7 +6,10 @@ namespace costats.Infrastructure.Providers;
 public enum ResetCreditOutcome
 {
     Reset, AlreadyRedeemed, NothingToReset, NoCredit, IncompleteList,
-    CreditUnavailable, Unavailable, SignInRequired, Unsupported, Unknown, Busy
+    CreditUnavailable, Unavailable, SignInRequired, Unsupported, Unknown, Busy,
+    // The provider refused for now and said to come back later (Claude
+    // cooldown / throttling). Definite: nothing was consumed.
+    Cooldown
 }
 
 public interface ICodexResetCreditClient

@@ -34,12 +34,15 @@ public sealed record RemoteWindowSnapshot(
     string? Severity = null);
 
 /// <summary>
-/// Redeemable "usage limit reset" credits on one account (Codex). Display only:
-/// redemption is available in the desktop app. <c>ExpiresAt</c> is null when the provider
-/// gives no expiry.
+/// Redeemable "usage limit reset" credits on one account (Codex or Claude).
+/// Display only: redemption is available in the desktop app. <c>ExpiresAt</c> is null
+/// when the provider gives no expiry. <c>UsesLeft</c> appears only when a single
+/// entry carries more than one use (a Claude grant); absent means one.
 /// </summary>
 public sealed record RemoteResetCredit(string ResetType, string? Title, string? Description,
-    DateTimeOffset? GrantedAt, DateTimeOffset? ExpiresAt);
+    DateTimeOffset? GrantedAt, DateTimeOffset? ExpiresAt,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    long? UsesLeft = null);
 
 public sealed record RemoteResetCredits(long Available, DateTimeOffset? ExpiresAt,
     IReadOnlyList<RemoteResetCredit>? Credits = null, bool DetailsComplete = false);
@@ -165,7 +168,8 @@ public static class RemoteSnapshotComposer
         usage is { ResetCreditsAvailable: > 0 } credited
             ? new RemoteResetCredits(credited.ResetCreditsAvailable, credited.ResetCreditExpiresAt,
                 credited.ResetCredits?.Select(credit => new RemoteResetCredit(credit.ResetType,
-                    credit.Title, credit.Description, credit.GrantedAt, credit.ExpiresAt)).ToArray(),
+                    credit.Title, credit.Description, credit.GrantedAt, credit.ExpiresAt,
+                    credit.UsesLeft > 1 ? credit.UsesLeft : null)).ToArray(),
                 new ResetCreditBank(credited.ResetCreditsAvailable, credited.ResetCredits).IsComplete)
             : null;
 

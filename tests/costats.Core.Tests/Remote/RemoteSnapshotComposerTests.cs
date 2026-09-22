@@ -288,6 +288,28 @@ public sealed class RemoteSnapshotComposerTests
     }
 
     [Fact]
+    public void Compose_publishes_uses_left_only_when_a_grant_carries_more_than_one()
+    {
+        var usage = Pulse(weekUsed: 12, resetCreditsAvailable: 3) with
+        {
+            ResetCredits = [
+                new ResetCredit("grant-a", "claudeRateLimits", "Weekly reset", null, Now, Now.AddDays(7), UsesLeft: 2),
+                new ResetCredit("grant-b", "claudeRateLimits", "Promo reset", null, Now, Now.AddDays(30))]
+        };
+
+        var snapshot = RemoteSnapshotComposer.Compose(null,
+            [new RemoteSnapshotEntry("claude:one", "Claude", "Max", usage)], Now);
+
+        var bank = Assert.Single(snapshot.Accounts).ResetCredits!;
+        Assert.True(bank.DetailsComplete);
+        Assert.Equal(2, bank.Credits![0].UsesLeft);
+        Assert.Null(bank.Credits[1].UsesLeft);
+        var json = JsonSerializer.Serialize(snapshot, WebOptions);
+        Assert.Contains("\"usesLeft\":2", json);
+        Assert.DoesNotContain("\"usesLeft\":1", json);
+    }
+
+    [Fact]
     public void Serialized_snapshot_keeps_reset_credits_out_of_the_json_unless_present()
     {
         var expiresAt = Now.AddDays(28);

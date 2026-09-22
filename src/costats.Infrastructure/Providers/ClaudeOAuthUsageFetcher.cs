@@ -21,9 +21,21 @@ public interface IClaudeSubscriptionUsageClient
 public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, IDisposable
 {
     private const string BaseUrl = "https://api.anthropic.com";
-    private const string UsagePath = "/api/oauth/usage";
+    // The cedar_ember parameter asks for the redeemable usage-limit resets
+    // ("/limit-reset" in Claude Code) alongside the regular usage payload.
+    private const string UsagePath = "/api/oauth/usage?cedar_ember=1";
     private const string ProfilePath = "/api/oauth/profile";
     private const string BetaHeader = "oauth-2025-04-20";
+
+    /// <summary>
+    /// The reset block is only served to requests that identify as the Claude
+    /// Code CLI ("x-app: cli" plus a "claude-cli/&lt;version&gt;" agent) at or
+    /// above a server-side minimum version. Verified live: 2.1.278 is refused
+    /// with ineligible_reason "cli_version", 2.1.280 is accepted. Bump this
+    /// when the server's minimum moves again (the symptom is resets silently
+    /// disappearing while `/limit-reset` still shows them).
+    /// </summary>
+    internal const string ClientVersion = "2.1.280";
 
     private static readonly TimeSpan BackoffBase = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan BackoffCap = TimeSpan.FromHours(6);
@@ -56,7 +68,8 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             Timeout = TimeSpan.FromSeconds(30)
         };
         _httpClient.DefaultRequestHeaders.Add("anthropic-beta", BetaHeader);
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", "claude-code/2.1.70");
+        _httpClient.DefaultRequestHeaders.Add("User-Agent", $"claude-cli/{ClientVersion} (external, cli)");
+        _httpClient.DefaultRequestHeaders.Add("x-app", "cli");
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
@@ -574,11 +587,8 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         return Convert.ToHexString(hash, 0, 8);
     }
 
-    private static bool IsTokenExpired(ClaudeCredentials credentials)
-    {
-        return credentials.ExpiresAt.HasValue
-            && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() > credentials.ExpiresAt.Value;
-    }
+    private static bool IsTokenExpired(ClaudeCredentials credentials) =>
+        ClaudeCredentialFile.IsTokenExpired(credentials);
 
     private static bool IsTokenNearExpiry(ClaudeCredentials credentials)
     {
@@ -597,46 +607,8 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         bool tokenExpiresSoon) =>
         tokenExpired || (keepSessionActive && tokenExpiresSoon);
 
-    private static async Task<ClaudeCredentials?> LoadCredentialsAsync(string? configDir)
-    {
-        string credentialsPath;
-        if (configDir is not null)
-        {
-            credentialsPath = Path.Combine(configDir, ".credentials.json");
-        }
-        else
-        {
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            credentialsPath = Path.Combine(home, ".claude", ".credentials.json");
-        }
-
-        if (!File.Exists(credentialsPath))
-        {
-            return null;
-        }
-
-        try
-        {
-            var json = await File.ReadAllTextAsync(credentialsPath);
-            using var doc = JsonDocument.Parse(json);
-
-            if (!doc.RootElement.TryGetProperty("claudeAiOauth", out var oauth))
-            {
-                return null;
-            }
-
-            return new ClaudeCredentials(
-                oauth.TryGetProperty("accessToken", out var at) ? at.GetString() : null,
-                oauth.TryGetProperty("refreshToken", out var rt) ? rt.GetString() : null,
-                oauth.TryGetProperty("expiresAt", out var exp) ? exp.GetInt64() : null,
-                oauth.TryGetProperty("subscriptionType", out var st) ? st.GetString() : null,
-                oauth.TryGetProperty("rateLimitTier", out var rlt) ? rlt.GetString() : null);
-        }
-        catch
-        {
-            return null;
-        }
-    }
+    private static Task<ClaudeCredentials?> LoadCredentialsAsync(string? configDir) =>
+        ClaudeCredentialFile.LoadAsync(configDir);
 
     //  Response parsing
     private static ClaudeOAuthUsageResult? ParseResponse(string json, string? subscriptionType, string? rateLimitTier)
@@ -707,6 +679,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
 
             var scopedLimits = ParseScopedLimits(root);
             var (fiveHourSeverity, sevenDaySeverity) = ParseWindowSeverities(root);
+            var resetGrants = ParseResetGrants(root, DateTimeOffset.UtcNow);
 
             return new ClaudeOAuthUsageResult(
                 fiveHourPercent,
@@ -721,12 +694,134 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                 DateTimeOffset.UtcNow,
                 scopedLimits,
                 fiveHourSeverity,
-                sevenDaySeverity);
+                sevenDaySeverity)
+            {
+                ResetCreditsAvailable = resetGrants.Available,
+                ResetCredits = resetGrants.Credits,
+                ResetCreditExpiresAt = resetGrants.ExpiresAt
+            };
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Reads the redeemable usage-limit resets from the "cedar_ember" block.
+    /// A grant is one offer that may carry several uses (resets_left); paused,
+    /// spent and expired grants are dropped so the count only promises what
+    /// can actually be redeemed. Any malformed block reads as "no resets".
+    /// </summary>
+    internal static (long Available, IReadOnlyList<costats.Core.Pulse.ResetCredit>? Credits, DateTimeOffset? ExpiresAt)
+        ParseResetGrants(JsonElement root, DateTimeOffset now)
+    {
+        if (!root.TryGetProperty("cedar_ember", out var block) || block.ValueKind != JsonValueKind.Object ||
+            !block.TryGetProperty("eligible", out var eligible) || eligible.ValueKind != JsonValueKind.True ||
+            !block.TryGetProperty("grants", out var grants) || grants.ValueKind != JsonValueKind.Array)
+        {
+            return (0, null, null);
+        }
+
+        var credits = new List<costats.Core.Pulse.ResetCredit>();
+        foreach (var grant in grants.EnumerateArray())
+        {
+            if (grant.ValueKind != JsonValueKind.Object)
+            {
+                continue;
+            }
+
+            var id = grant.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String
+                ? idProp.GetString()
+                : null;
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                continue;
+            }
+
+            if (grant.TryGetProperty("paused", out var paused) && paused.ValueKind == JsonValueKind.True)
+            {
+                continue;
+            }
+
+            long usesLeft = 0;
+            if (grant.TryGetProperty("resets_left", out var left) && left.ValueKind == JsonValueKind.Number)
+            {
+                left.TryGetInt64(out usesLeft);
+            }
+            if (usesLeft < 1)
+            {
+                continue;
+            }
+
+            DateTimeOffset? startsAt = null;
+            if (grant.TryGetProperty("starts_at", out var starts) && starts.ValueKind == JsonValueKind.String &&
+                DateTimeOffset.TryParse(starts.GetString(), out var startsTime))
+            {
+                startsAt = startsTime;
+            }
+
+            DateTimeOffset? endsAt = null;
+            if (grant.TryGetProperty("ends_at", out var ends) && ends.ValueKind == JsonValueKind.String &&
+                DateTimeOffset.TryParse(ends.GetString(), out var endsTime))
+            {
+                endsAt = endsTime;
+            }
+            if (endsAt is { } expiry && expiry <= now)
+            {
+                continue;
+            }
+
+            var label = grant.TryGetProperty("label", out var labelProp) && labelProp.ValueKind == JsonValueKind.String
+                ? labelProp.GetString()
+                : null;
+
+            credits.Add(new costats.Core.Pulse.ResetCredit(
+                id!,
+                costats.Core.Pulse.ResetCredit.ClaudeType,
+                label,
+                DescribeCleared(grant),
+                startsAt,
+                endsAt,
+                usesLeft));
+        }
+
+        if (credits.Count == 0)
+        {
+            return (0, null, null);
+        }
+
+        var available = credits.Sum(credit => credit.UsesLeft);
+        var expiresAt = credits.Where(credit => credit.ExpiresAt.HasValue).Min(credit => credit.ExpiresAt);
+        return (available, credits, expiresAt);
+    }
+
+    /// <summary>
+    /// Turns the "clears" limit keys into a reader-facing sentence. Unknown
+    /// keys pass through raw rather than hiding what the grant covers.
+    /// </summary>
+    private static string? DescribeCleared(JsonElement grant)
+    {
+        if (!grant.TryGetProperty("clears", out var clears) || clears.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var names = clears.EnumerateArray()
+            .Where(entry => entry.ValueKind == JsonValueKind.String)
+            .Select(entry => entry.GetString())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value switch
+            {
+                "five_hour" => "session limit",
+                "seven_day" => "weekly limit",
+                "seven_day_overage_included" => "model weekly limit",
+                _ => value!
+            })
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        return names.Length == 0 ? null : "Clears the " + string.Join(", ", names) + ".";
     }
 
     /// <summary>
@@ -873,12 +968,6 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         _httpClient.Dispose();
     }
 
-    private sealed record ClaudeCredentials(
-        string? AccessToken,
-        string? RefreshToken,
-        long? ExpiresAt,
-        string? SubscriptionType,
-        string? RateLimitTier);
 }
 
 public sealed record ClaudeOAuthUsageResult(
@@ -895,4 +984,13 @@ public sealed record ClaudeOAuthUsageResult(
     IReadOnlyList<costats.Core.Pulse.ScopedQuota>? ScopedLimits = null,
     QuotaSeverity? FiveHourSeverity = null,
     QuotaSeverity? SevenDaySeverity = null,
-    string? Email = null);
+    string? Email = null)
+{
+    /// <summary>Redeemable usage-limit resets ("/limit-reset" grants); zero when none.</summary>
+    public long ResetCreditsAvailable { get; init; }
+
+    public IReadOnlyList<costats.Core.Pulse.ResetCredit>? ResetCredits { get; init; }
+
+    /// <summary>When the soonest listed reset expires; null when none carries an expiry.</summary>
+    public DateTimeOffset? ResetCreditExpiresAt { get; init; }
+}

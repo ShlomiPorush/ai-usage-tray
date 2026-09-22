@@ -559,6 +559,8 @@ namespace costats.App
                     services.AddSingleton<ICodexAppServerClient>(sp => sp.GetRequiredService<CodexAppServerClient>());
                     services.AddSingleton<ICodexResetCreditClient>(sp => sp.GetRequiredService<CodexAppServerClient>());
                     services.AddSingleton<CodexResetCreditService>();
+                    services.AddSingleton<IClaudeResetCreditClient, ClaudeResetCreditClient>();
+                    services.AddSingleton<ClaudeResetService>();
                     services.AddSingleton<ISessionActivationWindowRegistry, SessionActivationWindowRegistry>();
 
                     // Per-account sources live in a registry so Settings edits
