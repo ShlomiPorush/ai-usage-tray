@@ -40,3 +40,15 @@ services:
       - VAPID_SUBJECT
       # Optional, comma separated. Replaces the built-in push-service host list.
       - PUSH_ENDPOINT_ALLOWED_HOSTS
+      # Write throttling. The defaults suit a public relay; see README.md.
+      # A private key here is only worth setting when the desktop apps that use
+      # this relay are configured with the same value. The repository default is
+      # public, so it separates nothing on a public relay.
+      - SNAPSHOT_SIGNING_KEY
+      - UNSIGNED_PUT_PER_MINUTE
+      - SIGNED_PUT_PER_MINUTE
+      # This service is published on loopback only and always runs behind a
+      # reverse proxy, so without this every request would be counted against
+      # the proxy's own address. Configure the proxy to REPLACE X-Forwarded-For
+      # (see README.md); set 0 when nothing is in front of the container.
+      - TRUST_PROXY=1
