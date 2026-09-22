@@ -5,9 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v20: stops caching dynamic routes such as /version; the bump also drops
-// the stale copies older workers already stored.
-var CACHE = "ai-usage-tray-shell-v20";
+// v21: adds the GitHub footer to the shell.
+var CACHE = "ai-usage-tray-shell-v21";
 
 var SHELL = [
   "./",

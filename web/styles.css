@@ -210,6 +210,29 @@ h1 {
   letter-spacing: 0.01em;
 }
 
+/* Quiet source link under the cards; visible in both themes, never louder
+   than the data above it. */
+.page-footer {
+  margin-top: 30px;
+  display: flex;
+  justify-content: center;
+}
+
+.footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: var(--ink-3);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.footer-link:hover { color: var(--ink); }
+
+.footer-link svg { flex: none; }
+
 :where(a, button):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
