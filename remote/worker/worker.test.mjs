@@ -38,6 +38,21 @@ class MemoryKv {
 let env;
 let pushCalls;
 
+async function browserSubscription(endpoint) {
+  const subscriberKeys = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"],
+  );
+  return {
+    endpoint,
+    keys: {
+      p256dh: base64UrlEncode(await crypto.subtle.exportKey("raw", subscriberKeys.publicKey)),
+      auth: base64UrlEncode(crypto.getRandomValues(new Uint8Array(16))),
+    },
+  };
+}
+
 beforeEach(async () => {
   const vapidKeys = await crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
@@ -116,18 +131,9 @@ async function endpointHash(endpoint) {
 test("matches the server subscription route and delivers a crossing", async () => {
   assert.equal((await run(upload(79))).status, 204);
 
-  const subscriberKeys = await crypto.subtle.generateKey(
-    { name: "ECDH", namedCurve: "P-256" },
-    true,
-    ["deriveBits"],
+  const subscription = await browserSubscription(
+    "https://fcm.googleapis.com/fcm/send/worker-subscription",
   );
-  const subscription = {
-    endpoint: "https://push.example.test/worker-subscription",
-    keys: {
-      p256dh: base64UrlEncode(await crypto.subtle.exportKey("raw", subscriberKeys.publicKey)),
-      auth: base64UrlEncode(crypto.getRandomValues(new Uint8Array(16))),
-    },
-  };
   const registered = await run(new Request(
     `https://viewer.example/u/${READ_ID}/push-subscription`,
     {
@@ -166,18 +172,9 @@ test("an old view cannot remove an endpoint mapping after the subscription moves
   const secondReadId = await readIdOf(secondWriteId);
   await run(upload(10));
   await run(upload(10, secondWriteId));
-  const subscriberKeys = await crypto.subtle.generateKey(
-    { name: "ECDH", namedCurve: "P-256" },
-    true,
-    ["deriveBits"],
+  const subscription = await browserSubscription(
+    "https://updates.push.services.mozilla.com/wpush/v2/moved-subscription",
   );
-  const subscription = {
-    endpoint: "https://push.example.test/moved-subscription",
-    keys: {
-      p256dh: base64UrlEncode(await crypto.subtle.exportKey("raw", subscriberKeys.publicKey)),
-      auth: base64UrlEncode(crypto.getRandomValues(new Uint8Array(16))),
-    },
-  };
   const subscribe = (readId) => run(new Request(
     `https://viewer.example/u/${readId}/push-subscription`,
     {
@@ -205,10 +202,40 @@ test("an old view cannot remove an endpoint mapping after the subscription moves
 
 test("deleting a view removes all subscription records", async () => {
   await run(upload(10));
-  await env.USAGE.put(`push:${READ_ID}:test`, JSON.stringify({ endpoint: "https://push.example.test/a" }));
+  await env.USAGE.put(
+    `push:${READ_ID}:test`,
+    JSON.stringify({ endpoint: "https://web.push.apple.com/a" }),
+  );
 
   const response = await run(new Request(`https://viewer.example/u/${WRITE_ID}`, { method: "DELETE" }));
 
   assert.equal(response.status, 204);
   assert.equal((await env.USAGE.list({ prefix: `push:${READ_ID}:` })).keys.length, 0);
+});
+
+test("registers only push-service endpoints, or the hosts the operator named", async () => {
+  await run(upload(10));
+  const register = (subscription) => run(new Request(
+    `https://viewer.example/u/${READ_ID}/push-subscription`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(subscription),
+    },
+  ));
+
+  assert.equal((await register(await browserSubscription("https://169.254.169.254/x"))).status, 422);
+  assert.equal((await register(await browserSubscription("https://evil.example/x"))).status, 422);
+  assert.equal(
+    (await register(await browserSubscription("https://fcm.googleapis.com:8443/x"))).status,
+    422,
+  );
+  assert.equal((await env.USAGE.list({ prefix: `push:${READ_ID}:` })).keys.length, 0);
+
+  const operatorEndpoint = await browserSubscription("https://push.example.test/operator-endpoint");
+  assert.equal((await register(operatorEndpoint)).status, 422);
+
+  env.PUSH_ENDPOINT_ALLOWED_HOSTS = "push.example.test";
+  assert.equal((await register(operatorEndpoint)).status, 204);
+  assert.equal((await env.USAGE.list({ prefix: `push:${READ_ID}:` })).keys.length, 1);
 });

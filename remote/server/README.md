@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.1.5
+ghcr.io/shlomiporush/ai-usage-tray:1.1.6
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -48,6 +48,15 @@ Put the three printed values in the deployment shell or a Compose `.env` file be
 container. Environment values override `data/vapid.json`. Keep `VAPID_PRIVATE_KEY` secret and back
 it up. `VAPID_SUBJECT` must be a `mailto:` or `https:` contact value. A partial or invalid
 environment configuration stops startup instead of silently disabling browser alerts.
+
+The server delivers each notification by calling the browser's push endpoint, so a subscription is
+only accepted when its endpoint is an `https:` URL, without credentials, without an explicit port,
+and on one of the browser push services: `fcm.googleapis.com`, `*.push.services.mozilla.com`,
+`*.push.apple.com`, and `*.notify.windows.com` (`*.` matches subdomains at any depth, not the bare
+domain). IP addresses are never accepted. Any other endpoint is answered with
+`422 {"error":"invalid_subscription"}`. Set `PUSH_ENDPOINT_ALLOWED_HOSTS` to a comma-separated host
+list to replace that list, for example when running another push service or when narrowing it. The
+list replaces the built-in one, so include every service the viewer's browsers use.
 
 To update later:
 

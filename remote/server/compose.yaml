@@ -27,3 +27,5 @@ services:
       - VAPID_PUBLIC_KEY
       - VAPID_PRIVATE_KEY
       - VAPID_SUBJECT
+      # Optional, comma separated. Replaces the built-in push-service host list.
+      - PUSH_ENDPOINT_ALLOWED_HOSTS
