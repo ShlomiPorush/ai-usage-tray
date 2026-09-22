@@ -177,6 +177,14 @@ domain). IP addresses are never accepted. Any other endpoint is answered with
 takes a comma-separated host list that replaces the built-in one, so include every service the
 viewer's browsers use. This matches the server's `PUSH_ENDPOINT_ALLOWED_HOSTS` variable.
 
+Subscriptions live in the same KV namespace with the snapshot's 7-day TTL, and each upload keeps
+them alive. To stay inside the KV write quota, an upload only rewrites a subscription entry once its
+last refresh is more than 24 hours old, which leaves six days of margin on the TTL. A view keeps at
+most 8 subscriptions. That limit is checked against a KV list, and KV lists are eventually
+consistent, so a burst of registrations arriving at once can briefly store more; the worker re-reads
+the list after each registration and deletes the newest entries above the limit, so the view settles
+back to 8 on its own. It is bounded self-healing, not a transaction.
+
 ### 6. Check it works
 
 Open `https://ai-usage-tray-view.<your-subdomain>.workers.dev/` in a browser. You should see the

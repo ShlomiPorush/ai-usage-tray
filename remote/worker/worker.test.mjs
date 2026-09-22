@@ -6,9 +6,16 @@ import worker from "./worker.js";
 const WRITE_ID = "0123456789abcdef0123456789abcdef";
 const READ_ID = "3eb1bd439947eb762998e566ccc2e099";
 
+const MAX_PUSH_SUBSCRIPTIONS = 8;
+const REFRESH_INTERVAL_SECONDS = 86400;
+
 class MemoryKv {
   values = new Map();
   puts = [];
+  lists = 0;
+  // Optional hook awaited at the start of every list(), used to hold concurrent
+  // registrations on the same pre-write view that real KV can serve them.
+  beforeList = null;
 
   async get(key, options) {
     const value = this.values.get(key);
@@ -26,6 +33,8 @@ class MemoryKv {
   }
 
   async list({ prefix }) {
+    this.lists += 1;
+    if (this.beforeList) await this.beforeList(this.lists);
     return {
       keys: [...this.values.keys()]
         .filter((key) => key.startsWith(prefix))
@@ -33,6 +42,14 @@ class MemoryKv {
         .map((name) => ({ name })),
     };
   }
+}
+
+function deferred() {
+  let release;
+  const promise = new Promise((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
 }
 
 let env;
@@ -126,6 +143,21 @@ async function endpointHash(endpoint) {
     "SHA-256",
     new TextEncoder().encode(endpoint),
   ));
+}
+
+function subscribe(readId, subscription) {
+  return run(new Request(
+    `https://viewer.example/u/${readId}/push-subscription`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(subscription),
+    },
+  ));
+}
+
+function writesUnder(prefix) {
+  return env.USAGE.puts.filter((entry) => entry.key.startsWith(prefix)).length;
 }
 
 test("matches the server subscription route and delivers a crossing", async () => {
@@ -238,4 +270,126 @@ test("registers only push-service endpoints, or the hosts the operator named", a
   env.PUSH_ENDPOINT_ALLOWED_HOSTS = "push.example.test";
   assert.equal((await register(operatorEndpoint)).status, 204);
   assert.equal((await env.USAGE.list({ prefix: `push:${READ_ID}:` })).keys.length, 1);
+});
+
+test("an upload rewrites a subscription key at most once a day", async () => {
+  let clock = Date.UTC(2026, 0, 5, 9, 0, 0);
+  env.NOW = () => clock;
+  await run(upload(10));
+  for (let index = 0; index < 3; index++) {
+    const subscription = await browserSubscription(
+      `https://fcm.googleapis.com/fcm/send/refresh-${index}`,
+    );
+    assert.equal((await subscribe(READ_ID, subscription)).status, 204);
+  }
+
+  // A byte-identical repeat upload inside the interval must cost one KV write:
+  // the snapshot itself. Every subscription TTL still has days left.
+  env.USAGE.puts.length = 0;
+  assert.equal((await run(upload(10))).status, 204);
+  assert.deepEqual(env.USAGE.puts.map((entry) => entry.key), [READ_ID]);
+
+  // Nothing changes at the edge of the interval either.
+  clock += REFRESH_INTERVAL_SECONDS * 1000;
+  env.USAGE.puts.length = 0;
+  assert.equal((await run(upload(10))).status, 204);
+  assert.deepEqual(env.USAGE.puts.map((entry) => entry.key), [READ_ID]);
+
+  // One second past it, each subscription is refreshed exactly once: its own key
+  // plus its endpoint mapping.
+  clock += 1000;
+  env.USAGE.puts.length = 0;
+  assert.equal((await run(upload(10))).status, 204);
+  assert.equal(env.USAGE.puts.length, 7);
+  assert.equal(writesUnder(`push:${READ_ID}:`), 3);
+  assert.equal(writesUnder("push-endpoint:"), 3);
+  assert.ok(env.USAGE.puts.every((entry) =>
+    entry.key === READ_ID || entry.options?.expirationTtl === 604800));
+
+  // And the refresh resets the interval instead of repeating on every upload.
+  env.USAGE.puts.length = 0;
+  assert.equal((await run(upload(10))).status, 204);
+  assert.deepEqual(env.USAGE.puts.map((entry) => entry.key), [READ_ID]);
+});
+
+test("a subscription stored without a refresh timestamp is rewritten once", async () => {
+  env.NOW = () => Date.UTC(2026, 0, 5, 9, 0, 0);
+  await run(upload(10));
+  const subscription = await browserSubscription(
+    "https://fcm.googleapis.com/fcm/send/legacy-subscription",
+  );
+  const hash = await endpointHash(subscription.endpoint);
+  const key = `push:${READ_ID}:${hash}`;
+  // The shape written by the worker before refresh timestamps existed.
+  await env.USAGE.put(key, JSON.stringify(subscription));
+
+  env.USAGE.puts.length = 0;
+  assert.equal((await run(upload(10))).status, 204);
+  assert.equal(writesUnder(`push:${READ_ID}:`), 1);
+  const stored = await env.USAGE.get(key, { type: "json" });
+  assert.equal(stored.endpoint, subscription.endpoint);
+  assert.equal(typeof stored.refreshedAt, "number");
+
+  env.USAGE.puts.length = 0;
+  assert.equal((await run(upload(10))).status, 204);
+  assert.deepEqual(env.USAGE.puts.map((entry) => entry.key), [READ_ID]);
+});
+
+test("rejects a registration past the cap and self-heals a concurrent burst", async () => {
+  env.NOW = () => Date.UTC(2026, 0, 5, 9, 0, 0);
+  await run(upload(10));
+  const subscriptions = [];
+  for (let index = 0; index < 20; index++) {
+    subscriptions.push(await browserSubscription(
+      `https://fcm.googleapis.com/fcm/send/burst-${index}`,
+    ));
+  }
+
+  // Sequential control: the pre-put list check still answers 429 once the cap
+  // is reached, and the stored set stops growing.
+  for (let index = 0; index < MAX_PUSH_SUBSCRIPTIONS; index++) {
+    assert.equal((await subscribe(READ_ID, subscriptions[index])).status, 204);
+  }
+  assert.equal((await subscribe(READ_ID, subscriptions[MAX_PUSH_SUBSCRIPTIONS])).status, 429);
+  assert.equal(
+    (await env.USAGE.list({ prefix: `push:${READ_ID}:` })).keys.length,
+    MAX_PUSH_SUBSCRIPTIONS,
+  );
+
+  // Concurrent burst: every request sees the same pre-write list, exactly what a
+  // real eventually consistent KV list can serve.
+  for (const key of [...env.USAGE.values.keys()]) {
+    if (key.startsWith(`push:${READ_ID}:`) || key.startsWith("push-endpoint:")) {
+      await env.USAGE.delete(key);
+    }
+  }
+  const barrier = deferred();
+  let arrived = 0;
+  env.USAGE.lists = 0;
+  env.USAGE.beforeList = async (call) => {
+    if (call > subscriptions.length) return; // the self-heal list must not block
+    arrived += 1;
+    if (arrived === subscriptions.length) barrier.release();
+    await barrier.promise;
+  };
+
+  const responses = await Promise.all(
+    subscriptions.map((subscription) => subscribe(READ_ID, subscription)),
+  );
+  env.USAGE.beforeList = null;
+
+  assert.ok(responses.every((response) => response.status === 204 || response.status === 429));
+  const stored = (await env.USAGE.list({ prefix: `push:${READ_ID}:` })).keys.map((e) => e.name);
+  assert.equal(stored.length, MAX_PUSH_SUBSCRIPTIONS);
+
+  // Eviction order is deterministic: same createdAt, so the lowest key names win.
+  const allKeys = await Promise.all(subscriptions.map(async (subscription) =>
+    `push:${READ_ID}:${await endpointHash(subscription.endpoint)}`));
+  assert.deepEqual(stored, [...allKeys].sort().slice(0, MAX_PUSH_SUBSCRIPTIONS));
+
+  // The endpoint mappings of the evicted entries go with them.
+  assert.equal(
+    (await env.USAGE.list({ prefix: "push-endpoint:" })).keys.length,
+    MAX_PUSH_SUBSCRIPTIONS,
+  );
 });

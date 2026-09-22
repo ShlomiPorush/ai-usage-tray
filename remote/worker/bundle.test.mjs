@@ -20,9 +20,15 @@ const DELIVERY_PROBE_MS = 50;
 const TIMED_OUT = Symbol("timed-out");
 const STILL_RUNNING = Symbol("still-running");
 
+const MAX_PUSH_SUBSCRIPTIONS = 8;
+
 class MemoryKv {
   values = new Map();
   puts = [];
+  lists = 0;
+  // Awaited at the start of every list(), so a test can hold concurrent
+  // registrations on the same pre-write view that a real KV list can serve.
+  beforeList = null;
 
   async get(key, options) {
     const value = this.values.get(key);
@@ -40,6 +46,8 @@ class MemoryKv {
   }
 
   async list({ prefix }) {
+    this.lists += 1;
+    if (this.beforeList) await this.beforeList(this.lists);
     return {
       keys: [...this.values.keys()]
         .filter((key) => key.startsWith(prefix))
@@ -193,6 +201,49 @@ test("the bundle defers push delivery instead of holding the PUT response", asyn
   assert.equal(pushCalls[0].message.alerts[0].windowKey, "session");
   assert.ok(env.USAGE.puts.some((entry) =>
     entry.key.startsWith(`push:${READ_ID}:`) && entry.options?.expirationTtl === 604800));
+});
+
+// The bundle is what Cloudflare runs, so the two KV-cost behaviors are checked
+// on the generated artifact as well as on worker.js.
+test("the bundle skips a fresh subscription and heals past the cap", async () => {
+  await run(upload(10));
+  const subscriptions = [];
+  for (let index = 0; index < 20; index++) {
+    subscriptions.push(await browserSubscription(
+      `https://fcm.googleapis.com/fcm/send/bundle-burst-${index}`,
+    ));
+  }
+  const subscribe = (subscription) => run(new Request(
+    `https://viewer.example/u/${READ_ID}/push-subscription`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(subscription),
+    },
+  ));
+
+  assert.equal((await subscribe(subscriptions[0])).status, 204);
+  // A repeat upload inside the refresh interval costs one write: the snapshot.
+  env.USAGE.puts.length = 0;
+  assert.equal((await run(upload(10))).status, 204);
+  assert.deepEqual(env.USAGE.puts.map((entry) => entry.key), [READ_ID]);
+
+  const barrier = deferred();
+  let arrived = 0;
+  env.USAGE.lists = 0;
+  env.USAGE.beforeList = async (call) => {
+    if (call > subscriptions.length - 1) return; // the self-heal list must not block
+    arrived += 1;
+    if (arrived === subscriptions.length - 1) barrier.release();
+    await barrier.promise;
+  };
+  await Promise.all(subscriptions.slice(1).map(subscribe));
+  env.USAGE.beforeList = null;
+
+  assert.equal(
+    (await env.USAGE.list({ prefix: `push:${READ_ID}:` })).keys.length,
+    MAX_PUSH_SUBSCRIPTIONS,
+  );
 });
 
 test("the bundle entry still serves the embedded viewer page", async () => {
