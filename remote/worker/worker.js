@@ -25,6 +25,12 @@ const ID_RE = /^[a-f0-9]{32}$/;
 const MAX_BODY = 16 * 1024; // 16 KB
 const TTL_SECONDS = 604800; // 7 days
 
+// A stored push subscription only has to have its TTL pushed forward often
+// enough to stay well inside the 7-day window, so an upload rewrites a
+// subscription key at most once a day instead of on every PUT. A daily refresh
+// still leaves six days of margin.
+const REFRESH_INTERVAL_SECONDS = 86400; // 24 hours
+
 // Payload limits. Deliberately generous: an app newer than this worker must
 // keep working, so unknown fields are ignored and only the shape the viewer
 // actually depends on is enforced.
@@ -157,21 +163,86 @@ async function deleteEndpointMappingIfOwned(env, hash, readId) {
   if (await env.USAGE.get(key) === readId) await env.USAGE.delete(key);
 }
 
+// Wall clock in unix seconds. env.NOW is a test-only injection point, in the
+// same style as env.PUSH_SENDER; a deployment never sets it.
+function nowSeconds(env) {
+  const clock = typeof env?.NOW === "function" ? env.NOW : Date.now;
+  return Math.floor(clock() / 1000);
+}
+
+// A stored subscription value carries two worker-internal fields next to the
+// browser subscription: createdAt (first registration) and refreshedAt (last
+// TTL rewrite), both unix seconds. They are always written by this worker, so a
+// client cannot forge them, nothing outside this file reads these keys, and the
+// push sender and the subscription validator ignore unknown fields.
+function storeSubscription(env, key, subscription, createdAt, refreshedAt) {
+  return env.USAGE.put(
+    key,
+    JSON.stringify({ ...subscription, createdAt, refreshedAt }),
+    { expirationTtl: TTL_SECONDS },
+  );
+}
+
+// Values stored before createdAt existed fall back to the caller's default; for
+// eviction order that default is 0, which ranks them as the oldest entries and
+// keeps a burst of new registrations from displacing long-standing ones.
+function createdAtOf(stored, fallback) {
+  const createdAt = Number(stored?.createdAt);
+  return Number.isFinite(createdAt) ? createdAt : fallback;
+}
+
+function compareByAge(left, right) {
+  if (left.createdAt !== right.createdAt) return left.createdAt - right.createdAt;
+  if (left.name === right.name) return 0;
+  return left.name < right.name ? -1 : 1;
+}
+
 async function refreshSubscriptions(env, readId) {
   const listed = await env.USAGE.list({ prefix: subscriptionPrefix(readId) });
   const options = pushOptions(env);
+  const now = nowSeconds(env);
   await Promise.all(listed.keys.map(async (entry) => {
     const subscription = await env.USAGE.get(entry.name, { type: "json" });
     if (!validatePushSubscription(subscription, options)) {
       await env.USAGE.delete(entry.name);
       return;
     }
+    // Rewriting an entry that was refreshed recently costs two KV writes per
+    // upload and buys nothing: its TTL still has days left. A value stored
+    // without refreshedAt counts as stale, so it is rewritten once and then
+    // settles into the same interval.
+    const refreshedAt = Number(subscription.refreshedAt);
+    if (Number.isFinite(refreshedAt) && now - refreshedAt <= REFRESH_INTERVAL_SECONDS) return;
     const hash = await subscriptionHash(subscription.endpoint);
     await Promise.all([
-      env.USAGE.put(entry.name, JSON.stringify(subscription), { expirationTtl: TTL_SECONDS }),
+      storeSubscription(env, entry.name, subscription, createdAtOf(subscription, now), now),
       env.USAGE.put(endpointKey(hash), readId, { expirationTtl: TTL_SECONDS }),
     ]);
   }));
+}
+
+// The pre-put list check in manageSubscription reads an eventually consistent
+// KV list, so a burst of concurrent registrations can all pass it and store
+// more entries than the cap. Re-listing after the write converges the view:
+// everything past MAX_PUSH_SUBSCRIPTIONS, newest first by stored createdAt and
+// then by key, is deleted. This is bounded self-healing rather than a
+// transaction, and the size of the window in front of a real KV namespace is
+// owner-observed. Returns false when the caller's own entry was evicted.
+async function enforceSubscriptionCap(env, readId, key) {
+  const prefix = subscriptionPrefix(readId);
+  const listed = await env.USAGE.list({ prefix });
+  if (listed.keys.length <= MAX_PUSH_SUBSCRIPTIONS) return true;
+  const entries = await Promise.all(listed.keys.map(async (entry) => ({
+    name: entry.name,
+    createdAt: createdAtOf(await env.USAGE.get(entry.name, { type: "json" }), 0),
+  })));
+  entries.sort(compareByAge);
+  const overflow = entries.slice(MAX_PUSH_SUBSCRIPTIONS);
+  await Promise.all(overflow.map(async (entry) => {
+    await env.USAGE.delete(entry.name);
+    await deleteEndpointMappingIfOwned(env, entry.name.slice(prefix.length), readId);
+  }));
+  return !overflow.some((entry) => entry.name === key);
 }
 
 async function removeSubscriptions(env, readId) {
@@ -325,8 +396,15 @@ async function manageSubscription(request, env, readId) {
   if (existingReadId && existingReadId !== readId) {
     await env.USAGE.delete(`${subscriptionPrefix(existingReadId)}${hash}`);
   }
-  await env.USAGE.put(key, JSON.stringify(parsed.data), { expirationTtl: TTL_SECONDS });
+  // Re-registering the same endpoint keeps its original createdAt, so refreshing
+  // a subscription never makes it look new to the cap.
+  const now = nowSeconds(env);
+  const stored = await env.USAGE.get(key, { type: "json" });
+  await storeSubscription(env, key, parsed.data, createdAtOf(stored, now), now);
   await env.USAGE.put(endpointKey(hash), readId, { expirationTtl: TTL_SECONDS });
+  if (!await enforceSubscriptionCap(env, readId, key)) {
+    return json(429, { error: "too_many_subscriptions" });
+  }
   return empty(204);
 }
 
