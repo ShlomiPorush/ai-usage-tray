@@ -225,9 +225,12 @@ container purge them once, right after it starts listening, so a deploy is visib
   else on the zone is touched, so this is the right mode when the zone hosts other sites.
 - `everything` drops the zone's whole cache. Only use it on a zone dedicated to this relay.
 
-Create the token in the Cloudflare dashboard under **My Profile > API Tokens** with a single
-permission, `Zone > Cache Purge > Purge`, scoped to the one zone. The token is used only for the
-startup purge and is never logged. Incomplete configuration (a mode without a zone id, token, or,
+Create an [account-owned token](https://developers.cloudflare.com/fundamentals/api/get-started/account-owned-tokens/)
+in the Cloudflare dashboard under **Manage Account > Account API Tokens** with a single permission,
+`Zone > Cache Purge > Purge`, scoped to the one zone. Account-owned tokens are preferred because
+they belong to the account rather than to a person's profile, so they survive user changes; a user
+token created under **My Profile > API Tokens** with the same single permission works too. The
+token is used only for the startup purge and is never logged. Incomplete configuration (a mode without a zone id, token, or,
 for `files`, `PUBLIC_BASE_URL`) stops startup with a clear error instead of silently skipping the
 purge. A purge that fails at runtime (Cloudflare unreachable, rejected token) is logged and retried
 a few times but never takes the relay down.
