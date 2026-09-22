@@ -35,8 +35,8 @@ function Write-Log {
 function Invoke-WithRetry {
     param(
         [scriptblock]$Action,
-        [int]$Attempts = 20,
-        [int]$DelayMs = 1500
+        [int]$Attempts = 30,
+        [int]$DelayMs = 2000
     )
 
     for ($i = 1; $i -le $Attempts; $i++) {
@@ -114,10 +114,17 @@ function Relaunch-App {
     $stagedExe = Join-Path $StagingDir $ExecutableRelativePath
     if ((Test-Path $stagedExe) -and ($candidates -notcontains $stagedExe)) { $candidates += $stagedExe }
 
+    # A relaunch here always means the swap did not finish this run. Tell the
+    # fresh process to skip its own auto-apply so it does not immediately spawn
+    # another updater and fight over the still-locked install directory. The
+    # pending update waits for the next genuine, user-started launch, which has
+    # a clean environment. Older app versions ignore this variable; the lock
+    # below still keeps their retries from overlapping.
+    $env:COSTATS_UPDATE_DEFERRED = "1"
     foreach ($exe in $candidates) {
         try {
             Start-Process -FilePath $exe | Out-Null
-            Write-Log "Launched app: $exe"
+            Write-Log "Launched app (auto-apply suppressed for this run): $exe"
             return
         } catch {
             Write-Log "Failed to launch $exe : $($_.Exception.Message)"
@@ -145,6 +152,23 @@ function Increment-FailedAttempts {
 Write-Log "Starting staged update."
 Write-Log "InstallDir=$InstallDir"
 Write-Log "StagingDir=$StagingDir"
+
+# Only one updater may touch the install directory at a time. A second run,
+# such as one a relaunch spawned while this one is still retrying the swap,
+# would fight over the same folder and keep it locked. Hold an exclusive handle
+# for this process's lifetime; the OS releases it on exit, so even a crash
+# cannot wedge the lock. A second run that cannot take the lock exits at once
+# without relaunching, so the holder stays in sole control.
+$lockPath = Join-Path $logDir "apply.lock"
+$lockStream = $null
+try {
+    $lockStream = [System.IO.File]::Open(
+        $lockPath, [System.IO.FileMode]::OpenOrCreate,
+        [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+} catch {
+    Write-Log "Another updater run holds the lock; this run exits without touching the install."
+    return
+}
 
 # --- Circuit breaker: abort if too many failed attempts ---
 $maxAttempts = 3
@@ -186,7 +210,7 @@ try {
     # Antivirus, Windows Search indexer, and .NET single-file extraction cache
     # can hold handles for several seconds after the process is gone.
     Write-Log "Waiting for file handles to release..."
-    Start-Sleep -Seconds 5
+    Start-Sleep -Seconds 8
 
     # --- Validate staging ---
     if (-not (Test-Path $StagingDir)) {
