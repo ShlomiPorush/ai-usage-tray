@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { findResetAlerts, findThresholdCrossings } from "../shared/usage-alerts.mjs";
 import {
+  parsePushEndpointHosts,
   sendWebPush,
   validatePushSubscription,
   validateVapidConfiguration,
@@ -350,6 +351,7 @@ export function createRemoteViewServer({
   cleanupIntervalMs = 60 * 60 * 1000,
   runtimeVersion = "dev",
   vapidConfiguration = null,
+  allowedEndpointHosts = null,
   pushSender = sendWebPush,
 } = {}) {
   if (!databasePath) throw new Error("databasePath is required");
@@ -364,6 +366,9 @@ export function createRemoteViewServer({
   if (vapidConfiguration !== null && !validateVapidConfiguration(vapidConfiguration)) {
     throw new Error("Invalid VAPID configuration");
   }
+
+  // Empty or unset keeps the built-in browser push-service list.
+  const pushOptions = { allowedEndpointHosts: allowedEndpointHosts ?? undefined };
 
   async function readJsonRequest(request, response) {
     const contentType = request.headers["content-type"] ?? "";
@@ -403,8 +408,22 @@ export function createRemoteViewServer({
     };
     const subscriptions = store.listSubscriptions(readId);
     await Promise.all(subscriptions.map(async (subscription) => {
+      // Drops rows a narrowed host list, or an older build, would no longer accept.
+      if (!validatePushSubscription(subscription, pushOptions)) {
+        if (typeof subscription?.endpoint === "string") {
+          store.deleteSubscription(readId, subscription.endpoint);
+        }
+        return;
+      }
       try {
-        const result = await pushSender(subscription, message, vapidConfiguration);
+        const result = await pushSender(
+          subscription,
+          message,
+          vapidConfiguration,
+          undefined,
+          undefined,
+          pushOptions,
+        );
         if (result.status === 404 || result.status === 410) {
           store.deleteSubscription(readId, subscription.endpoint);
         } else if (!result.ok) {
@@ -461,7 +480,7 @@ export function createRemoteViewServer({
           if (store.get(readId, now()) === null) {
             return sendJson(response, 404, { error: "not_found" });
           }
-          if (!validatePushSubscription(parsed.data)) {
+          if (!validatePushSubscription(parsed.data, pushOptions)) {
             return sendJson(response, 422, { error: "invalid_subscription" });
           }
           return store.putSubscription(readId, parsed.data)
@@ -572,6 +591,12 @@ export function createRemoteViewServer({
   return { server, store, close };
 }
 
+// Replaces the built-in push-service host list when set, for operators who run
+// another push service or want a narrower list.
+export function readAllowedEndpointHosts(environment = process.env) {
+  return parsePushEndpointHosts(environment.PUSH_ENDPOINT_ALLOWED_HOSTS);
+}
+
 function readPositiveInteger(name, fallback) {
   const raw = process.env[name];
   if (raw === undefined) return fallback;
@@ -590,6 +615,7 @@ async function startFromEnvironment() {
   const ttlMs = readPositiveInteger("SNAPSHOT_TTL_SECONDS", TTL_MS / 1000) * 1000;
   const cleanupIntervalMs = readPositiveInteger("CLEANUP_INTERVAL_SECONDS", 3600) * 1000;
   const runtimeVersion = readFileSync(join(here, "VERSION"), "utf8").trim();
+  const allowedEndpointHosts = readAllowedEndpointHosts();
   const vapidConfiguration = await ensureVapidConfiguration({
     path: databasePath === ":memory:" ? null : join(dirname(databasePath), "vapid.json"),
   });
@@ -600,6 +626,7 @@ async function startFromEnvironment() {
     cleanupIntervalMs,
     runtimeVersion,
     vapidConfiguration,
+    allowedEndpointHosts,
   });
 
   await new Promise((resolveListen, rejectListen) => {

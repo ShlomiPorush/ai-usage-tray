@@ -5,8 +5,17 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import { createRemoteViewServer, deriveReadId, SnapshotStore } from "./server.mjs";
-import { base64UrlEncode } from "../shared/web-push.mjs";
+import {
+  createRemoteViewServer,
+  deriveReadId,
+  readAllowedEndpointHosts,
+  SnapshotStore,
+} from "./server.mjs";
+import {
+  base64UrlEncode,
+  sendWebPush,
+  validatePushSubscription,
+} from "../shared/web-push.mjs";
 
 const require = createRequire(import.meta.url);
 const {
@@ -41,18 +50,41 @@ const PAYLOAD = JSON.stringify({
   accounts: [{ id: "codex:test", provider: "codex", windows: [] }],
 });
 
+const WEB_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "web");
+
 let fixture;
+
+// A subscription that looks like the one a browser hands to the viewer.
+async function browserSubscription(endpoint) {
+  const subscriberKeys = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"],
+  );
+  return {
+    endpoint,
+    keys: {
+      p256dh: base64UrlEncode(await crypto.subtle.exportKey("raw", subscriberKeys.publicKey)),
+      auth: base64UrlEncode(crypto.getRandomValues(new Uint8Array(16))),
+    },
+  };
+}
 
 beforeEach(async () => {
   const directory = await mkdtemp(join(tmpdir(), "ai-usage-remote-view-"));
   let currentTime = Date.parse("2026-08-27T12:00:00Z");
-  const webRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "web");
+  const webRoot = WEB_ROOT;
   const vapidKeys = await crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
     true,
     ["sign", "verify"],
   );
   const vapidPrivate = await crypto.subtle.exportKey("jwk", vapidKeys.privateKey);
+  const vapidConfiguration = {
+    publicKey: base64UrlEncode(await crypto.subtle.exportKey("raw", vapidKeys.publicKey)),
+    privateKey: vapidPrivate.d,
+    subject: "mailto:test@example.com",
+  };
   const pushCalls = [];
   const app = createRemoteViewServer({
     databasePath: join(directory, "usage.db"),
@@ -61,11 +93,7 @@ beforeEach(async () => {
     ttlMs: 1000,
     cleanupIntervalMs: 0,
     runtimeVersion: "1.1.0-test",
-    vapidConfiguration: {
-      publicKey: base64UrlEncode(await crypto.subtle.exportKey("raw", vapidKeys.publicKey)),
-      privateKey: vapidPrivate.d,
-      subject: "mailto:test@example.com",
-    },
+    vapidConfiguration,
     pushSender: async (subscription, message) => {
       pushCalls.push({ subscription, message });
       return new Response(null, { status: 201 });
@@ -78,6 +106,7 @@ beforeEach(async () => {
     directory,
     baseUrl: `http://127.0.0.1:${address.port}`,
     pushCalls,
+    vapidConfiguration,
     advance(milliseconds) {
       currentTime += milliseconds;
     },
@@ -313,18 +342,7 @@ test("viewer exposes browser alerts only when an account opted in", () => {
 });
 
 test("registers browser subscriptions and pushes only new per-window crossings", async () => {
-  const subscriberKeys = await crypto.subtle.generateKey(
-    { name: "ECDH", namedCurve: "P-256" },
-    true,
-    ["deriveBits"],
-  );
-  const subscription = {
-    endpoint: "https://push.example.test/subscription-1",
-    keys: {
-      p256dh: base64UrlEncode(await crypto.subtle.exportKey("raw", subscriberKeys.publicKey)),
-      auth: base64UrlEncode(crypto.getRandomValues(new Uint8Array(16))),
-    },
-  };
+  const subscription = await browserSubscription("https://fcm.googleapis.com/fcm/send/subscription-1");
   const usage = (session, weekly) => JSON.stringify({
     version: 2,
     generatedAt: "2026-08-27T12:00:00Z",
@@ -398,18 +416,9 @@ test("deleting a remote view also removes its browser subscriptions", async () =
     headers: { "Content-Type": "application/json" },
     body: PAYLOAD,
   });
-  const subscriberKeys = await crypto.subtle.generateKey(
-    { name: "ECDH", namedCurve: "P-256" },
-    true,
-    ["deriveBits"],
+  const subscription = await browserSubscription(
+    "https://web.push.apple.com/subscription-delete",
   );
-  const subscription = {
-    endpoint: "https://push.example.test/subscription-delete",
-    keys: {
-      p256dh: base64UrlEncode(await crypto.subtle.exportKey("raw", subscriberKeys.publicKey)),
-      auth: base64UrlEncode(crypto.getRandomValues(new Uint8Array(16))),
-    },
-  };
   await fetch(`${fixture.baseUrl}/u/${READ_ID}/push-subscription`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -419,4 +428,178 @@ test("deleting a remote view also removes its browser subscriptions", async () =
   await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, { method: "DELETE" });
 
   assert.deepEqual(fixture.app.store.listSubscriptions(READ_ID), []);
+});
+
+test("accepts the real browser push services and no other endpoint", async () => {
+  const allowed = [
+    "https://fcm.googleapis.com/fcm/send/cxyDU4KHb1Y:APA91bF",
+    "https://updates.push.services.mozilla.com/wpush/v2/gAAAAABm9",
+    "https://web.push.apple.com/QN6ZQmS6ZiQpV0bHm5cVPA",
+    "https://sin.notify.windows.com/w/?token=BQYAAAB",
+  ];
+  for (const endpoint of allowed) {
+    assert.equal(validatePushSubscription(await browserSubscription(endpoint)), true, endpoint);
+  }
+
+  const refused = [
+    "https://169.254.169.254/x",
+    "https://127.0.0.1/x",
+    "https://[::1]/x",
+    "https://nas.lan:8080/x",
+    "https://evil.example/x",
+    // An allowlisted host on another port would still reach a different service.
+    "https://fcm.googleapis.com:8443/x",
+    // Only subdomains of the wildcard entries, never a look-alike domain.
+    "https://push.apple.com.evil.example/x",
+    "https://evil-push.apple.com/x",
+    "http://fcm.googleapis.com/x",
+  ];
+  for (const endpoint of refused) {
+    assert.equal(validatePushSubscription(await browserSubscription(endpoint)), false, endpoint);
+  }
+
+  // Host matching ignores case and a trailing root dot.
+  assert.equal(
+    validatePushSubscription(await browserSubscription("https://FCM.GoogleAPIs.com./fcm/send/x")),
+    true,
+  );
+});
+
+test("refuses to register a subscription on an unlisted endpoint host", async () => {
+  await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: PAYLOAD,
+  });
+
+  const response = await fetch(`${fixture.baseUrl}/u/${READ_ID}/push-subscription`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(await browserSubscription("https://169.254.169.254/latest/meta-data")),
+  });
+
+  assert.equal(response.status, 422);
+  assert.deepEqual(await response.json(), { error: "invalid_subscription" });
+  assert.deepEqual(fixture.app.store.listSubscriptions(READ_ID), []);
+});
+
+test("drops a stored subscription whose endpoint host is no longer allowed", async () => {
+  const usage = (session) => JSON.stringify({
+    version: 2,
+    generatedAt: "2026-08-27T12:00:00Z",
+    accounts: [{
+      id: "claude:work",
+      provider: "claude",
+      alert: { enabled: true, thresholdPercent: 80 },
+      windows: [{ label: "Session", usedPercent: session }],
+    }],
+  });
+  await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: usage(79),
+  });
+  // Rows an older build accepted are not trusted at delivery time.
+  fixture.app.store.putSubscription(
+    READ_ID,
+    await browserSubscription("https://169.254.169.254/latest/meta-data"),
+  );
+
+  await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: usage(81),
+  });
+
+  assert.equal(fixture.pushCalls.length, 0);
+  assert.deepEqual(fixture.app.store.listSubscriptions(READ_ID), []);
+});
+
+test("PUSH_ENDPOINT_ALLOWED_HOSTS lets an operator name their own push host", async () => {
+  const subscription = await browserSubscription("https://push.example.test/operator-endpoint");
+  const register = (baseUrl) => fetch(`${baseUrl}/u/${READ_ID}/push-subscription`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(subscription),
+  });
+  const upload = (baseUrl) => fetch(`${baseUrl}/u/${WRITE_ID}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: PAYLOAD,
+  });
+
+  await upload(fixture.baseUrl);
+  assert.equal((await register(fixture.baseUrl)).status, 422);
+
+  const previous = process.env.PUSH_ENDPOINT_ALLOWED_HOSTS;
+  process.env.PUSH_ENDPOINT_ALLOWED_HOSTS = "push.example.test, fcm.googleapis.com";
+  const configured = createRemoteViewServer({
+    databasePath: join(fixture.directory, "configured.db"),
+    webRoot: WEB_ROOT,
+    cleanupIntervalMs: 0,
+    vapidConfiguration: fixture.vapidConfiguration,
+    allowedEndpointHosts: readAllowedEndpointHosts(),
+    pushSender: async () => new Response(null, { status: 201 }),
+  });
+  try {
+    await new Promise((listening) => configured.server.listen(0, "127.0.0.1", listening));
+    const baseUrl = `http://127.0.0.1:${configured.server.address().port}`;
+    await upload(baseUrl);
+
+    assert.equal((await register(baseUrl)).status, 204);
+    assert.deepEqual(
+      configured.store.listSubscriptions(READ_ID).map((entry) => entry.endpoint),
+      [subscription.endpoint],
+    );
+    assert.equal(
+      (await fetch(`${baseUrl}/u/${READ_ID}/push-subscription`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(await browserSubscription("https://evil.example/x")),
+      })).status,
+      422,
+    );
+  } finally {
+    await configured.close();
+    if (previous === undefined) delete process.env.PUSH_ENDPOINT_ALLOWED_HOSTS;
+    else process.env.PUSH_ENDPOINT_ALLOWED_HOSTS = previous;
+  }
+});
+
+test("web push delivery refuses redirects, times out, and stays on allowed hosts", async () => {
+  const requests = [];
+  const fakeFetch = async (url, options) => {
+    requests.push({ url, options });
+    return new Response(null, { status: 201 });
+  };
+
+  const response = await sendWebPush(
+    await browserSubscription("https://fcm.googleapis.com/fcm/send/redirect-policy"),
+    { type: "usage-alerts" },
+    fixture.vapidConfiguration,
+    fakeFetch,
+  );
+
+  assert.equal(response.status, 201);
+  assert.equal(requests[0].options.redirect, "error");
+  assert.ok(requests[0].options.signal instanceof AbortSignal);
+
+  await assert.rejects(
+    sendWebPush(
+      await browserSubscription("https://evil.example/x"),
+      { type: "usage-alerts" },
+      fixture.vapidConfiguration,
+      fakeFetch,
+    ),
+    /invalid_subscription/,
+  );
+  await assert.doesNotReject(sendWebPush(
+    await browserSubscription("https://push.example.test/operator-endpoint"),
+    { type: "usage-alerts" },
+    fixture.vapidConfiguration,
+    fakeFetch,
+    Date.now(),
+    { allowedEndpointHosts: ["push.example.test"] },
+  ));
+  assert.equal(requests.length, 2);
 });

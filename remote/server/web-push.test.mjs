@@ -43,7 +43,7 @@ test("encrypts a payload that the browser subscription key can decrypt", async (
   );
   const authSecret = crypto.getRandomValues(new Uint8Array(16));
   const subscription = {
-    endpoint: "https://push.example.test/message/123",
+    endpoint: "https://updates.push.services.mozilla.com/wpush/v2/message-123",
     keys: {
       p256dh: base64UrlEncode(subscriberPublic),
       auth: base64UrlEncode(authSecret),
@@ -77,6 +77,9 @@ test("encrypts a payload that the browser subscription key can decrypt", async (
   assert.equal(response.status, 201);
   assert.equal(request.url, subscription.endpoint);
   assert.equal(request.options.headers["Content-Encoding"], "aes128gcm");
+  assert.equal(request.options.redirect, "error");
+  assert.ok(request.options.signal instanceof AbortSignal);
+  assert.equal(request.options.signal.aborted, false);
   assert.match(request.options.headers.Authorization, /^vapid t=[^.]+\.[^.]+\.[^,]+, k=/);
 
   const body = request.options.body;

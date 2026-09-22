@@ -168,6 +168,15 @@ In the Worker settings, add `VAPID_PUBLIC_KEY` and `VAPID_SUBJECT` as text varia
 `VAPID_PRIVATE_KEY` as an encrypted secret. Keep the private value secret and backed up. If these
 bindings are absent, the remote viewer still works but Web Push stays unavailable.
 
+The worker calls the browser's push endpoint to deliver a notification, so a subscription is only
+accepted when its endpoint is an `https:` URL, without credentials, without an explicit port, and on
+one of the browser push services: `fcm.googleapis.com`, `*.push.services.mozilla.com`,
+`*.push.apple.com`, and `*.notify.windows.com` (`*.` matches subdomains at any depth, not the bare
+domain). IP addresses are never accepted. Any other endpoint is answered with
+`422 {"error":"invalid_subscription"}`. The optional `PUSH_ENDPOINT_ALLOWED_HOSTS` text variable
+takes a comma-separated host list that replaces the built-in one, so include every service the
+viewer's browsers use. This matches the server's `PUSH_ENDPOINT_ALLOWED_HOSTS` variable.
+
 ### 6. Check it works
 
 Open `https://ai-usage-tray-view.<your-subdomain>.workers.dev/` in a browser. You should see the

@@ -15,6 +15,7 @@
 import { findResetAlerts, findThresholdCrossings } from "../shared/usage-alerts.mjs";
 import {
   base64UrlEncode,
+  parsePushEndpointHosts,
   sendWebPush,
   validatePushSubscription,
   validateVapidConfiguration,
@@ -130,6 +131,14 @@ function vapidConfiguration(env) {
   return validateVapidConfiguration(configuration) ? configuration : null;
 }
 
+// A push endpoint is fetched by this worker, so only the browser push services
+// in the shared default list are reachable. The optional
+// PUSH_ENDPOINT_ALLOWED_HOSTS variable (comma separated) replaces that list.
+function pushOptions(env) {
+  const hosts = parsePushEndpointHosts(env.PUSH_ENDPOINT_ALLOWED_HOSTS);
+  return { allowedEndpointHosts: hosts ?? undefined };
+}
+
 async function subscriptionHash(endpoint) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint));
   return base64UrlEncode(digest);
@@ -150,9 +159,10 @@ async function deleteEndpointMappingIfOwned(env, hash, readId) {
 
 async function refreshSubscriptions(env, readId) {
   const listed = await env.USAGE.list({ prefix: subscriptionPrefix(readId) });
+  const options = pushOptions(env);
   await Promise.all(listed.keys.map(async (entry) => {
     const subscription = await env.USAGE.get(entry.name, { type: "json" });
-    if (!validatePushSubscription(subscription)) {
+    if (!validatePushSubscription(subscription, options)) {
       await env.USAGE.delete(entry.name);
       return;
     }
@@ -180,6 +190,7 @@ async function deliverAlerts(env, readId, data, crossings, resets) {
   const configuration = vapidConfiguration(env);
   if (configuration === null || (crossings.length === 0 && resets.length === 0)) return;
   const listed = await env.USAGE.list({ prefix: subscriptionPrefix(readId) });
+  const options = pushOptions(env);
   const message = {
     type: "usage-alerts",
     readId,
@@ -189,13 +200,13 @@ async function deliverAlerts(env, readId, data, crossings, resets) {
   };
   await Promise.all(listed.keys.map(async (entry) => {
     const subscription = await env.USAGE.get(entry.name, { type: "json" });
-    if (!validatePushSubscription(subscription)) {
+    if (!validatePushSubscription(subscription, options)) {
       await env.USAGE.delete(entry.name);
       return;
     }
     try {
       const sender = typeof env.PUSH_SENDER === "function" ? env.PUSH_SENDER : sendWebPush;
-      const result = await sender(subscription, message, configuration);
+      const result = await sender(subscription, message, configuration, undefined, undefined, options);
       if (result.status === 404 || result.status === 410) {
         await env.USAGE.delete(entry.name);
         const hash = await subscriptionHash(subscription.endpoint);
@@ -301,7 +312,7 @@ async function manageSubscription(request, env, readId) {
   }
 
   if (await env.USAGE.get(readId) === null) return json(404, { error: "not_found" });
-  if (!validatePushSubscription(parsed.data)) {
+  if (!validatePushSubscription(parsed.data, pushOptions(env))) {
     return json(422, { error: "invalid_subscription" });
   }
   const hash = await subscriptionHash(parsed.data.endpoint);
