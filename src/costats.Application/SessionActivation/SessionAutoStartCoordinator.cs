@@ -15,6 +15,15 @@ public sealed class SessionAutoStartCoordinator
 {
     public const int MaximumAttempts = 4; // initial attempt + three retries
     public static readonly TimeSpan RetryInterval = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// The provider session window. It is the floor between two activations for
+    /// the same account and the age at which an attempt budget is considered
+    /// stale, so a provider that keeps republishing old reset timestamps can
+    /// never buy extra activations.
+    /// </summary>
+    public static readonly TimeSpan ProviderWindowLength = TimeSpan.FromHours(5);
+
     private static readonly DateTimeOffset IdleZaiWindowMarker = DateTimeOffset.UnixEpoch;
     private static readonly DateTimeOffset IdleClaudeWindowMarker = DateTimeOffset.UnixEpoch;
     private static readonly DateTimeOffset IdleCodexWindowMarker = DateTimeOffset.UnixEpoch;
@@ -143,7 +152,7 @@ public sealed class SessionAutoStartCoordinator
         }
 
         checkpoint = GetOrCreateExpiredCheckpoint(target.ProviderId, resetAt, now);
-        if (checkpoint.Completed || now < checkpoint.NextAttemptAt)
+        if (checkpoint.Completed || now < checkpoint.NextAttemptAt || IsInsideActivationFloor(checkpoint, now))
         {
             return;
         }
@@ -187,6 +196,7 @@ public sealed class SessionAutoStartCoordinator
         // next launch preflights the provider and sees the newly started window
         // instead of sending a duplicate.
         checkpoint.Attempts++;
+        checkpoint.LastActivationAttemptAt = now;
         checkpoint.Completed = checkpoint.Attempts >= MaximumAttempts;
         checkpoint.NextAttemptAt = now + RetryInterval;
         await SaveAsync(cancellationToken).ConfigureAwait(false);
@@ -194,6 +204,11 @@ public sealed class SessionAutoStartCoordinator
         var result = await _activator.ActivateAsync(target, cancellationToken).ConfigureAwait(false);
         var finishedAt = _clock.UtcNow;
         checkpoint.Succeeded = result.Succeeded;
+        if (result.Succeeded)
+        {
+            checkpoint.LastSuccessfulActivationAt = finishedAt;
+        }
+
         if (result.Succeeded &&
             target.Provider is SessionActivationProvider.Claude or SessionActivationProvider.Codex)
         {
@@ -357,6 +372,9 @@ public sealed class SessionAutoStartCoordinator
             return;
         }
 
+        // A genuinely future window is the legitimate way to refill the attempt
+        // budget. The activation history survives the replacement, because it
+        // describes what this app did, not what the provider reported.
         _checkpoints[providerId] = new SessionActivationCheckpoint
         {
             ObservedResetAt = resetAt,
@@ -365,19 +383,47 @@ public sealed class SessionAutoStartCoordinator
             Attempts = 0,
             NextAttemptAt = resetAt,
             Completed = false,
-            Succeeded = false
+            Succeeded = false,
+            LastActivationAttemptAt = current?.LastActivationAttemptAt ?? default,
+            LastSuccessfulActivationAt = current?.LastSuccessfulActivationAt ?? default
         };
         await SaveAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// True while the provider window this app already started is still
+    /// running. It is measured from our own successful activation, so a
+    /// provider that reports a stale or rolling reset timestamp cannot unlock
+    /// another activation early.
+    /// </summary>
+    private static bool IsInsideActivationFloor(SessionActivationCheckpoint checkpoint, DateTimeOffset now) =>
+        checkpoint.LastSuccessfulActivationAt != default &&
+        now < checkpoint.LastSuccessfulActivationAt + ProviderWindowLength;
 
     private SessionActivationCheckpoint GetOrCreateExpiredCheckpoint(
         string providerId,
         DateTimeOffset resetAt,
         DateTimeOffset now)
     {
-        if (_checkpoints!.TryGetValue(providerId, out var current) &&
-            current.ObservedResetAt == resetAt)
+        if (_checkpoints!.TryGetValue(providerId, out var current))
         {
+            if (current.LastActivationAttemptAt != default &&
+                now - current.LastActivationAttemptAt >= ProviderWindowLength)
+            {
+                // A whole window has passed since the last attempt, so this
+                // budget belongs to an old window and a fresh series is due.
+                current.ObservedResetAt = resetAt;
+                current.RequiresFutureObservation = false;
+                current.Attempts = 0;
+                current.NextAttemptAt = now;
+                current.Completed = false;
+                return current;
+            }
+
+            // The reported reset moved but is still in the past. Adopt the new
+            // deadline and keep the attempt budget: a timestamp that never
+            // reaches the future must not buy extra activations.
+            current.ObservedResetAt = resetAt;
             return current;
         }
 
