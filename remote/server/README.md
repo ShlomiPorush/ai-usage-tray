@@ -182,20 +182,13 @@ they are per process, they reset on restart, and the map is pruned every request
 By default the counter keys on the socket peer address, the one value a client cannot choose. The
 container is published on loopback and normally runs behind a reverse proxy, which would make every
 request share the proxy's address, so the shipped Compose file sets `TRUST_PROXY=1`; the relay then
-keys on the first `X-Forwarded-For` entry. Set `TRUST_PROXY=0` when nothing is in front of the
-container.
-
-With `TRUST_PROXY=1` the proxy must **replace** `X-Forwarded-For` rather than append to it.
-Caddy, nginx and Traefik all append by default, which leaves the first entry under the caller's
-control and lets a flood evade the limit by rotating a forged value. In Caddy:
-
-```caddyfile
-ai.yaaps.net {
-    reverse_proxy 127.0.0.1:8080 {
-        header_up X-Forwarded-For {remote_host}
-    }
-}
-```
+keys on the **last** `X-Forwarded-For` entry, the one appended by the proxy directly in front of the
+container. Earlier entries are whatever the caller sent and are ignored, so a forged header cannot
+mint a fresh address per request. This is correct for exactly one trusted proxy, whether it appends
+to or replaces the incoming header (Caddy, nginx and Traefik append by default; no proxy
+configuration change is needed). Set `TRUST_PROXY=0` when nothing is in front of the container, and
+keep it `0` if there are ever two chained proxies, since then the last entry is the inner proxy's
+address, not the client's.
 
 Keeping an edge rate limit for `/u/` at Cloudflare or in the proxy is still worthwhile. The relay
 limit is a floor that survives a misconfigured edge, not a replacement for one.
@@ -215,7 +208,7 @@ limit is a floor that survives a misconfigured edge, not a replacement for one.
 | `SNAPSHOT_SIGNING_KEY` | public default key | HMAC key for write signatures. Public unless every client is reconfigured. |
 | `UNSIGNED_PUT_PER_MINUTE` | `10` | Writes per minute per address without a valid signature. |
 | `SIGNED_PUT_PER_MINUTE` | `120` | Writes per minute per address with a valid signature. |
-| `TRUST_PROXY` | `0` (`1` in the shipped Compose file) | `1` keys the limit on the first `X-Forwarded-For` entry. |
+| `TRUST_PROXY` | `0` (`1` in the shipped Compose file) | `1` keys the limit on the last `X-Forwarded-For` entry (the one the proxy appended). |
 
 The first successful Container workflow creates the GitHub package. Confirm once in the package
 settings that its visibility is **Public**. Public GHCR images can be pulled anonymously. If it is
@@ -266,14 +259,12 @@ Migration for an existing deployment: replace the local `compose.yaml` with the 
 now has `CHOWN`. Only a deployment that pins `user:` in its own Compose file has to keep the data
 directory writable by that UID (`chown -R <uid>:<gid> data`).
 
-Example Caddy configuration. `header_up` matters: it makes the forwarded address trustworthy for the
-per-address write limit, which the shipped Compose file turns on with `TRUST_PROXY=1`.
+Example Caddy configuration. Caddy's default forwarding is fine: the relay reads the last
+`X-Forwarded-For` entry, which is the one Caddy appends.
 
 ```caddyfile
 ai.yaaps.net {
-    reverse_proxy 127.0.0.1:8080 {
-        header_up X-Forwarded-For {remote_host}
-    }
+    reverse_proxy 127.0.0.1:8080
 }
 ```
 

@@ -216,9 +216,15 @@ test("the limit keys on the socket peer unless TRUST_PROXY is set", () => {
   );
 
   const trustProxy = { trustProxy: true };
+  // The LAST entry is the one the trusted proxy appended; earlier entries are
+  // client-supplied and must not let a flood mint a fresh address per request.
   assert.equal(
-    resolveClientAddress(request("10.0.0.1", " 198.51.100.9 , 10.0.0.1 "), trustProxy),
-    "198.51.100.9",
+    resolveClientAddress(request("10.0.0.1", " 198.51.100.9 , 192.0.2.4 "), trustProxy),
+    "192.0.2.4",
+  );
+  assert.equal(
+    resolveClientAddress(request("10.0.0.1", "203.0.113.99"), trustProxy),
+    "203.0.113.99",
   );
   assert.equal(
     resolveClientAddress(request("10.0.0.1", "[2001:db8::1]:4443"), trustProxy),

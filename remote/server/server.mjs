@@ -216,15 +216,18 @@ export class WriteRateLimiter {
  * The address the rate limit is keyed on. The socket peer is the only value a
  * client cannot choose, so it is the default. Behind a reverse proxy every
  * request would share the proxy's address, so `TRUST_PROXY=1` switches to the
- * first `X-Forwarded-For` entry instead: correct only when a proxy you control
- * rewrites that header, and an open door for limit evasion when it does not.
+ * LAST `X-Forwarded-For` entry: the one appended by the trusted proxy in front
+ * of this server. Earlier entries are whatever the client sent and would let a
+ * flood claim a fresh address per request. Correct for exactly one trusted
+ * proxy, whether it appends to or replaces the incoming header.
  */
 export function resolveClientAddress(request, { trustProxy = false } = {}) {
   if (trustProxy) {
     const header = request?.headers?.["x-forwarded-for"];
-    const raw = Array.isArray(header) ? header[0] : header;
-    const first = typeof raw === "string" ? raw.split(",")[0].trim() : "";
-    if (first !== "") return normalizeAddress(first);
+    const raw = Array.isArray(header) ? header[header.length - 1] : header;
+    const entries = typeof raw === "string" ? raw.split(",") : [];
+    const last = entries.length > 0 ? entries[entries.length - 1].trim() : "";
+    if (last !== "") return normalizeAddress(last);
   }
   return normalizeAddress(request?.socket?.remoteAddress ?? "") || "unknown";
 }
