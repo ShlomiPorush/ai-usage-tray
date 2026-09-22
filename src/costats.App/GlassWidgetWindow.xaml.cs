@@ -22,6 +22,7 @@ namespace costats.App
         private readonly OnboardingWindow _onboardingWindow;
         private readonly AppSettings _appSettings;
         private readonly CodexResetCreditService _resetCredits;
+        private readonly ClaudeResetService _claudeResets;
         private readonly IPulseOrchestrator _orchestrator;
         private ResetCreditsViewModel? _resetCreditsViewModel;
         private string? _resetCreditsProviderId;
@@ -34,6 +35,7 @@ namespace costats.App
             IGlassBackdropService backdropService,
             AppSettings appSettings,
             CodexResetCreditService resetCredits,
+            ClaudeResetService claudeResets,
             IPulseOrchestrator orchestrator)
         {
             InitializeComponent();
@@ -44,6 +46,7 @@ namespace costats.App
             _onboardingWindow = onboardingWindow;
             _appSettings = appSettings;
             _resetCredits = resetCredits;
+            _claudeResets = claudeResets;
             _orchestrator = orchestrator;
             SourceInitialized += OnSourceInitialized;
             MouseLeftButtonDown += OnMouseLeftButtonDown;
@@ -144,9 +147,13 @@ namespace costats.App
             if (_resetCreditsViewModel is not null) return;
             if (sender is not FrameworkElement { DataContext: ProviderPulseViewModel provider }) return;
             var account = _appSettings.GetEffectiveAccounts().FirstOrDefault(candidate =>
-                candidate.IsCodex && "codex:" + candidate.Id == provider.ProviderId);
+                (candidate.IsCodex && "codex:" + candidate.Id == provider.ProviderId) ||
+                (candidate.IsClaude && "claude:" + candidate.Id == provider.ProviderId));
             if (account is null) return;
-            var viewModel = new ResetCreditsViewModel(provider.DisplayName, account.ConfigDir, _resetCredits,
+            IResetCreditGateway gateway = account.IsCodex
+                ? new CodexResetCreditGateway(account.ConfigDir, _resetCredits)
+                : new ClaudeResetCreditGateway(account.ConfigDir, _claudeResets);
+            var viewModel = new ResetCreditsViewModel(provider.DisplayName, gateway,
                 () => _orchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None));
             _resetCreditsViewModel = viewModel;
             _resetCreditsProviderId = provider.ProviderId;

@@ -804,9 +804,9 @@ if (typeof module !== "undefined" && module.exports) {
     return row;
   }
 
-  // Codex hands out redeemable "usage limit reset" credits. They belong to the
-  // account rather than to any one window, so they sit under the header as a
-  // quiet line of their own. Absent from the payload when there is none.
+  // Codex and Claude hand out redeemable "usage limit reset" credits. They
+  // belong to the account rather than to any one window, so they sit under the
+  // header as a quiet line of their own. Absent from the payload when there is none.
   function renderResetCredits(source, now, account) {
     if (!source || typeof source !== "object") return null;
 
@@ -897,7 +897,13 @@ if (typeof module !== "undefined" && module.exports) {
     var source = account.resetCredits || {};
     var credits = Array.isArray(source.credits) ? source.credits.filter(function (credit) { return credit && typeof credit === "object"; }) : null;
     var count = Math.max(0, Math.floor(Number(source.available) || 0));
-    var complete = credits && source.detailsComplete === true && credits.length === count;
+    // A Claude grant can carry several uses (usesLeft), so the rows are
+    // measured against the count by their uses, not by their number.
+    var listedUses = (credits || []).reduce(function (sum, credit) {
+      var uses = Math.floor(Number(credit.usesLeft));
+      return sum + (isFinite(uses) && uses > 1 ? uses : 1);
+    }, 0);
+    var complete = credits && source.detailsComplete === true && listedUses === count;
     resetDialogBody.appendChild(el("p", "reset-summary", !count ? "No resets available in this account." : !credits
       ? count + " resets available. Details are unavailable. Refresh the desktop app to publish them."
       : complete ? "All " + count + " resets loaded." : credits.length + " of " + count + " resets loaded. Details are incomplete."));
@@ -907,13 +913,16 @@ if (typeof module !== "undefined" && module.exports) {
       return (parseDate(a.expiresAt) || Infinity) - (parseDate(b.expiresAt) || Infinity);
     }).forEach(function (credit) {
       var card = el("article", "reset-detail");
-      card.appendChild(el("h3", "", typeof credit.title === "string" && credit.title.trim() ? credit.title : "Usage limit reset"));
+      var title = typeof credit.title === "string" && credit.title.trim() ? credit.title : "Usage limit reset";
+      var uses = Math.floor(Number(credit.usesLeft));
+      if (isFinite(uses) && uses > 1) title += " (" + uses + " uses left)";
+      card.appendChild(el("h3", "", title));
       if (typeof credit.description === "string" && credit.description) card.appendChild(el("p", "", credit.description));
       var expiry = resetExpiryInfo(credit.expiresAt, now);
       card.appendChild(el("p", "reset-date", expiry ? "Expires " + expiry.date.toLocaleString() + " (" + expiry.text + ")" : "No expiration"));
       var granted = parseDate(credit.grantedAt);
       card.appendChild(el("p", "reset-date", granted ? "Granted " + granted.toLocaleString() : "Grant date unavailable"));
-      if (credit.resetType !== "codexRateLimits") card.appendChild(el("p", "reset-date", "This reset type cannot be used in the desktop app."));
+      if (credit.resetType !== "codexRateLimits" && credit.resetType !== "claudeRateLimits") card.appendChild(el("p", "reset-date", "This reset type cannot be used in the desktop app."));
       resetDialogBody.appendChild(card);
     });
     if (count) resetDialogBody.appendChild(el("p", "reset-summary", "To use a reset, open this account in the desktop app."));

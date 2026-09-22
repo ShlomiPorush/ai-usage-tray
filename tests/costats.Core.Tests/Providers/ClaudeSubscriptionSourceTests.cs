@@ -41,6 +41,39 @@ public sealed class ClaudeSubscriptionSourceTests
     }
 
     [Fact]
+    public async Task ReadAsync_publishes_reset_credits_and_drops_grants_that_expired_in_cache()
+    {
+        var usable = new ResetCredit(
+            "grant-a", ResetCredit.ClaudeType, "Reset", null,
+            DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(20), UsesLeft: 2);
+        var expired = usable with { Id = "grant-b", ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(-1), UsesLeft = 1 };
+        var client = new FakeClaudeSubscriptionUsageClient(new ClaudeOAuthUsageResult(
+            10,
+            DateTimeOffset.UtcNow.AddHours(2),
+            20,
+            DateTimeOffset.UtcNow.AddDays(3),
+            false,
+            null,
+            null,
+            "max",
+            null,
+            DateTimeOffset.UtcNow)
+        {
+            ResetCreditsAvailable = 3,
+            ResetCredits = [usable, expired],
+            ResetCreditExpiresAt = expired.ExpiresAt
+        });
+
+        var source = new ClaudeSubscriptionSource(new ClaudeAccountProfile("claude-1", "Claude", "/tmp/claude"), client);
+        var reading = await source.ReadAsync(CancellationToken.None);
+
+        Assert.Equal(2, reading.Usage!.ResetCreditsAvailable);
+        var credit = Assert.Single(reading.Usage.ResetCredits!);
+        Assert.Equal("grant-a", credit.Id);
+        Assert.Equal(usable.ExpiresAt, reading.Usage.ResetCreditExpiresAt);
+    }
+
+    [Fact]
     public async Task ReadAsync_does_not_invent_usage_when_subscription_profile_is_not_connected()
     {
         var source = new ClaudeSubscriptionSource(

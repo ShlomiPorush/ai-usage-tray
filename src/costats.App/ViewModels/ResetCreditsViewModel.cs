@@ -5,22 +5,117 @@ using costats.Infrastructure.Providers;
 
 namespace costats.App.ViewModels;
 
+/// <summary>One account's redeemable resets, read fresh from the provider.</summary>
+public sealed record ResetBankSnapshot(
+    bool RequiresSignIn,
+    ResetCreditBank Bank,
+    DateTimeOffset? ResetCreditExpiresAt);
+
+/// <summary>
+/// Provider-specific loading, redemption and result wording behind the shared
+/// reset-credits screen. Each instance is bound to one account.
+/// </summary>
+public interface IResetCreditGateway
+{
+    Task<ResetBankSnapshot?> LoadAsync(CancellationToken cancellationToken);
+
+    Task<ResetCreditOutcome> RedeemAsync(string creditId, CancellationToken cancellationToken);
+
+    string Describe(ResetCreditOutcome outcome);
+}
+
+/// <summary>Codex redemption through the local app-server.</summary>
+public sealed class CodexResetCreditGateway(string codexHome, CodexResetCreditService service) : IResetCreditGateway
+{
+    public async Task<ResetBankSnapshot?> LoadAsync(CancellationToken cancellationToken)
+    {
+        var snapshot = await service.LoadAsync(codexHome, cancellationToken);
+        return snapshot is null
+            ? null
+            : new ResetBankSnapshot(snapshot.RequiresSignIn, snapshot.ResetCreditBank, snapshot.ResetCreditExpiresAt);
+    }
+
+    public Task<ResetCreditOutcome> RedeemAsync(string creditId, CancellationToken cancellationToken) =>
+        service.RedeemAsync(codexHome, creditId, cancellationToken);
+
+    public string Describe(ResetCreditOutcome outcome) => outcome switch
+    {
+        ResetCreditOutcome.Reset => "Reset used. Check the refreshed usage in the widget.",
+        ResetCreditOutcome.AlreadyRedeemed => "This reset was already used. Check the refreshed usage in the widget.",
+        ResetCreditOutcome.NothingToReset => "No eligible usage window needs a reset. No reset was used.",
+        ResetCreditOutcome.NoCredit => "Codex reports no resets available. Review the refreshed list.",
+        ResetCreditOutcome.IncompleteList => "The reset list is incomplete. Nothing was used. Refresh to try again.",
+        ResetCreditOutcome.CreditUnavailable => "The selected reset is no longer available or cannot be used here. Select another reset.",
+        ResetCreditOutcome.SignInRequired => "Sign in to this account again in Settings, then refresh.",
+        ResetCreditOutcome.Unsupported => "Using a selected reset requires Codex 0.154.0 or newer. Update Codex, then try again.",
+        ResetCreditOutcome.Unavailable => "Could not verify the account. Nothing was used. Refresh to try again.",
+        ResetCreditOutcome.Busy => "Another reset is being checked. Wait, then refresh.",
+        ResetCreditOutcome.Cooldown => "Codex declined the reset for now. Try again later.",
+        _ => "Codex did not confirm the result. Refresh and check usage before retrying the same reset."
+    };
+}
+
+/// <summary>Claude redemption through the Anthropic OAuth API.</summary>
+public sealed class ClaudeResetCreditGateway(string configDir, ClaudeResetService service) : IResetCreditGateway
+{
+    public async Task<ResetBankSnapshot?> LoadAsync(CancellationToken cancellationToken)
+    {
+        var snapshot = await service.LoadAsync(configDir, cancellationToken);
+        return snapshot is null
+            ? null
+            : new ResetBankSnapshot(snapshot.RequiresSignIn, snapshot.Bank, snapshot.ResetCreditExpiresAt);
+    }
+
+    public Task<ResetCreditOutcome> RedeemAsync(string creditId, CancellationToken cancellationToken) =>
+        service.RedeemAsync(configDir, creditId, cancellationToken);
+
+    public string Describe(ResetCreditOutcome outcome) => outcome switch
+    {
+        ResetCreditOutcome.Reset => "Reset used. Check the refreshed usage in the widget.",
+        ResetCreditOutcome.AlreadyRedeemed => "This reset was already used. Check the refreshed usage in the widget.",
+        ResetCreditOutcome.NothingToReset => "Claude says this account is not at a limit right now, so nothing was reset.",
+        ResetCreditOutcome.NoCredit => "Claude reports no resets available. Review the refreshed list.",
+        ResetCreditOutcome.IncompleteList => "The reset list is incomplete. Nothing was used. Refresh to try again.",
+        ResetCreditOutcome.CreditUnavailable => "The selected reset is no longer available for this account. Refresh the list.",
+        ResetCreditOutcome.SignInRequired => "Sign in to this account again in Settings, then refresh.",
+        ResetCreditOutcome.Cooldown => "Claude declined the reset for now. Try again in a few minutes.",
+        ResetCreditOutcome.Unavailable => "Could not verify the account. Nothing was used. Refresh to try again.",
+        ResetCreditOutcome.Busy => "Another reset is being checked. Wait, then refresh.",
+        _ => "Claude did not confirm the result. Refresh and check usage before retrying the same reset."
+    };
+}
+
 public sealed record ResetCreditRow(ResetCredit Credit)
 {
-    public string Title => string.IsNullOrWhiteSpace(Credit.Title) ? "Usage limit reset" : Credit.Title;
+    public string Title
+    {
+        get
+        {
+            var title = string.IsNullOrWhiteSpace(Credit.Title) ? "Usage limit reset" : Credit.Title;
+            return Credit.UsesLeft > 1 ? $"{title} ({Credit.UsesLeft} uses left)" : title;
+        }
+    }
+
     public string Description => Credit.Description ?? string.Empty;
     public string GrantedText => Credit.GrantedAt is { } date
         ? FormattableString.Invariant($"Granted {date.ToLocalTime():MMM d, yyyy HH:mm}") : "Grant date unavailable";
     public string ExpiryText => Credit.ExpiresAt is { } date
         ? FormattableString.Invariant($"Expires {date.ToLocalTime():MMM d, yyyy HH:mm} ({ResetCreditExpiry.RemainingText(date, DateTimeOffset.UtcNow)})") : "No expiration";
     public string AvailabilityText => Credit.ExpiresAt <= DateTimeOffset.UtcNow ? "Expired" :
-        Credit.ResetType != "codexRateLimits" ? "This reset type cannot be used here." : string.Empty;
+        Credit.ResetType is not ResetCredit.CodexType and not ResetCredit.ClaudeType
+            ? "This reset type cannot be used here." : string.Empty;
 }
 
 public sealed partial class ResetCreditsViewModel(
-    string accountName, string codexHome, CodexResetCreditService service,
-    Func<Task> refreshQuota) : ObservableObject
+    string accountName, IResetCreditGateway gateway, Func<Task> refreshQuota) : ObservableObject
 {
+    /// <summary>Codex convenience wiring, also keeping existing call sites intact.</summary>
+    public ResetCreditsViewModel(
+        string accountName, string codexHome, CodexResetCreditService service, Func<Task> refreshQuota)
+        : this(accountName, new CodexResetCreditGateway(codexHome, service), refreshQuota)
+    {
+    }
+
     public string AccountName { get; } = accountName;
     private ResetCreditBank _bank = ResetCreditBank.Unknown;
 
@@ -82,7 +177,7 @@ public sealed partial class ResetCreditsViewModel(
         Summary = "Loading resets...";
         try
         {
-            var snapshot = await service.LoadAsync(codexHome, CancellationToken.None);
+            var snapshot = await gateway.LoadAsync(CancellationToken.None);
             if (snapshot is null || snapshot.RequiresSignIn)
             {
                 Summary = snapshot?.RequiresSignIn == true
@@ -90,7 +185,7 @@ public sealed partial class ResetCreditsViewModel(
                     : "Could not load resets. Refresh to try again.";
                 return false;
             }
-            _bank = snapshot.ResetCreditBank;
+            _bank = snapshot.Bank;
             Credits = (_bank.Credits ?? []).OrderBy(credit => credit.ExpiresAt ?? DateTimeOffset.MaxValue)
                 .ThenBy(credit => credit.GrantedAt).ThenBy(credit => credit.Id, StringComparer.Ordinal)
                 .Select(credit => new ResetCreditRow(credit)).ToArray();
@@ -133,23 +228,10 @@ public sealed partial class ResetCreditsViewModel(
         Status = "Checking the selected reset...";
         try
         {
-            var outcome = await service.RedeemAsync(codexHome, creditId, CancellationToken.None);
+            var outcome = await gateway.RedeemAsync(creditId, CancellationToken.None);
             SelectedCredit = null;
             await LoadCoreAsync();
-            Status = outcome switch
-            {
-                ResetCreditOutcome.Reset => "Reset used. Check the refreshed usage in the widget.",
-                ResetCreditOutcome.AlreadyRedeemed => "This reset was already used. Check the refreshed usage in the widget.",
-                ResetCreditOutcome.NothingToReset => "No eligible usage window needs a reset. No reset was used.",
-                ResetCreditOutcome.NoCredit => "Codex reports no resets available. Review the refreshed list.",
-                ResetCreditOutcome.IncompleteList => "The reset list is incomplete. Nothing was used. Refresh to try again.",
-                ResetCreditOutcome.CreditUnavailable => "The selected reset is no longer available or cannot be used here. Select another reset.",
-                ResetCreditOutcome.SignInRequired => "Sign in to this account again in Settings, then refresh.",
-                ResetCreditOutcome.Unsupported => "Using a selected reset requires Codex 0.154.0 or newer. Update Codex, then try again.",
-                ResetCreditOutcome.Unavailable => "Could not verify the account. Nothing was used. Refresh to try again.",
-                ResetCreditOutcome.Busy => "Another reset is being checked. Wait, then refresh.",
-                _ => "Codex did not confirm the result. Refresh and check usage before retrying the same reset."
-            };
+            Status = gateway.Describe(outcome);
             try { await refreshQuota(); }
             catch { Status += " Could not refresh usage. Refresh the widget to check it."; }
         }

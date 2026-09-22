@@ -458,6 +458,7 @@ function demoSnapshot(now) {
           { label: "Weekly", usedPercent: 64, resetsAt: at(3 * DAY), severity: "warning" },
           { label: "Weekly", usedPercent: 91, resetsAt: at(3 * DAY), scope: "Fable", severity: "critical" },
         ],
+        resetCredits: { available: 1, expiresAt: at(30 * DAY) },
       },
       {
         id: "claude:demo-work",

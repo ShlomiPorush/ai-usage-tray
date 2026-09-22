@@ -6,7 +6,7 @@
 // the update land.
 
 // v18: compacts the reset dialog header and refreshes unmodified HTML responses.
-var CACHE = "ai-usage-tray-shell-v18";
+var CACHE = "ai-usage-tray-shell-v19";
 
 var SHELL = [
   "./",

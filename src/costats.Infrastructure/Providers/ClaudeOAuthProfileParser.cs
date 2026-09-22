@@ -10,7 +10,8 @@ namespace costats.Infrastructure.Providers;
 public sealed record ClaudeOAuthProfile(
     string? Email,
     string? SubscriptionType,
-    string? RateLimitTier);
+    string? RateLimitTier,
+    string? OrganizationUuid = null);
 
 public static class ClaudeOAuthProfileParser
 {
@@ -38,6 +39,7 @@ public static class ClaudeOAuthProfileParser
 
             string? subscriptionType = null;
             string? rateLimitTier = null;
+            string? organizationUuid = null;
             if (root.TryGetProperty("organization", out var organization) &&
                 organization.ValueKind == JsonValueKind.Object)
             {
@@ -53,14 +55,23 @@ public static class ClaudeOAuthProfileParser
                 {
                     rateLimitTier = tier.GetString()!.Trim();
                 }
+
+                // The organization uuid addresses the usage-limit reset
+                // endpoint; identity display never shows it.
+                if (organization.TryGetProperty("uuid", out var uuid) &&
+                    uuid.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(uuid.GetString()))
+                {
+                    organizationUuid = uuid.GetString()!.Trim();
+                }
             }
 
-            if (email is null && subscriptionType is null && rateLimitTier is null)
+            if (email is null && subscriptionType is null && rateLimitTier is null && organizationUuid is null)
             {
                 return null;
             }
 
-            return new ClaudeOAuthProfile(email, subscriptionType, rateLimitTier);
+            return new ClaudeOAuthProfile(email, subscriptionType, rateLimitTier, organizationUuid);
         }
         catch (JsonException)
         {

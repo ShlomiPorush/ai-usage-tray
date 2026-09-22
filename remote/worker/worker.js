@@ -432,6 +432,7 @@ function demoSnapshot() {
           // Scoped to one model: same weekly window, its own budget.
           { label: "Weekly", usedPercent: 91, resetsAt: at(3 * DAY), scope: "Fable", severity: "critical" },
         ],
+        resetCredits: { available: 1, expiresAt: at(30 * DAY) },
       },
       {
         id: "claude:demo-work",
@@ -451,8 +452,6 @@ function demoSnapshot() {
         // 82% is the sample's orange window: the four bands (green, yellow,
         // orange, red) are all visible at once on the demo page.
         windows: [{ label: "Weekly", usedPercent: 82, resetsAt: at(2 * DAY) }],
-        // Codex is the only provider that hands these out, so the sample shows
-        // one on the Codex account.
         resetCredits: { available: 1, expiresAt: at(28 * DAY) },
       },
       {

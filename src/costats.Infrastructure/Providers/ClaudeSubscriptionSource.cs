@@ -81,6 +81,9 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
         var sessionUsed = ToUsedPercent(result.FiveHourUsedPercent);
         var weeklyUsed = ToUsedPercent(result.SevenDayUsedPercent);
         var sessionReset = result.FiveHourResetsAt ?? ResolveConfirmedSessionReset(now);
+        // A cached result can be hours old, so drop resets whose window has
+        // since closed rather than promising a redemption that will fail.
+        var resetCredits = result.ResetCredits?.Where(credit => credit.CanUseAt(now)).ToArray();
         var usage = new UsagePulse(
             Profile.ProviderId,
             result.FetchedAt,
@@ -93,7 +96,12 @@ public sealed class ClaudeSubscriptionSource : ISignalSource
         {
             ScopedQuotas = result.ScopedLimits ?? [],
             SessionSeverity = result.FiveHourSeverity,
-            WeekSeverity = result.SevenDaySeverity
+            WeekSeverity = result.SevenDaySeverity,
+            ResetCreditsAvailable = resetCredits?.Sum(credit => credit.UsesLeft) ?? 0,
+            ResetCredits = resetCredits is { Length: > 0 } ? resetCredits : null,
+            ResetCreditExpiresAt = resetCredits is { Length: > 0 }
+                ? resetCredits.Where(credit => credit.ExpiresAt.HasValue).Min(credit => credit.ExpiresAt)
+                : null
         };
 
         return new ProviderReading(
