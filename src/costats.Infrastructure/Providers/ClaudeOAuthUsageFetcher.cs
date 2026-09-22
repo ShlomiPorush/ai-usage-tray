@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using costats.Core.Pulse;
 
@@ -441,10 +442,75 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
     private string GetDiskCachePath()
     {
         var basePath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var profileSuffix = _configDir is not null
-            ? "_" + Path.GetFileName(_configDir)
-            : "";
-        return Path.Combine(basePath, "costats", "cache", $"claude-oauth{profileSuffix}.json");
+        return Path.Combine(basePath, "costats", "cache", BuildDiskCacheFileName(_configDir));
+    }
+
+    /// <summary>
+    /// Names the disk cache after the whole configuration directory, not just
+    /// its last segment. Every Claude profile is called ".claude", so a
+    /// basename-only key made unrelated accounts share one cache file and
+    /// serve each other's usage numbers, identity and plan. The readable
+    /// prefix is cosmetic; the hash is what keeps accounts apart.
+    /// Files written by older versions are simply never read again.
+    /// </summary>
+    internal static string BuildDiskCacheFileName(string? configDir)
+    {
+        if (string.IsNullOrWhiteSpace(configDir))
+        {
+            return "claude-oauth.json";
+        }
+
+        var key = NormalizeConfigDirectoryKey(configDir);
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..16].ToLowerInvariant();
+        var label = DescribeConfigDirectory(key);
+        return label.Length == 0
+            ? $"claude-oauth_{hash}.json"
+            : $"claude-oauth_{label}_{hash}.json";
+    }
+
+    /// <summary>
+    /// Produces one stable key per directory: the absolute path without
+    /// trailing separators, upper-cased on Windows because its file system is
+    /// case-insensitive.
+    /// </summary>
+    internal static string NormalizeConfigDirectoryKey(string configDir)
+    {
+        var normalized = configDir;
+        try
+        {
+            normalized = Path.GetFullPath(configDir);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // An unusable path still needs a deterministic key of its own.
+        }
+
+        var trimmed = normalized.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (trimmed.Length > 0)
+        {
+            normalized = trimmed;
+        }
+
+        return OperatingSystem.IsWindows() ? normalized.ToUpperInvariant() : normalized;
+    }
+
+    private static string DescribeConfigDirectory(string key)
+    {
+        var name = Path.GetFileName(key);
+        if (string.IsNullOrEmpty(name))
+        {
+            return "";
+        }
+
+        var builder = new StringBuilder(name.Length);
+        foreach (var character in name)
+        {
+            builder.Append(char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '_'
+                ? char.ToLowerInvariant(character)
+                : '-');
+        }
+
+        return builder.ToString().Trim('-', '.');
     }
 
     private async Task WriteDiskCacheAsync(ClaudeOAuthUsageResult result)

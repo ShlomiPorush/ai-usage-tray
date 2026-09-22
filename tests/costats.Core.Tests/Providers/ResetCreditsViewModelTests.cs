@@ -4,8 +4,15 @@ using Xunit;
 
 namespace costats.Core.Tests.Providers;
 
-public sealed class ResetCreditsViewModelTests
+public sealed class ResetCreditsViewModelTests : IDisposable
 {
+    // Redemption persists idempotency keys, so keep the real application data
+    // folder out of the test run.
+    private readonly string _root = Path.Combine(
+        Path.GetTempPath(),
+        "costats-tests",
+        Guid.NewGuid().ToString("N"));
+
     [Fact]
     public void English_ui_keeps_dates_readable_under_a_Hebrew_system_culture()
     {
@@ -62,7 +69,8 @@ public sealed class ResetCreditsViewModelTests
     {
         var fake = new ResetClientFake { Pending = new(TaskCreationOptions.RunContinuationsAsynchronously) };
         var refreshes = 0;
-        var vm = new ResetCreditsViewModel("Account B", "account-b", new(fake, fake), () => { refreshes++; return Task.CompletedTask; });
+        var vm = new ResetCreditsViewModel(
+            "Account B", "account-b", new(fake, fake, _root), () => { refreshes++; return Task.CompletedTask; });
         await vm.RefreshCommand.ExecuteAsync(null);
         vm.SelectedCredit = vm.Credits[1];
         vm.ReviewCommand.Execute(null);
@@ -99,6 +107,18 @@ public sealed class ResetCreditsViewModelTests
         Assert.Empty(fake.Calls);
     }
 
-    private static ResetCreditsViewModel Create(ResetClientFake fake) =>
-        new("Account B", "account-b", new(fake, fake), () => Task.CompletedTask);
+    private ResetCreditsViewModel Create(ResetClientFake fake) =>
+        new("Account B", "account-b", new(fake, fake, _root), () => Task.CompletedTask);
+
+    public void Dispose()
+    {
+        try
+        {
+            Directory.Delete(_root, recursive: true);
+        }
+        catch
+        {
+            // Temp cleanup is best effort.
+        }
+    }
 }
