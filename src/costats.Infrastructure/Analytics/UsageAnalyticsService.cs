@@ -37,6 +37,18 @@ public interface IUsageAnalyticsService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Builds a report for an exact rolling window, with hourly buckets, such
+    /// as the past 24 hours.
+    /// </summary>
+    /// <param name="window">Instants to include.</param>
+    /// <param name="accountIds">As for <see cref="GetReportAsync"/>.</param>
+    /// <param name="cancellationToken">Cancels an in-flight scan.</param>
+    Task<UsageReport> GetWindowReportAsync(
+        UsageTimeWindow window,
+        IReadOnlyCollection<string>? accountIds = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// The accounts that have local logs, for an account picker. Codex profiles
     /// collapse into one merged entry.
     /// </summary>
@@ -120,10 +132,24 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
     public TimeZoneInfo TimeZone { get; init; } = TimeZoneInfo.Local;
 
     /// <inheritdoc />
-    public async Task<UsageReport> GetReportAsync(
+    public Task<UsageReport> GetReportAsync(
         UsageDateRange range,
         IReadOnlyCollection<string>? accountIds = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        AggregateAsync(range, null, accountIds, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<UsageReport> GetWindowReportAsync(
+        UsageTimeWindow window,
+        IReadOnlyCollection<string>? accountIds = null,
+        CancellationToken cancellationToken = default) =>
+        AggregateAsync(UsageDateRange.All, window, accountIds, cancellationToken);
+
+    private async Task<UsageReport> AggregateAsync(
+        UsageDateRange range,
+        UsageTimeWindow? window,
+        IReadOnlyCollection<string>? accountIds,
+        CancellationToken cancellationToken)
     {
         var scan = await GetScanAsync(cancellationToken).ConfigureAwait(false);
         var pricing = await _pricing(cancellationToken).ConfigureAwait(false);
@@ -131,6 +157,7 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         var report = UsageAggregator.Aggregate(scan.Samples, new UsageAggregationOptions
         {
             Range = range,
+            Window = window,
             AccountIds = accountIds,
             Pricing = pricing,
             TimeZone = TimeZone,

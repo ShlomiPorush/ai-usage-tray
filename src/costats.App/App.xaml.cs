@@ -37,6 +37,7 @@ namespace costats.App
         [
             "--screenshot",
             "--settings-screenshot",
+            "--usage-screenshot",
             "--onboarding-screenshot",
             "--onboarding-fallback-screenshot"
         ];
@@ -243,8 +244,10 @@ namespace costats.App
         }
 
         /// <summary>
-        /// Dev/docs helpers render the normal widget, settings, guided onboarding,
-        /// or its compact widget fallback to a PNG and exit. Preview state is
+        /// Dev/docs helpers render the normal widget, settings, the usage window,
+        /// guided onboarding, or its compact widget fallback to a PNG and exit.
+        /// The usage window takes <c>--usage-range 1|7|30|90</c> and
+        /// <c>--usage-breakdown model|time</c>. Preview state is
         /// in-memory only and never touches settings.json.
         /// </summary>
         private bool MaybeCaptureScreenshot(TrayHost tray)
@@ -274,6 +277,25 @@ namespace costats.App
                         returnToWidgetOnDismiss: false,
                         initialCategory: SettingsCategory.Automation);
                     window = settingsWindow;
+                }
+                else if (flag == "--usage-screenshot")
+                {
+                    var usageViewModel = _host!.Services.GetRequiredService<UsageWindowViewModel>();
+                    if (int.TryParse(ReadOptionalArgument(args, "--usage-range"), out var rangeDays) &&
+                        UsageWindowViewModel.RangeChoices.Contains(rangeDays))
+                    {
+                        usageViewModel.RangeDays = rangeDays;
+                    }
+
+                    if (string.Equals(ReadOptionalArgument(args, "--usage-breakdown"), "time", StringComparison.OrdinalIgnoreCase))
+                    {
+                        usageViewModel.BreakdownIndex = 1;
+                    }
+
+                    var usageWindow = _host.Services.GetRequiredService<UsageWindow>();
+                    usageWindow.ShowUsage();
+                    window = usageWindow;
+                    wait = TimeSpan.FromSeconds(15);
                 }
                 else if (flag == "--onboarding-screenshot")
                 {

@@ -48,14 +48,21 @@ public sealed record UsageBreakdownRow(
 /// </remarks>
 public sealed partial class UsageWindowViewModel : ObservableObject
 {
-    /// <summary>Ranges the segmented control offers, in days.</summary>
-    public static readonly int[] RangeChoices = [7, 30, 90];
+    /// <summary>
+    /// Ranges the segmented control offers, in days. <see cref="PastDayRange"/>
+    /// is the rolling past 24 hours with hourly buckets, not a calendar day.
+    /// </summary>
+    public static readonly int[] RangeChoices = [PastDayRange, 7, 30, 90];
+
+    /// <summary>The <see cref="RangeDays"/> value that means "Past 24h".</summary>
+    public const int PastDayRange = 1;
 
     private readonly IUsageAnalyticsService _analytics;
     private CancellationTokenSource? _inFlight;
     private UsageReport? _report;
     private DateOnly _from;
     private DateOnly _to;
+    private UsageTimeWindow? _window;
     private bool _suppressReload;
     private string? _pendingAccountId;
     private string? _selectedAccountId;
@@ -85,7 +92,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     [ObservableProperty]
     private UsageAccountOption? selectedAccount;
 
-    /// <summary>Days in the selected range: 7, 30 or 90.</summary>
+    /// <summary>Days in the selected range: 1 (the past 24 hours), 7, 30 or 90.</summary>
     [ObservableProperty]
     private int rangeDays = 30;
 
@@ -129,9 +136,13 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     [ObservableProperty]
     private UsageChartData chart = UsageChartData.Empty;
 
-    /// <summary>"Daily API value" or "Daily tokens".</summary>
+    /// <summary>"Daily API value", "Hourly tokens" and so on.</summary>
     [ObservableProperty]
     private string chartTitle = "Daily API value";
+
+    /// <summary>Label of the breakdown's time toggle: "DAY", or "HOUR" for the past 24 hours.</summary>
+    [ObservableProperty]
+    private string timeBreakdownLabel = "DAY";
 
     /// <summary>Header of the breakdown table's first column.</summary>
     [ObservableProperty]
@@ -218,7 +229,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
     partial void OnMetricIndexChanged(int value)
     {
-        ChartTitle = value == 1 ? "Daily tokens" : "Daily API value";
+        UpdateHeaders();
         if (_report is not null)
         {
             Chart = BuildChart(_report);
@@ -227,11 +238,24 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
     partial void OnBreakdownIndexChanged(int value)
     {
-        BreakdownColumnHeader = value == 1 ? "Day" : "Model";
+        UpdateHeaders();
         if (_report is not null)
         {
             BreakdownRows = BuildBreakdown(_report);
         }
+    }
+
+    /// <summary>
+    /// Titles follow the report on screen, not the range just picked, so they
+    /// never describe data that has not arrived yet.
+    /// </summary>
+    private void UpdateHeaders()
+    {
+        var hourly = _window is not null;
+        var period = hourly ? "Hourly" : "Daily";
+        ChartTitle = MetricIndex == 1 ? $"{period} tokens" : $"{period} API value";
+        TimeBreakdownLabel = hourly ? "HOUR" : "DAY";
+        BreakdownColumnHeader = BreakdownIndex == 1 ? (hourly ? "Hour" : "Day") : "Model";
     }
 
     private void Reload()
@@ -259,6 +283,9 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         var today = DateOnly.FromDateTime(DateTime.Now);
         var days = RangeDays;
         var range = UsageDateRange.LastDays(days, today);
+        UsageTimeWindow? window = days == PastDayRange
+            ? UsageTimeWindow.LastHours(24, DateTimeOffset.Now)
+            : null;
 
         try
         {
@@ -280,7 +307,11 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             var accountId = SelectedAccount?.AccountId;
 
             string[]? filter = accountId is null ? null : [accountId];
-            var report = await Task.Run(() => _analytics.GetReportAsync(range, filter, token), token).ConfigureAwait(true);
+            var report = await Task.Run(
+                () => window is { } rolling
+                    ? _analytics.GetWindowReportAsync(rolling, filter, token)
+                    : _analytics.GetReportAsync(range, filter, token),
+                token).ConfigureAwait(true);
             if (token.IsCancellationRequested)
             {
                 return;
@@ -288,6 +319,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
             _from = range.From ?? today;
             _to = range.To ?? today;
+            _window = window;
             Apply(report);
         }
         catch (OperationCanceledException)
@@ -359,7 +391,10 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     private void Apply(UsageReport report)
     {
         _report = report;
-        RangeLabel = UsageNumberFormat.RangeLabel(_from, _to);
+        RangeLabel = _window is { } window
+            ? UsageNumberFormat.RangeLabel(Local(window.Since), Local(window.Until))
+            : UsageNumberFormat.RangeLabel(_from, _to);
+        UpdateHeaders();
         HasData = !report.IsEmpty;
         StatusText = report.IsEmpty
             ? "No local agent usage in this range."
@@ -412,15 +447,16 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     private static IReadOnlyList<UsageStatTile> BuildTiles(UsageReport report)
     {
         var tokens = report.Totals.Tokens;
-        var activeDays = Math.Max(1, report.Daily.Count);
-        var perActiveDay = tokens.ProcessedTokens / activeDays;
+        var hourly = report.Window is not null;
+        var activePeriods = Math.Max(1, hourly ? report.Hourly.Count : report.Daily.Count);
+        var perActivePeriod = tokens.ProcessedTokens / activePeriods;
 
         return
         [
             new UsageStatTile(
                 "Processed tokens",
                 UsageNumberFormat.Tokens(tokens.ProcessedTokens),
-                $"{UsageNumberFormat.Tokens(perActiveDay)} per active day"),
+                $"{UsageNumberFormat.Tokens(perActivePeriod)} per active {(hourly ? "hour" : "day")}"),
             new UsageStatTile(
                 "Cached input",
                 UsageNumberFormat.Tokens(tokens.CacheReadInputTokens),
@@ -451,6 +487,11 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
     private UsageChartData BuildChart(UsageReport report)
     {
+        if (_window is { } window)
+        {
+            return BuildHourlyChart(report, window);
+        }
+
         var days = new List<DateOnly>();
         for (var day = _from; day <= _to; day = day.AddDays(1))
         {
@@ -486,17 +527,74 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
         return new UsageChartData
         {
-            Days = days,
+            Labels = days.Select(UsageNumberFormat.AxisDayLabel).ToList(),
             Series = series,
-            AxisLabel = useTokens
-                ? value => UsageNumberFormat.AxisTokens((long)Math.Round(value))
-                : value => UsageNumberFormat.AxisCost((decimal)value)
+            AxisLabel = AxisLabel(useTokens)
         };
     }
+
+    private UsageChartData BuildHourlyChart(UsageReport report, UsageTimeWindow window)
+    {
+        var hours = window.HourStarts();
+        if (hours.Count == 0)
+        {
+            return UsageChartData.Empty;
+        }
+
+        var index = hours
+            .Select((hour, position) => (hour, position))
+            .ToDictionary(entry => entry.hour, entry => entry.position);
+
+        var useTokens = MetricIndex == 1;
+        var series = new List<UsageChartSeries>();
+        foreach (var provider in report.ByProvider.Select(entry => entry.Provider).Order())
+        {
+            var values = new double[hours.Count];
+            foreach (var bucket in report.HourlyByModel.Where(entry => entry.Provider == provider))
+            {
+                if (index.TryGetValue(bucket.HourStart, out var position))
+                {
+                    values[position] += useTokens
+                        ? bucket.Totals.Tokens.ProcessedTokens
+                        : (double)bucket.Totals.CostUsd;
+                }
+            }
+
+            series.Add(new UsageChartSeries(provider, values));
+        }
+
+        return new UsageChartData
+        {
+            Labels = hours.Select(hour => UsageNumberFormat.AxisHourLabel(Local(hour))).ToList(),
+            Series = series,
+            AxisLabel = AxisLabel(useTokens)
+        };
+    }
+
+    private static Func<double, string> AxisLabel(bool useTokens) => useTokens
+        ? value => UsageNumberFormat.AxisTokens((long)Math.Round(value))
+        : value => UsageNumberFormat.AxisCost((decimal)value);
+
+    private static DateTimeOffset Local(DateTimeOffset instant) =>
+        TimeZoneInfo.ConvertTime(instant, TimeZoneInfo.Local);
 
     private IReadOnlyList<UsageBreakdownRow> BuildBreakdown(UsageReport report)
     {
         var totalCost = report.Totals.CostUsd;
+
+        if (BreakdownIndex == 1 && _window is not null)
+        {
+            // Only hours with activity, newest first, like the day view.
+            return report.Hourly
+                .OrderByDescending(hour => hour.HourStart)
+                .Select(hour => new UsageBreakdownRow(
+                    UsageNumberFormat.LongHourLabel(Local(hour.HourStart)),
+                    string.Empty,
+                    Cost(hour.Totals),
+                    UsageNumberFormat.Percent(hour.Totals.CostUsd, totalCost),
+                    UsageNumberFormat.Tokens(hour.Totals.Tokens.ProcessedTokens)))
+                .ToList();
+        }
 
         if (BreakdownIndex == 1)
         {

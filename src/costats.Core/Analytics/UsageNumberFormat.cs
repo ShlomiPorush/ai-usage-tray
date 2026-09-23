@@ -113,6 +113,21 @@ public static class UsageNumberFormat
     public static string RangeLabel(DateOnly from, DateOnly to) =>
         $"{DayLabel(from)} to {DayLabel(to)}";
 
+    /// <summary>
+    /// The header's caption for a rolling window, in local time:
+    /// <c>Sep 22, 14:37 to Sep 23, 14:37</c>.
+    /// </summary>
+    public static string RangeLabel(DateTimeOffset localSince, DateTimeOffset localUntil) =>
+        $"{localSince.ToString("MMM d, HH:mm", Culture)} to {localUntil.ToString("MMM d, HH:mm", Culture)}";
+
+    /// <summary>A chart axis hour label in local time: <c>14:37</c>.</summary>
+    public static string AxisHourLabel(DateTimeOffset local) =>
+        local.ToString("HH:mm", Culture);
+
+    /// <summary>A breakdown row's hour label in local time: <c>Tue, Sep 23, 14:37</c>.</summary>
+    public static string LongHourLabel(DateTimeOffset local) =>
+        local.ToString("ddd, MMM d, HH:mm", Culture);
+
     /// <summary>A short day label: <c>Jul 25</c>.</summary>
     public static string DayLabel(DateOnly day) =>
         day.ToString("MMM d", Culture);
