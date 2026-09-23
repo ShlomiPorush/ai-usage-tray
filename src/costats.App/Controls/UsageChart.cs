@@ -5,10 +5,10 @@ using costats.Core.Analytics;
 
 namespace costats.App.Controls;
 
-/// <summary>One provider's line on the daily chart.</summary>
+/// <summary>One provider's line on the chart.</summary>
 /// <param name="Provider">Picks the accent the line is drawn in.</param>
 /// <param name="Values">
-/// One value per day of <see cref="UsageChartData.Days"/>, same order and length.
+/// One value per point of <see cref="UsageChartData.Labels"/>, same order and length.
 /// </param>
 public sealed record UsageChartSeries(UsageProviderKind Provider, IReadOnlyList<double> Values);
 
@@ -21,8 +21,11 @@ public sealed record UsageChartData
     /// <summary>Nothing to draw.</summary>
     public static readonly UsageChartData Empty = new();
 
-    /// <summary>Every day of the selected range, ascending, gaps included.</summary>
-    public IReadOnlyList<DateOnly> Days { get; init; } = [];
+    /// <summary>
+    /// The X axis label of every point (a day or an hour of the selected
+    /// range), ascending, gaps included.
+    /// </summary>
+    public IReadOnlyList<string> Labels { get; init; } = [];
 
     /// <summary>One entry per provider that has data in the range.</summary>
     public IReadOnlyList<UsageChartSeries> Series { get; init; } = [];
@@ -32,8 +35,8 @@ public sealed record UsageChartData
 }
 
 /// <summary>
-/// The daily cost/token chart: a smoothed area series per provider over a
-/// continuous day axis, drawn directly with <see cref="DrawingContext"/>.
+/// The cost/token chart: a smoothed area series per provider over a
+/// continuous day or hour axis, drawn directly with <see cref="DrawingContext"/>.
 /// </summary>
 /// <remarks>
 /// Hand-drawn rather than charted by a library: the app ships no chart
@@ -131,7 +134,7 @@ public sealed class UsageChart : FrameworkElement
         var width = ActualWidth;
         var height = ActualHeight;
         var data = Data;
-        if (width <= AxisGutter + 24 || height <= DateGutter + 40 || data is null || data.Days.Count == 0)
+        if (width <= AxisGutter + 24 || height <= DateGutter + 40 || data is null || data.Labels.Count == 0)
         {
             return;
         }
@@ -177,14 +180,14 @@ public sealed class UsageChart : FrameworkElement
             drawingContext.DrawText(label, new Point(left - 8d - label.Width, y - (label.Height / 2d)));
         }
 
-        // Date labels: first, middle, last. Anything denser is unreadable at
+        // Axis labels: first, middle, last. Anything denser is unreadable at
         // 90 days and adds nothing at 7.
-        DrawDateLabel(drawingContext, data.Days[0], left, bottom, typeface, dpi, HorizontalAlignment.Left);
-        if (data.Days.Count > 2)
+        DrawDateLabel(drawingContext, data.Labels[0], left, bottom, typeface, dpi, HorizontalAlignment.Left);
+        if (data.Labels.Count > 2)
         {
             DrawDateLabel(
                 drawingContext,
-                data.Days[data.Days.Count / 2],
+                data.Labels[data.Labels.Count / 2],
                 (left + right) / 2d,
                 bottom,
                 typeface,
@@ -192,21 +195,21 @@ public sealed class UsageChart : FrameworkElement
                 HorizontalAlignment.Center);
         }
 
-        if (data.Days.Count > 1)
+        if (data.Labels.Count > 1)
         {
-            DrawDateLabel(drawingContext, data.Days[^1], right, bottom, typeface, dpi, HorizontalAlignment.Right);
+            DrawDateLabel(drawingContext, data.Labels[^1], right, bottom, typeface, dpi, HorizontalAlignment.Right);
         }
 
         foreach (var series in data.Series)
         {
-            DrawSeries(drawingContext, series, data.Days.Count, left, right, top, bottom, axisMax);
+            DrawSeries(drawingContext, series, data.Labels.Count, left, right, top, bottom, axisMax);
         }
     }
 
     private void DrawSeries(
         DrawingContext drawingContext,
         UsageChartSeries series,
-        int dayCount,
+        int pointCount,
         double left,
         double right,
         double top,
@@ -218,12 +221,12 @@ public sealed class UsageChart : FrameworkElement
             return;
         }
 
-        var step = dayCount > 1 ? (right - left) / (dayCount - 1) : 0d;
+        var step = pointCount > 1 ? (right - left) / (pointCount - 1) : 0d;
         var points = new List<Point>(series.Values.Count);
         for (var index = 0; index < series.Values.Count; index++)
         {
             var value = double.IsFinite(series.Values[index]) ? Math.Max(0d, series.Values[index]) : 0d;
-            var x = dayCount > 1 ? left + (step * index) : (left + right) / 2d;
+            var x = pointCount > 1 ? left + (step * index) : (left + right) / 2d;
             var y = bottom - ((bottom - top) * Math.Min(1d, value / axisMax));
             points.Add(new Point(x, y));
         }
@@ -298,14 +301,14 @@ public sealed class UsageChart : FrameworkElement
 
     private void DrawDateLabel(
         DrawingContext drawingContext,
-        DateOnly day,
+        string label,
         double x,
         double bottom,
         Typeface typeface,
         double dpi,
         HorizontalAlignment alignment)
     {
-        var text = Text(UsageNumberFormat.AxisDayLabel(day), typeface, dpi, LabelBrush);
+        var text = Text(label, typeface, dpi, LabelBrush);
         var offset = alignment switch
         {
             HorizontalAlignment.Right => x - text.Width,

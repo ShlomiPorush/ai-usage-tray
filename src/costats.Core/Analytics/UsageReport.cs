@@ -31,6 +31,49 @@ public readonly record struct UsageDateRange(DateOnly? From, DateOnly? To)
 }
 
 /// <summary>
+/// An exact rolling window of instants, <c>[Since, Until)</c>, for ranges that
+/// are not whole local days. Its buckets are fixed 60-minute steps counted from
+/// <see cref="Since"/>, so they stay correct across a daylight-saving change.
+/// </summary>
+/// <param name="Since">First instant included.</param>
+/// <param name="Until">First instant excluded.</param>
+public readonly record struct UsageTimeWindow(DateTimeOffset Since, DateTimeOffset Until)
+{
+    /// <summary>
+    /// The last <paramref name="hours"/> hours ending at <paramref name="now"/>,
+    /// with both bounds cut to the whole minute so labels stay readable.
+    /// </summary>
+    public static UsageTimeWindow LastHours(int hours, DateTimeOffset now)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(hours, 1);
+        var until = new DateTimeOffset(now.UtcTicks - (now.UtcTicks % TimeSpan.TicksPerMinute), TimeSpan.Zero);
+        return new UsageTimeWindow(until.AddHours(-hours), until);
+    }
+
+    /// <summary>True when <paramref name="instant"/> falls inside the window.</summary>
+    public bool Contains(DateTimeOffset instant) => instant >= Since && instant < Until;
+
+    /// <summary>Start of the hourly bucket that holds <paramref name="instant"/>.</summary>
+    public DateTimeOffset HourStartOf(DateTimeOffset instant)
+    {
+        var offset = (instant - Since).Ticks;
+        return Since.ToUniversalTime().AddTicks(offset - (offset % TimeSpan.TicksPerHour));
+    }
+
+    /// <summary>Every bucket start in the window, ascending, empty hours included.</summary>
+    public IReadOnlyList<DateTimeOffset> HourStarts()
+    {
+        var starts = new List<DateTimeOffset>();
+        for (var cursor = Since.ToUniversalTime(); cursor < Until; cursor = cursor.AddHours(1))
+        {
+            starts.Add(cursor);
+        }
+
+        return starts;
+    }
+}
+
+/// <summary>
 /// Tokens, money and request count for one bucket of the report.
 /// </summary>
 public sealed record UsageTotals
@@ -73,6 +116,18 @@ public sealed record DailyUsage(DateOnly Day, UsageTotals Totals);
 /// <summary>One local day of one model, the finest grain the report exposes.</summary>
 public sealed record DailyModelUsage(
     DateOnly Day,
+    UsageProviderKind Provider,
+    string Model,
+    UsageTotals Totals);
+
+/// <summary>One hourly bucket of a <see cref="UsageTimeWindow"/> report.</summary>
+/// <param name="HourStart">UTC start of the bucket.</param>
+public sealed record HourlyUsage(DateTimeOffset HourStart, UsageTotals Totals);
+
+/// <summary>One hourly bucket of one model.</summary>
+/// <param name="HourStart">UTC start of the bucket.</param>
+public sealed record HourlyModelUsage(
+    DateTimeOffset HourStart,
     UsageProviderKind Provider,
     string Model,
     UsageTotals Totals);
@@ -151,6 +206,9 @@ public sealed record UsageReport
     /// <summary>The range that was asked for.</summary>
     public UsageDateRange Range { get; init; }
 
+    /// <summary>The rolling window that was asked for, or null for a day range.</summary>
+    public UsageTimeWindow? Window { get; init; }
+
     /// <summary>The time zone whose calendar days the buckets use.</summary>
     public string TimeZoneId { get; init; } = TimeZoneInfo.Utc.Id;
 
@@ -171,6 +229,15 @@ public sealed record UsageReport
 
     /// <summary>Per day and model, ascending by day then model.</summary>
     public IReadOnlyList<DailyModelUsage> DailyByModel { get; init; } = [];
+
+    /// <summary>
+    /// One entry per hour of <see cref="Window"/> that has data, ascending.
+    /// Empty for a day range.
+    /// </summary>
+    public IReadOnlyList<HourlyUsage> Hourly { get; init; } = [];
+
+    /// <summary>Per hour and model, ascending by hour then model. Empty for a day range.</summary>
+    public IReadOnlyList<HourlyModelUsage> HourlyByModel { get; init; } = [];
 
     /// <summary>Per model over the whole range, most expensive first.</summary>
     public IReadOnlyList<ModelUsage> ByModel { get; init; } = [];

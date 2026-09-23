@@ -11,6 +11,12 @@ public sealed record UsageAggregationOptions
     public UsageDateRange Range { get; init; } = UsageDateRange.All;
 
     /// <summary>
+    /// An exact rolling window to include, applied on top of
+    /// <see cref="Range"/>. When set, the report also carries hourly buckets.
+    /// </summary>
+    public UsageTimeWindow? Window { get; init; }
+
+    /// <summary>
     /// Account ids to include. Null or empty means every account. Matching is
     /// case-insensitive.
     /// </summary>
@@ -68,6 +74,8 @@ public static class UsageAggregator
         // (day, provider, model) -> tokens, and (day, provider, model, account)
         // is folded straight into the account rollup to keep one pass.
         var byDayModel = new Dictionary<DayModelKey, Accumulator>();
+        var byHourModel = new Dictionary<HourModelKey, Accumulator>();
+        var window = opts.Window;
         var byAccountTokens = new Dictionary<AccountKey, Accumulator>();
 
         foreach (var sample in samples)
@@ -82,6 +90,11 @@ public static class UsageAggregator
                 continue;
             }
 
+            if (window is { } rolling && !rolling.Contains(sample.Timestamp))
+            {
+                continue;
+            }
+
             var day = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(sample.Timestamp, zone).DateTime);
             if (!opts.Range.Contains(day))
             {
@@ -91,6 +104,11 @@ public static class UsageAggregator
             var model = string.IsNullOrWhiteSpace(sample.Model) ? "unknown" : sample.Model;
 
             Add(byDayModel, new DayModelKey(day, sample.Provider, model), sample.Tokens);
+            if (window is { } hourly)
+            {
+                Add(byHourModel, new HourModelKey(hourly.HourStartOf(sample.Timestamp), sample.Provider, model), sample.Tokens);
+            }
+
             Add(byAccountTokens, new AccountKey(sample.AccountId, sample.Provider, model), sample.Tokens);
         }
 
@@ -145,15 +163,40 @@ public static class UsageAggregator
             .Select(entry => new DailyUsage(entry.Key, entry.Value))
             .ToList();
 
+        // Hourly buckets are costed on their own summed tokens, like the daily
+        // ones; they refine the day buckets and never feed the totals.
+        var hourlyByModel = new List<HourlyModelUsage>(byHourModel.Count);
+        var perHour = new Dictionary<DateTimeOffset, UsageTotals>();
+        foreach (var (key, accumulator) in byHourModel)
+        {
+            var totals = Cost(accumulator, pricing.Find(key.Model));
+            hourlyByModel.Add(new HourlyModelUsage(key.HourStart, key.Provider, key.Model, totals));
+            perHour[key.HourStart] = perHour.TryGetValue(key.HourStart, out var hour) ? hour.Add(totals) : totals;
+        }
+
+        hourlyByModel.Sort(static (left, right) =>
+        {
+            var byHour = left.HourStart.CompareTo(right.HourStart);
+            return byHour != 0
+                ? byHour
+                : string.Compare(left.Model, right.Model, StringComparison.OrdinalIgnoreCase);
+        });
+
         return new UsageReport
         {
             Range = opts.Range,
+            Window = window,
             TimeZoneId = zone.Id,
             AccountFilter = accountFilter is null ? [] : [.. accountFilter.OrderBy(id => id, StringComparer.OrdinalIgnoreCase)],
             FirstDay = daily.Count > 0 ? daily[0].Day : null,
             LastDay = daily.Count > 0 ? daily[^1].Day : null,
             Daily = daily,
             DailyByModel = dailyByModel,
+            Hourly = perHour
+                .OrderBy(entry => entry.Key)
+                .Select(entry => new HourlyUsage(entry.Key, entry.Value))
+                .ToList(),
+            HourlyByModel = hourlyByModel,
             ByModel = perModel
                 .Select(entry => new ModelUsage(
                     entry.Key.Model,
@@ -208,6 +251,8 @@ public static class UsageAggregator
     private readonly record struct Accumulator(UsageTokens Tokens, long Requests);
 
     private readonly record struct DayModelKey(DateOnly Day, UsageProviderKind Provider, string Model);
+
+    private readonly record struct HourModelKey(DateTimeOffset HourStart, UsageProviderKind Provider, string Model);
 
     private readonly record struct ModelKey(UsageProviderKind Provider, string Model);
 

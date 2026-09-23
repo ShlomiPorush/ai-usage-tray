@@ -288,4 +288,104 @@ public sealed class UsageAggregatorTests
         Assert.Null(report.LastDay);
         Assert.Equal(0m, report.Totals.CostUsd);
     }
+
+    // -- Rolling window, hourly buckets ------------------------------------
+
+    private static readonly DateTimeOffset WindowNow =
+        DateTimeOffset.Parse("2026-09-23T14:37:45Z", System.Globalization.CultureInfo.InvariantCulture);
+
+    [Fact]
+    public void Last_hours_is_minute_aligned_and_exactly_that_long()
+    {
+        var window = UsageTimeWindow.LastHours(24, WindowNow);
+
+        Assert.Equal(DateTimeOffset.Parse("2026-09-23T14:37:00Z", System.Globalization.CultureInfo.InvariantCulture), window.Until);
+        Assert.Equal(TimeSpan.FromHours(24), window.Until - window.Since);
+        Assert.Equal(24, window.HourStarts().Count);
+        Assert.Equal(window.Since, window.HourStarts()[0]);
+    }
+
+    [Fact]
+    public void Window_keeps_only_instants_inside_it_and_buckets_them_by_hour()
+    {
+        var window = UsageTimeWindow.LastHours(24, WindowNow);
+        var report = UsageAggregator.Aggregate(
+            [
+                Sample("2026-09-22T14:36:59Z", output: 1),      // one second before the window
+                Sample("2026-09-22T14:37:00Z", output: 10),     // first instant, first bucket
+                Sample("2026-09-22T15:36:59Z", output: 20),     // still the first bucket
+                Sample("2026-09-22T15:37:00Z", output: 40),     // second bucket
+                Sample("2026-09-23T14:36:59Z", output: 80),     // last bucket
+                Sample("2026-09-23T14:37:00Z", output: 1_000)   // Until is excluded
+            ],
+            Options() with { Window = window });
+
+        Assert.Equal(150, report.Totals.Tokens.OutputTokens);
+        Assert.Equal(window, report.Window);
+        Assert.Equal(
+            [(window.Since, 30L), (window.Since.AddHours(1), 40L), (window.Since.AddHours(23), 80L)],
+            report.Hourly.Select(hour => (hour.HourStart, hour.Totals.Tokens.OutputTokens)));
+    }
+
+    [Fact]
+    public void Hourly_buckets_are_priced_and_add_up_to_the_totals()
+    {
+        var window = UsageTimeWindow.LastHours(24, WindowNow);
+        var report = UsageAggregator.Aggregate(
+            [
+                Sample("2026-09-23T01:00:00Z", uncached: 1_000_000, output: 100_000),
+                Sample("2026-09-23T09:00:00Z", model: "not-priced", output: 500),
+                Sample("2026-09-23T09:10:00Z", uncached: 500_000)
+            ],
+            Options() with { Window = window });
+
+        Assert.Equal(report.Totals.CostUsd, report.Hourly.Sum(hour => hour.Totals.CostUsd));
+        Assert.Equal(report.Totals.Tokens.ProcessedTokens, report.Hourly.Sum(hour => hour.Totals.Tokens.ProcessedTokens));
+        Assert.Equal(report.Hourly.Sum(hour => hour.Totals.CostUsd), report.HourlyByModel.Sum(bucket => bucket.Totals.CostUsd));
+        Assert.Equal(500, report.Hourly.Sum(hour => hour.Totals.UnpricedTokens));
+        Assert.Equal(["not-priced"], report.UnpricedModels);
+    }
+
+    [Fact]
+    public void Buckets_are_fixed_hours_across_a_daylight_saving_change()
+    {
+        // Europe's autumn change: 01:00 UTC on 2026-10-25 turns 03:00 back to 02:00 locally.
+        var window = UsageTimeWindow.LastHours(24, DateTimeOffset.Parse("2026-10-25T12:00:00Z", System.Globalization.CultureInfo.InvariantCulture));
+        var report = UsageAggregator.Aggregate(
+            [
+                Sample("2026-10-25T00:30:00Z", output: 1),
+                Sample("2026-10-25T01:30:00Z", output: 2)
+            ],
+            Options(zone: TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin")) with { Window = window });
+
+        // 00:30Z is 02:30 CEST and 01:30Z is 02:30 CET: the same wall-clock
+        // hour twice, still two distinct buckets one hour apart.
+        Assert.Equal(24, window.HourStarts().Count);
+        Assert.Equal(2, report.Hourly.Count);
+        Assert.Equal(TimeSpan.FromHours(1), report.Hourly[1].HourStart - report.Hourly[0].HourStart);
+    }
+
+    [Fact]
+    public void A_day_range_report_has_no_hourly_buckets()
+    {
+        var report = UsageAggregator.Aggregate([Sample("2026-09-23T09:00:00Z", output: 5)], Options());
+
+        Assert.Null(report.Window);
+        Assert.Empty(report.Hourly);
+        Assert.Empty(report.HourlyByModel);
+    }
+
+    [Fact]
+    public void Window_respects_the_account_filter()
+    {
+        var window = UsageTimeWindow.LastHours(24, WindowNow);
+        var report = UsageAggregator.Aggregate(
+            [
+                Sample("2026-09-23T09:00:00Z", account: "claude-1", output: 5),
+                Sample("2026-09-23T09:00:00Z", account: "claude-2", output: 7)
+            ],
+            Options(accounts: ["claude-2"]) with { Window = window });
+
+        Assert.Equal(7, Assert.Single(report.Hourly).Totals.Tokens.OutputTokens);
+    }
 }
