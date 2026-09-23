@@ -13,7 +13,7 @@ public sealed class UsageAggregatorTests
 
     private static readonly ModelPricingTable Pricing = new(
     [
-        new KeyValuePair<string, ModelPrice>("test-priced", ModelPrice.Anthropic(10m, 50m))
+        new KeyValuePair<string, ModelPrice>("test-priced", new ModelPrice { InputPerMTok = 10m, CachedInputPerMTok = 1m, CacheWrite5mPerMTok = 12.5m, CacheWrite1hPerMTok = 20m, OutputPerMTok = 50m })
     ]);
 
     private static UsageSample Sample(

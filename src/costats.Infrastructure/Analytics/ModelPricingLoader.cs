@@ -5,13 +5,15 @@ using costats.Core.Analytics;
 namespace costats.Infrastructure.Analytics;
 
 /// <summary>
-/// Loads the pricing table: the built-in defaults, optionally overlaid with a
-/// user file at <c>%LOCALAPPDATA%\costats\pricing.json</c>.
+/// Loads the pricing table by layering, lowest first: the bundled snapshot
+/// (<see cref="ModelPricingTable.Default"/>), the cached live catalog, the
+/// models pinned as unpriced, and a user file at
+/// <c>%LOCALAPPDATA%\costats\pricing.json</c>.
 /// </summary>
 /// <remarks>
-/// The override file exists so a model released after this build can be priced
-/// without waiting for a release, and so a model the defaults deliberately
-/// leave unpriced (such as <c>codex-auto-review</c>) can be given the rates the
+/// The override file wins over everything, so a user can correct a catalog
+/// price, price a model no catalog lists yet, or give a model the defaults
+/// deliberately leave unpriced (such as <c>codex-auto-review</c>) the rates the
 /// user knows it resolves to. Its shape is a flat map of model id to rates in
 /// USD per million tokens; omit a rate to leave it unknown:
 /// <code>
@@ -38,14 +40,17 @@ public static class ModelPricingLoader
         "pricing.json");
 
     /// <summary>
-    /// Returns <see cref="ModelPricingTable.Default"/> merged with the override
-    /// file when one is present and readable, and the plain defaults otherwise.
+    /// Returns <see cref="ModelPricingTable.Default"/> with the live
+    /// <paramref name="catalog"/> (when one has been downloaded) and the
+    /// override file (when present and readable) layered on top.
     /// </summary>
-    public static ModelPricingTable Load(string? overridePath = null)
+    public static ModelPricingTable Load(string? overridePath = null, ModelPricingTable? catalog = null)
     {
         var path = overridePath ?? DefaultOverridePath();
-        var overrides = TryReadOverrides(path);
-        return overrides is null ? ModelPricingTable.Default : ModelPricingTable.Default.MergedWith(overrides);
+        return ModelPricingTable.Default
+            .MergedWith(catalog)
+            .MergedWith(catalog is null ? null : ModelPricingTable.PinnedUnpriced)
+            .MergedWith(TryReadOverrides(path));
     }
 
     /// <summary>

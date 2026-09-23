@@ -42,11 +42,13 @@ AI Usage Tray: a .NET 10 WPF Windows tray app (fork of fmdz387/costats, MIT) sho
 
 ## Release flow (owner-approved only)
 
-Bump `VersionPrefix` in `src/Directory.Build.props` (single source of truth) -> commit -> tag `vX.Y.Z` -> push tag. The Release workflow builds x64+arm64 ZIPs with `.sha256` and publishes; the app self-updates from this repo's releases. Verify release readiness via the public download URL, not the GitHub API (rate limits).
+Run `node scripts/update-pricing-snapshot.mjs` and review its diff -> bump `VersionPrefix` in `src/Directory.Build.props` (single source of truth) -> commit -> tag `vX.Y.Z` -> push tag. The Release workflow builds x64+arm64 ZIPs with `.sha256` and publishes; the app self-updates from this repo's releases. Verify release readiness via the public download URL, not the GitHub API (rate limits).
 
 - Write `CHANGELOG` entries and release notes in clear, human language. Explain what changed, why it matters to users, and any important limitation. Do not publish raw commit subjects, merge lines, PR numbers, or implementation jargon as the explanation. Review generated changelogs and replace mechanical entries such as `Merge pull request #N` with a concise user-facing summary.
 
 ## Known traps
+
+- Model prices are data, not code. The app layers, lowest first: the bundled snapshot `src/costats.Core/Analytics/pricing-snapshot.json` (generated from LiteLLM by `scripts/update-pricing-snapshot.mjs`, append-only so retired models keep their last price), the daily cached LiteLLM catalog (`%LOCALAPPDATA%\costats\pricing-catalog.json`, URL in `appsettings.json` under `Costats:Pricing`), `ModelPricingTable.PinnedUnpriced`, and the user's `pricing.json`. Do not add prices to C# code, and never guess a price from a model family.
 
 - Windows shell tray tooltips cap at 127 chars; the real hover popup is our own window fed by `TrayStatus.FullTooltip`.
 - PowerShell 5.1 runs the install one-liner: no `RuntimeInformation.ProcessArchitecture`, needs TLS 1.2, and a UTF-8 BOM in `install.ps1` breaks `iwr | iex`.
