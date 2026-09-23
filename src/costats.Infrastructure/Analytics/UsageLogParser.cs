@@ -45,7 +45,13 @@ public static class UsageLogParser
     /// Bump when the parse output shape or semantics change, so stale cache
     /// entries written by an older build are ignored.
     /// </summary>
-    public const int FormatVersion = 1;
+    public const int FormatVersion = 2;
+
+    /// <summary>
+    /// How long after its first record a forked Codex rollout is still writing
+    /// the history it copied from its parent. See <see cref="ParseCodexFile"/>.
+    /// </summary>
+    public static readonly TimeSpan ForkReplayWindow = TimeSpan.FromSeconds(2);
 
     private const int ReadBufferSize = 128 * 1024;
 
@@ -190,8 +196,17 @@ public static class UsageLogParser
     /// </para>
     /// <para>
     /// The model for a turn comes from the most recent <c>turn_context</c>
-    /// record in the same file (<c>payload.model</c>). Rollout files are unique
-    /// per session, so there is nothing to deduplicate and the key is always 0.
+    /// record in the same file (<c>payload.model</c>). Token events carry no
+    /// request identity, so the dedup key is always 0.
+    /// </para>
+    /// <para>
+    /// A forked rollout (a subagent spawned from another thread, marked by
+    /// <c>session_meta.payload.forked_from_id</c>) starts with a copy of its
+    /// parent's history, token events included, written in one burst with fresh
+    /// timestamps. That usage is already counted in the parent's file, so token
+    /// events stamped within <see cref="ForkReplayWindow"/> of the first record
+    /// after <c>session_meta</c> are skipped. A real model turn takes longer
+    /// than that, so the child's own usage is kept.
     /// </para>
     /// </summary>
     public static ParsedUsageFile ParseCodexFile(string path, CancellationToken cancellationToken = default)
@@ -199,9 +214,22 @@ public static class UsageLogParser
         var entries = new List<RawUsageEntry>();
         var skipped = 0;
         var currentModel = string.Empty;
+        var lineNumber = 0;
+        var isFork = false;
+        DateTimeOffset? replayEndsAt = null;
 
         foreach (var line in ReadLines(path, cancellationToken))
         {
+            lineNumber++;
+            if (lineNumber == 1)
+            {
+                isFork = IsForkedSessionMeta(line);
+            }
+            else if (lineNumber == 2 && isFork && TryReadLineTimestamp(line, out var replayStart))
+            {
+                replayEndsAt = replayStart + ForkReplayWindow;
+            }
+
             var isTurnContext = line.Contains("\"turn_context\"", StringComparison.Ordinal);
             var isTokenCount = line.Contains("\"token_count\"", StringComparison.Ordinal);
             if (!isTurnContext && !isTokenCount)
@@ -250,6 +278,12 @@ public static class UsageLogParser
                 if (!TryReadTimestamp(root, out var timestamp))
                 {
                     skipped++;
+                    continue;
+                }
+
+                if (timestamp < replayEndsAt)
+                {
+                    // Copied from the parent's rollout, which already counts it.
                     continue;
                 }
 
@@ -322,6 +356,45 @@ public static class UsageLogParser
                 hash = (hash ^ (byte)(character & 0xFF)) * prime;
                 hash = (hash ^ (byte)(character >> 8)) * prime;
             }
+        }
+    }
+
+    private static bool IsForkedSessionMeta(string line)
+    {
+        if (!line.Contains("\"session_meta\"", StringComparison.Ordinal) ||
+            !line.Contains("\"forked_from_id\"", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+            return root.ValueKind == JsonValueKind.Object &&
+                   string.Equals(ReadString(root, "type"), "session_meta", StringComparison.Ordinal) &&
+                   root.TryGetProperty("payload", out var payload) &&
+                   payload.ValueKind == JsonValueKind.Object &&
+                   !string.IsNullOrEmpty(ReadString(payload, "forked_from_id"));
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryReadLineTimestamp(string line, out DateTimeOffset timestamp)
+    {
+        timestamp = default;
+        try
+        {
+            using var document = JsonDocument.Parse(line);
+            return document.RootElement.ValueKind == JsonValueKind.Object &&
+                   TryReadTimestamp(document.RootElement, out timestamp);
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 

@@ -264,6 +264,58 @@ public sealed class UsageLogParserTests : IDisposable
         Assert.Empty(UsageLogParser.ParseCodexFile(path).Entries);
     }
 
+    // A subagent rollout as T3 Code writes it: session_meta, then the parent's
+    // history replayed in one burst (token events first with no model, then a
+    // copied turn_context), then the child's own turns seconds later.
+    private static string[] ForkedRollout(string? forkedFrom) =>
+    [
+        CodexSessionMeta("2026-08-25T11:02:32.128Z", forkedFrom),
+        """{"timestamp":"2026-08-25T11:02:33.242Z","type":"response_item","payload":{"type":"message","role":"user","content":[]}}""",
+        CodexTokenCount("2026-08-25T11:02:33.243Z", input: 1_000, cached: 0, output: 100),
+        CodexTurnContext("gpt-5.6-sol", "2026-08-25T11:02:33.246Z"),
+        CodexTokenCount("2026-08-25T11:02:33.249Z", input: 2_000, cached: 0, output: 200),
+        CodexTurnContext("gpt-5.6-sol", "2026-08-25T11:02:34.894Z"),
+        CodexTokenCount("2026-08-25T11:02:41.500Z", input: 3_000, cached: 0, output: 300)
+    ];
+
+    private static string CodexSessionMeta(string timestamp, string? forkedFrom) =>
+        """{"timestamp":"@TS@","type":"session_meta","payload":{"id":"child",@FORK@"originator":"t3code_desktop","model_provider":"openai"}}"""
+            .Replace("@TS@", timestamp, StringComparison.Ordinal)
+            .Replace("@FORK@", forkedFrom is null ? string.Empty : "\"forked_from_id\":\"" + forkedFrom + "\",", StringComparison.Ordinal);
+
+    [Fact]
+    public void Codex_fork_skips_the_history_copied_from_its_parent()
+    {
+        var path = WriteFile("rollout-fork.jsonl", ForkedRollout("parent-thread"));
+
+        var entry = Assert.Single(UsageLogParser.ParseCodexFile(path).Entries);
+
+        Assert.Equal("gpt-5.6-sol", entry.Model);
+        Assert.Equal(3_300, entry.Tokens.ProcessedTokens);
+        Assert.DoesNotContain(UsageLogParser.ParseCodexFile(path).Entries, e => e.Model == "unknown");
+    }
+
+    [Fact]
+    public void Codex_session_that_is_not_a_fork_counts_every_event()
+    {
+        var path = WriteFile("rollout-root.jsonl", ForkedRollout(forkedFrom: null));
+
+        var entries = UsageLogParser.ParseCodexFile(path).Entries;
+
+        Assert.Equal([1_100, 2_200, 3_300], entries.Select(e => e.Tokens.ProcessedTokens));
+        Assert.Equal("unknown", entries[0].Model);
+    }
+
+    [Fact]
+    public void Codex_fork_without_a_timestamped_second_line_counts_every_event()
+    {
+        var lines = ForkedRollout("parent-thread");
+        lines[1] = """{"type":"response_item","payload":{"type":"message"}}""";
+        var path = WriteFile("rollout-fork.jsonl", lines);
+
+        Assert.Equal(3, UsageLogParser.ParseCodexFile(path).Entries.Count);
+    }
+
     [Fact]
     public void Codex_cache_writes_land_in_the_five_minute_bucket()
     {
