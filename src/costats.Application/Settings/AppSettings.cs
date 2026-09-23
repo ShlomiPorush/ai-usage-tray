@@ -153,6 +153,10 @@ public sealed class AppSettings
     /// </summary>
     public bool ShowFloatingStatusPanel { get; set; } = false;
 
+    /// <summary>User-selected floating panel dimensions in device-independent pixels.</summary>
+    public double? FloatingPanelWidth { get; set; }
+    public double? FloatingPanelHeight { get; set; }
+
     private string floatingPanelPosition = FloatingPanelPlacementCalculator.BottomRightSetting;
 
     /// <summary>

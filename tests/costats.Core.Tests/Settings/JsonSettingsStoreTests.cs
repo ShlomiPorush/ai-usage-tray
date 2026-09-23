@@ -108,6 +108,22 @@ public sealed class JsonSettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Floating_panel_size_round_trips_and_legacy_settings_use_automatic_size()
+    {
+        var store = new JsonSettingsStore(new FakeCredentialVault(), _root);
+        var defaults = await store.LoadAsync(CancellationToken.None);
+        Assert.Null(defaults.FloatingPanelWidth);
+        Assert.Null(defaults.FloatingPanelHeight);
+
+        defaults.FloatingPanelWidth = 820;
+        defaults.FloatingPanelHeight = 72;
+        await store.SaveAsync(defaults, CancellationToken.None);
+        var loaded = await store.LoadAsync(CancellationToken.None);
+        Assert.Equal(820, loaded.FloatingPanelWidth);
+        Assert.Equal(72, loaded.FloatingPanelHeight);
+    }
+
+    [Fact]
     public async Task Automatic_session_toggles_round_trip_but_default_off()
     {
         var store = new JsonSettingsStore(new FakeCredentialVault(), _root);

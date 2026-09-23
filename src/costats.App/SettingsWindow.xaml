@@ -383,7 +383,7 @@
                             <TextBlock Text="Show the floating status panel" FontSize="12"
                                        Foreground="{DynamicResource TextPrimaryBrush}" TextWrapping="Wrap" />
                         </CheckBox>
-                        <TextBlock Text="Shows the same status rows as the tray tooltip in a movable always-on panel. Use its X to close it."
+                        <TextBlock Text="Drag to move; drag an edge or corner to resize. Providers flow into columns as you widen the panel. Your size is saved. Use X to close it."
                                    FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,8" TextWrapping="Wrap" />
 
                         <StackPanel Visibility="{Binding ShowFloatingStatusPanel, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">

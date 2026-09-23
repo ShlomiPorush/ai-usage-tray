@@ -14,10 +14,17 @@ namespace costats.App.Services;
 /// </summary>
 internal static class TrayAccountRowsPresenter
 {
+    /// <param name="rowToolTips">
+    /// Adds the full row text as a tooltip. Only the resizable floating panel
+    /// wants this, where a narrow layout can ellipsis-trim the status text;
+    /// the hover popup already shows everything and a tooltip over a tooltip
+    /// would just duplicate it.
+    /// </param>
     public static void Rebuild(
-        StackPanel panel,
+        Panel panel,
         IReadOnlyList<TrayAccountRow> rows,
-        string emptyText = "No AI usage data available")
+        string emptyText = "No AI usage data available",
+        bool rowToolTips = false)
     {
         ArgumentNullException.ThrowIfNull(panel);
         ArgumentNullException.ThrowIfNull(rows);
@@ -33,11 +40,17 @@ internal static class TrayAccountRowsPresenter
 
         foreach (var row in rows)
         {
-            var line = new StackPanel
+            var line = new Grid
             {
-                Orientation = Orientation.Horizontal,
                 Margin = new Thickness(0, 2, 0, 2)
             };
+            if (rowToolTips)
+            {
+                line.ToolTip = $"{row.Label}  {row.WindowsText}";
+            }
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            line.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
             line.Children.Add(new Ellipse
             {
@@ -57,15 +70,18 @@ internal static class TrayAccountRowsPresenter
                 VerticalAlignment = VerticalAlignment.Center
             };
             label.SetResourceReference(TextBlock.ForegroundProperty, "TextPrimaryBrush");
+            Grid.SetColumn(label, 1);
             line.Children.Add(label);
 
             var text = new TextBlock
             {
                 FontSize = 12,
                 Text = "  " + row.WindowsText,
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center
             };
             text.SetResourceReference(TextBlock.ForegroundProperty, "TextMutedBrush");
+            Grid.SetColumn(text, 2);
             line.Children.Add(text);
 
             panel.Children.Add(line);
