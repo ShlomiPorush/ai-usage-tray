@@ -21,41 +21,16 @@ public sealed class ModelPricingTests
             ReasoningOutputTokens = reasoning
         };
 
-    [Fact]
-    public void Anthropic_card_derives_cache_rates_from_the_input_rate()
+    // An Anthropic-shaped card: cache read 0.1x input, 5-minute write 1.25x,
+    // 1-hour write 2x.
+    private static ModelPrice Anthropic(decimal input, decimal output) => new()
     {
-        var price = ModelPrice.Anthropic(10m, 50m);
-
-        Assert.Equal(10m, price.InputPerMTok);
-        Assert.Equal(1m, price.CachedInputPerMTok);      // 0.1x
-        Assert.Equal(12.5m, price.CacheWrite5mPerMTok);  // 1.25x
-        Assert.Equal(20m, price.CacheWrite1hPerMTok);    // 2x
-        Assert.Equal(50m, price.OutputPerMTok);
-        Assert.True(price.IsPriced);
-    }
-
-    [Fact]
-    public void OpenAi_card_charges_nothing_for_cache_writes()
-    {
-        var price = ModelPrice.OpenAi(1.25m, 0.125m, 10m);
-
-        Assert.Equal(0m, price.CacheWrite5mPerMTok);
-        Assert.Equal(0m, price.CacheWrite1hPerMTok);
-        Assert.True(price.IsPriced);
-    }
-
-    [Fact]
-    public void OpenAi_cache_write_card_charges_one_and_a_quarter_input_on_both_ttl_buckets()
-    {
-        var price = ModelPrice.OpenAiWithCacheWrites(4m, 0.4m, 20m);
-
-        Assert.Equal(4m, price.InputPerMTok);
-        Assert.Equal(0.4m, price.CachedInputPerMTok);
-        Assert.Equal(5m, price.CacheWrite5mPerMTok);
-        Assert.Equal(5m, price.CacheWrite1hPerMTok);
-        Assert.Equal(20m, price.OutputPerMTok);
-        Assert.True(price.IsPriced);
-    }
+        InputPerMTok = input,
+        CachedInputPerMTok = input * 0.1m,
+        CacheWrite5mPerMTok = input * 1.25m,
+        CacheWrite1hPerMTok = input * 2m,
+        OutputPerMTok = output
+    };
 
     [Fact]
     public void Cost_charges_every_bucket_at_its_own_rate()
@@ -63,7 +38,7 @@ public sealed class ModelPricingTests
         // 1 MTok in each bucket at $10 input: 10 + 1 + 12.50 + 20 + 50 = $93.50
         var cost = UsageCostCalculator.Compute(
             Tokens(uncached: 1_000_000, cacheRead: 1_000_000, write5m: 1_000_000, write1h: 1_000_000, output: 1_000_000),
-            ModelPrice.Anthropic(10m, 50m));
+            Anthropic(10m, 50m));
 
         Assert.True(cost.IsPriced);
         Assert.Equal(93.5m, cost.CostUsd);
@@ -73,7 +48,7 @@ public sealed class ModelPricingTests
     public void Cache_savings_is_what_full_rate_input_would_have_cost_minus_the_cache_read_rate()
     {
         // 2 MTok of cache reads at $5 input: full rate $10.00, cache rate $1.00, saved $9.00.
-        var cost = UsageCostCalculator.Compute(Tokens(cacheRead: 2_000_000), ModelPrice.Anthropic(5m, 25m));
+        var cost = UsageCostCalculator.Compute(Tokens(cacheRead: 2_000_000), Anthropic(5m, 25m));
 
         Assert.Equal(1m, cost.CostUsd);
         Assert.Equal(9m, cost.CacheSavingsUsd);
@@ -82,7 +57,7 @@ public sealed class ModelPricingTests
     [Fact]
     public void Cache_savings_is_zero_without_cache_reads()
     {
-        var cost = UsageCostCalculator.Compute(Tokens(uncached: 1_000_000, output: 500_000), ModelPrice.Anthropic(5m, 25m));
+        var cost = UsageCostCalculator.Compute(Tokens(uncached: 1_000_000, output: 500_000), Anthropic(5m, 25m));
 
         Assert.Equal(0m, cost.CacheSavingsUsd);
         Assert.Equal(17.5m, cost.CostUsd);
@@ -93,10 +68,10 @@ public sealed class ModelPricingTests
     {
         var withReasoning = UsageCostCalculator.Compute(
             Tokens(output: 1_000_000, reasoning: 900_000),
-            ModelPrice.Anthropic(10m, 50m));
+            Anthropic(10m, 50m));
         var withoutReasoning = UsageCostCalculator.Compute(
             Tokens(output: 1_000_000),
-            ModelPrice.Anthropic(10m, 50m));
+            Anthropic(10m, 50m));
 
         Assert.Equal(withoutReasoning.CostUsd, withReasoning.CostUsd);
     }
@@ -176,12 +151,45 @@ public sealed class ModelPricingTests
         Assert.Equal(12.5m, table.Find("gpt-5.6-cyber").InputPerMTok);
         Assert.Equal(sol, table.Find("gpt-5.6"));
 
-        // GPT-5.4 publishes no cache-write fee, so writes stay free.
+        // GPT-5.4 publishes no cache-write fee, so writes carry no rate and
+        // are charged nothing.
         var v54 = table.Find("gpt-5.4");
         Assert.Equal(2.5m, v54.InputPerMTok);
         Assert.Equal(0.25m, v54.CachedInputPerMTok);
         Assert.Equal(15m, v54.OutputPerMTok);
-        Assert.Equal(0m, v54.CacheWrite5mPerMTok);
+        Assert.Null(v54.CacheWrite5mPerMTok);
+        Assert.Equal(15m, UsageCostCalculator.Compute(Tokens(write5m: 1_000_000, output: 1_000_000), v54).CostUsd);
+    }
+
+    [Fact]
+    public void Default_table_prices_models_released_after_the_old_hardcoded_table()
+    {
+        var table = ModelPricingTable.Default;
+
+        // Anthropic list prices: Opus 5.5 $4 / $20 with $0.20 cache reads,
+        // Fable 5.1 $10 / $50 with $0.25 cache reads, Sonnet 5 $2 / $10.
+        var opus55 = table.Find("claude-opus-5-5");
+        Assert.Equal(4m, opus55.InputPerMTok);
+        Assert.Equal(0.2m, opus55.CachedInputPerMTok);
+        Assert.Equal(20m, opus55.OutputPerMTok);
+
+        var fable51 = table.Find("claude-fable-5-1");
+        Assert.Equal(10m, fable51.InputPerMTok);
+        Assert.Equal(0.25m, fable51.CachedInputPerMTok);
+        Assert.Equal(50m, fable51.OutputPerMTok);
+
+        Assert.Equal(2m, table.Find("claude-sonnet-5").InputPerMTok);
+        Assert.True(table.IsPriced("gpt-6-astra"));
+    }
+
+    [Fact]
+    public void Default_table_keeps_retired_models_the_catalog_no_longer_lists()
+    {
+        var table = ModelPricingTable.Default;
+
+        Assert.Equal(15m, table.Find("claude-opus-4-1").InputPerMTok);
+        Assert.Equal(75m, table.Find("claude-opus-4-1-20250805").OutputPerMTok);
+        Assert.Equal(3m, table.Find("claude-sonnet-4-20250514").InputPerMTok);
     }
 
     [Fact]
@@ -237,8 +245,8 @@ public sealed class ModelPricingTests
     {
         var overrides = new ModelPricingTable(
         [
-            new KeyValuePair<string, ModelPrice>("claude-opus-5", ModelPrice.Anthropic(99m, 999m)),
-            new KeyValuePair<string, ModelPrice>("gpt-5.6-sol", ModelPrice.OpenAi(2m, 0.2m, 16m))
+            new KeyValuePair<string, ModelPrice>("claude-opus-5", Anthropic(99m, 999m)),
+            new KeyValuePair<string, ModelPrice>("gpt-5.6-sol", new ModelPrice { InputPerMTok = 2m, CachedInputPerMTok = 0.2m, OutputPerMTok = 16m })
         ]);
 
         var merged = ModelPricingTable.Default.MergedWith(overrides);

@@ -74,7 +74,7 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
     private readonly ILogger<UsageAnalyticsService> _logger;
     private readonly TimeSpan _freshness;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly Lazy<ModelPricingTable> _pricing;
+    private readonly Func<CancellationToken, Task<ModelPricingTable>> _pricing;
 
     private UsageScanResult? _scan;
     private DateTimeOffset _scannedAt;
@@ -82,10 +82,11 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
     /// <summary>Creates the service over the app's configured accounts.</summary>
     public UsageAnalyticsService(
         AppSettings settings,
+        ModelPricingProvider pricing,
         ILogger<UsageAnalyticsService>? logger = null)
         : this(
             new UsageLogCollector(() => (settings ?? throw new ArgumentNullException(nameof(settings))).GetEffectiveAccounts()),
-            new Lazy<ModelPricingTable>(() => ModelPricingLoader.Load()),
+            (pricing ?? throw new ArgumentNullException(nameof(pricing))).GetAsync,
             DefaultScanFreshness,
             logger)
     {
@@ -97,13 +98,13 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         ModelPricingTable pricing,
         TimeSpan? freshness = null,
         ILogger<UsageAnalyticsService>? logger = null)
-        : this(collector, new Lazy<ModelPricingTable>(() => pricing), freshness, logger)
+        : this(collector, _ => Task.FromResult(pricing ?? throw new ArgumentNullException(nameof(pricing))), freshness, logger)
     {
     }
 
     private UsageAnalyticsService(
         UsageLogCollector collector,
-        Lazy<ModelPricingTable> pricing,
+        Func<CancellationToken, Task<ModelPricingTable>> pricing,
         TimeSpan? freshness,
         ILogger<UsageAnalyticsService>? logger)
     {
@@ -125,12 +126,13 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         CancellationToken cancellationToken = default)
     {
         var scan = await GetScanAsync(cancellationToken).ConfigureAwait(false);
+        var pricing = await _pricing(cancellationToken).ConfigureAwait(false);
 
         var report = UsageAggregator.Aggregate(scan.Samples, new UsageAggregationOptions
         {
             Range = range,
             AccountIds = accountIds,
-            Pricing = _pricing.Value,
+            Pricing = pricing,
             TimeZone = TimeZone,
             GeneratedAt = DateTimeOffset.UtcNow
         });

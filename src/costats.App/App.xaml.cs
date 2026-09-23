@@ -406,6 +406,36 @@ namespace costats.App
             return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
 
+        /// <summary>
+        /// Reads <c>Costats:Pricing</c>. A missing URL uses the LiteLLM catalog;
+        /// an empty or non-https one disables the download, so prices then come
+        /// from the bundled snapshot and pricing.json only.
+        /// </summary>
+        private static PricingCatalogOptions ReadPricingCatalogOptions(IConfiguration configuration)
+        {
+            var section = configuration.GetSection("Costats:Pricing");
+            var url = section["CatalogUrl"];
+            var hours = int.TryParse(section["RefreshIntervalHours"], out var parsed) ? Math.Clamp(parsed, 1, 168) : 24;
+
+            Uri? catalogUrl;
+            if (url is null)
+            {
+                catalogUrl = new Uri(PricingCatalogOptions.DefaultCatalogUrl);
+            }
+            else
+            {
+                catalogUrl = Uri.TryCreate(url.Trim(), UriKind.Absolute, out var configured) && configured.Scheme == Uri.UriSchemeHttps
+                    ? configured
+                    : null;
+            }
+
+            return new PricingCatalogOptions
+            {
+                CatalogUrl = catalogUrl,
+                RefreshInterval = TimeSpan.FromHours(hours)
+            };
+        }
+
         private static IConfiguration BuildStartupConfiguration()
         {
             var builder = new ConfigurationBuilder()
@@ -587,8 +617,21 @@ namespace costats.App
                     // Local usage analytics: reads the agent logs on demand and
                     // computes token totals and raw API-rate cost. Nothing polls
                     // it yet; it stays idle until a caller asks for a report.
+                    // Prices come from the bundled snapshot, a daily copy of the
+                    // public LiteLLM catalog and the user's pricing.json.
+                    services.AddSingleton(sp =>
+                    {
+                        var options = ReadPricingCatalogOptions(sp.GetRequiredService<IConfiguration>());
+                        var updater = options.CatalogUrl is null
+                            ? null
+                            : new PricingCatalogUpdater(
+                                options,
+                                logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PricingCatalogUpdater>>());
+                        return new ModelPricingProvider(updater);
+                    });
                     services.AddSingleton<IUsageAnalyticsService>(sp => new UsageAnalyticsService(
                         sp.GetRequiredService<AppSettings>(),
+                        sp.GetRequiredService<ModelPricingProvider>(),
                         sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<UsageAnalyticsService>>()));
 
                     services.AddSingleton<ICredentialVault, CredentialVault>();

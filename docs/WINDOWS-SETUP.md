@@ -128,12 +128,12 @@ The buttons in the widget header open the usage dashboard, the remote view link 
 
 Right-click the tray icon and choose **Usage stats**, or press the chart button in the widget, to open the usage window. It reports how many tokens you used and what they would have cost at the published OpenAI and Anthropic API list prices, which is the honest way to compare a subscription with pay-as-you-go.
 
-The numbers come from the Claude Code and Codex session logs already on the machine (`projects` under each Claude profile, `sessions` and `archived_sessions` under each Codex profile). Nothing is uploaded and no provider API is called. Results are cached incrementally, so the first open of a large history takes a moment and later opens are quick.
+The numbers come from the Claude Code and Codex session logs already on the machine (`projects` under each Claude profile, `sessions` and `archived_sessions` under each Codex profile). Nothing is uploaded and no provider API is called. Once a day the app downloads the public LiteLLM price list from GitHub so new models are priced without an app update; no usage data is sent with that request. Results are cached incrementally, so the first open of a large history takes a moment and later opens are quick.
 
 - Range: last 7, 30 or 90 days.
 - Account filter: all accounts, or one account.
 - A per-provider split, a chart of the range, and a breakdown table you can switch between **Model** and **Day**.
-- Models the built-in price table does not cover are still counted in tokens and listed as unpriced. To price them yourself, create `%LOCALAPPDATA%\costats\pricing.json` with a flat map of model id to USD per million tokens, for example `{ "some-new-model": { "input": 0.2, "output": 1.2 } }`.
+- Models no price list covers are still counted in tokens and listed as unpriced. To price them yourself, or to correct a listed price, create `%LOCALAPPDATA%\costats\pricing.json` with a flat map of model id to USD per million tokens, for example `{ "some-new-model": { "input": 0.2, "output": 1.2 } }`.
 
 ## 8. Other settings
 
