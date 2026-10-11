@@ -106,6 +106,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
 
     steps:
       - name: Checkout
@@ -173,6 +175,14 @@ jobs:
             echo "iwr -useb https://raw.githubusercontent.com/${REPO}/main/scripts/install.ps1 | iex"
             echo '```'
             echo ""
+            echo "**winget:**"
+            echo ""
+            echo '```powershell'
+            echo "winget install AIUsageTray.AIUsageTray"
+            echo '```'
+            echo ""
+            echo "A winget install updates through winget (\`winget upgrade AIUsageTray.AIUsageTray\`), not through the in-app updater. A new version can take a day or two to appear in winget after it is published here."
+            echo ""
             echo "**Manual:**"
             echo ""
             echo "1. Download the ZIP for your architecture and verify it against the \`.sha256\` file"
@@ -200,3 +210,56 @@ jobs:
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  winget:
+    name: Submit to winget
+    needs: release
+    # Defensive: the version steps already reject anything but major.minor.patch.
+    if: ${{ !contains(needs.release.outputs.version, 'alpha') && !contains(needs.release.outputs.version, 'beta') && !contains(needs.release.outputs.version, 'rc') }}
+    runs-on: windows-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check for winget token
+        id: token
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINGET_TOKEN)) {
+            Write-Output "::notice title=winget submission skipped::The WINGET_TOKEN secret is not set, so this version was not submitted to winget."
+            "submit=false" >> $env:GITHUB_OUTPUT
+          } else {
+            "submit=true" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Download wingetcreate
+        if: steps.token.outputs.submit == 'true'
+        shell: pwsh
+        run: |
+          $toolDir = Join-Path $env:RUNNER_TEMP 'wingetcreate'
+          New-Item -ItemType Directory -Path $toolDir -Force | Out-Null
+          Invoke-WebRequest -Uri 'https://aka.ms/wingetcreate/latest' -OutFile (Join-Path $toolDir 'wingetcreate.exe')
+
+      - name: Submit update to winget-pkgs
+        if: steps.token.outputs.submit == 'true'
+        shell: pwsh
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          $base = "https://github.com/$env:REPO/releases/download/v$env:VERSION"
+          $x64 = "$base/ai-usage-tray-win-x64-v$env:VERSION.zip|x64"
+          $arm64 = "$base/ai-usage-tray-win-arm64-v$env:VERSION.zip|arm64"
+          $wingetcreate = Join-Path $env:RUNNER_TEMP 'wingetcreate\wingetcreate.exe'
+          & $wingetcreate update AIUsageTray.AIUsageTray `
+            --version $env:VERSION `
+            --urls "$x64" "$arm64" `
+            --release-notes-url "https://github.com/$env:REPO/releases/tag/v$env:VERSION" `
+            --submit `
+            --token $env:WINGET_TOKEN
+          if ($LASTEXITCODE -ne 0) {
+            throw "wingetcreate failed with exit code $LASTEXITCODE"
+          }
