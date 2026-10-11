@@ -44,6 +44,8 @@ AI Usage Tray: a .NET 10 WPF Windows tray app (fork of fmdz387/costats, MIT) sho
 
 Run `node scripts/update-pricing-snapshot.mjs` and review its diff -> bump `VersionPrefix` in `src/Directory.Build.props` (single source of truth) -> commit -> tag `vX.Y.Z` -> push tag. The Release workflow builds x64+arm64 ZIPs with `.sha256` and publishes; the app self-updates from this repo's releases. Verify release readiness via the public download URL, not the GitHub API (rate limits).
 
+- winget (`AIUsageTray.AIUsageTray`, portable ZIP package): after publishing, the Release workflow's `winget` job runs `wingetcreate update --submit` to open a version PR in `microsoft/winget-pkgs`. It needs the repo secret `WINGET_TOKEN`, a classic PAT with the `public_repo` scope from an account that has a fork of `microsoft/winget-pkgs`. Without the secret the job skips with a notice and the release is unaffected. Add the secret only after the first package version has been accepted into winget-pkgs; `wingetcreate update` fails for a package that does not exist there yet. The submission PR still needs winget moderator approval before users see the version. winget installs never self-update: the app detects the `WinGet\Packages\AIUsageTray.AIUsageTray_*` folder and points the user at `winget upgrade` instead.
+
 - Write `CHANGELOG` entries and release notes in clear, human language. Explain what changed, why it matters to users, and any important limitation. Do not publish raw commit subjects, merge lines, PR numbers, or implementation jargon as the explanation. Review generated changelogs and replace mechanical entries such as `Merge pull request #N` with a concise user-facing summary.
 
 ## Known traps

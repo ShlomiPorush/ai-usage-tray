@@ -43,13 +43,21 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 - Providers managed in Settings as a table with add/edit dialogs; changes apply without restarting.
 - Optional reset countdowns on the overview cards; daily / 30-day cost estimates where the provider supplies them.
 - Optional remote view: see your usage from a phone via a private link: one checkbox, no setup (self-hosting possible). Once it is on, a globe button in the widget opens the link straight away.
-- Self-update from this repository's releases.
+- Self-update from this repository's releases (winget installs update through winget instead).
 
 ## Install / set up
 **One-step PowerShell** (downloads the latest [release](https://github.com/ShlomiPorush/ai-usage-tray/releases/latest), installs per-user to `%LOCALAPPDATA%\AIUsageTray\app`, adds a Start Menu shortcut):
 ```powershell
 iwr -useb https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/scripts/install.ps1 | iex
 ```
+
+**winget** (the package `AIUsageTray.AIUsageTray` is awaiting approval in the winget community repository; until `winget install` finds it, use the PowerShell installer above):
+```powershell
+winget install AIUsageTray.AIUsageTray
+winget upgrade AIUsageTray.AIUsageTray
+winget uninstall AIUsageTray.AIUsageTray
+```
+A winget install is updated by winget, not by the app's built-in updater. When a new version is out, the app tells you and shows the `winget upgrade` command. A new version can take a day or two to reach winget after it appears on the Releases page.
 
 **Manual:** download `ai-usage-tray-win-x64-vX.Y.Z.zip` (or `arm64`) from [Releases](https://github.com/ShlomiPorush/ai-usage-tray/releases), verify the `.sha256`, extract and run `AIUsageTray.exe`. Builds are self-contained (no .NET runtime needed) and not code-signed, so SmartScreen may warn.
 
