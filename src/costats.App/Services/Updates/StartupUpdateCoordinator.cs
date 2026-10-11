@@ -58,6 +58,12 @@ public sealed class StartupUpdateCoordinator
     public UpdateCheckResult? LastCheckResult { get; private set; }
     public TimeSpan CheckInterval => TimeSpan.FromHours(_options.CheckIntervalHours);
 
+    /// <summary>
+    /// True when this copy was installed by winget. Update checks still run so
+    /// the user hears about new versions, but installing is left to winget.
+    /// </summary>
+    public bool UpdatesManagedByWinget => WingetInstall.IsWingetPackageDirectory(_appBaseDirectory);
+
     public StartupUpdateCoordinator(UpdateOptions options)
     {
         _options = options;
@@ -204,7 +210,8 @@ public sealed class StartupUpdateCoordinator
 
     public async Task<UpdateCheckResult> CheckForUpdateAsync(CancellationToken cancellationToken, bool forceCheck = false)
     {
-        if (!_options.Enabled || !CanSelfUpdate())
+        // A winget copy still checks, so it can point the user at winget.
+        if (!_options.Enabled || !(UpdatesManagedByWinget || CanSelfUpdate()))
         {
             return CompleteCheck(new UpdateCheckResult(UpdateCheckStatus.Disabled));
         }
@@ -523,6 +530,13 @@ public sealed class StartupUpdateCoordinator
         if (_appBaseDirectory.Contains(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase))
         {
             // MSIX/AppInstaller installs are updated by App Installer.
+            return false;
+        }
+
+        if (UpdatesManagedByWinget)
+        {
+            // winget owns this folder and its version record. Replacing files
+            // behind its back would leave winget reporting the old version.
             return false;
         }
 
@@ -1631,4 +1645,46 @@ public static class InstallMarker
 
     private static string Normalize(string path)
         => Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+}
+
+/// <summary>
+/// Recognises a copy installed by winget as a portable package. winget extracts
+/// the release ZIP into a WinGet\Packages\AIUsageTray.AIUsageTray_&lt;source&gt;
+/// folder, under %LOCALAPPDATA%\Microsoft for a user install and under
+/// Program Files for a machine install.
+/// </summary>
+public static class WingetInstall
+{
+    /// <summary>The winget package identifier.</summary>
+    public const string PackageIdentifier = "AIUsageTray.AIUsageTray";
+
+    /// <summary>The command that updates a winget install.</summary>
+    public const string UpgradeCommand = "winget upgrade " + PackageIdentifier;
+
+    private const string PackageFolderPrefix = PackageIdentifier + "_";
+
+    /// <summary>True when the directory is inside this app's winget package folder.</summary>
+    public static bool IsWingetPackageDirectory(string? directory)
+    {
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return false;
+        }
+
+        var segments = directory.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+
+        for (var i = 0; i + 2 < segments.Length; i++)
+        {
+            if (string.Equals(segments[i], "WinGet", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(segments[i + 1], "Packages", StringComparison.OrdinalIgnoreCase) &&
+                segments[i + 2].StartsWith(PackageFolderPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

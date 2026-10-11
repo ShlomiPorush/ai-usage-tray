@@ -196,6 +196,11 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
 
     public bool IsUpdateBusy => IsCheckingForUpdates || IsInstallingUpdate;
 
+    /// <summary>True for a winget install: updates come from winget, not from the app.</summary>
+    public bool UpdatesManagedByWinget => _updateCoordinator?.UpdatesManagedByWinget == true;
+
+    public string WingetUpgradeCommand => WingetInstall.UpgradeCommand;
+
     partial void OnIsCheckingForUpdatesChanged(bool value) => OnPropertyChanged(nameof(IsUpdateBusy));
 
     partial void OnIsInstallingUpdateChanged(bool value) => OnPropertyChanged(nameof(IsUpdateBusy));
@@ -1253,6 +1258,12 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     {
         if (_updateCoordinator is null || _availableUpdate is null || IsUpdateBusy)
         {
+            return;
+        }
+
+        if (UpdatesManagedByWinget)
+        {
+            UpdateStatusText = $"Run {WingetUpgradeCommand} to update.";
             return;
         }
 
