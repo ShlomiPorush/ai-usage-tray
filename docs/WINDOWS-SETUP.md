@@ -18,7 +18,15 @@ Left-click the icon (or press `Ctrl+Alt+U`) to open the widget; right-click for 
 
 ## 1. Install and run the app
 
-Follow the install steps in the [README](../README.md): the one-line PowerShell installer, or download the ZIP from Releases, verify the `.sha256` and extract it. Builds are self-contained and are not code-signed, so Windows may show a SmartScreen warning.
+Follow the install steps in the [README](../README.md): the one-line PowerShell installer, winget, or download the ZIP from Releases, verify the `.sha256` and extract it. Builds are self-contained and are not code-signed, so Windows may show a SmartScreen warning.
+
+With winget (the package is awaiting approval in the winget community repository; until `winget install` finds it, use the PowerShell installer):
+
+```powershell
+winget install AIUsageTray.AIUsageTray
+```
+
+winget adds an `aiusagetray` command, so you can also start the app from a terminal. A winget install updates through winget: run `winget upgrade AIUsageTray.AIUsageTray`.
 
 Run `AIUsageTray.exe`. The app starts directly in the system tray. If the icon is hidden, open the tray overflow using the `^` button and drag the icon onto the taskbar.
 
@@ -141,13 +149,19 @@ The numbers come from the Claude Code and Codex session logs already on the mach
 - **Show "Resets in..." times on the main page**: adds the reset countdown next to each usage bar in the account overview. Off by default to keep the overview compact.
 - **Theme**: **Follow system** (tracks the Windows apps theme), **Light** or **Dark**.
 - **Refresh interval**: how often usage is polled in the background, from 1 to 15 minutes; the default is 5.
-- **Check for updates** under **UPDATES**: checks this repository's releases, stages the update and restarts to apply it. The app also checks automatically in the background.
+- **Check for updates** under **UPDATES**: checks this repository's releases, stages the update and restarts to apply it. The app also checks automatically in the background. A winget install still checks and tells you when a new version is out, but shows the `winget upgrade AIUsageTray.AIUsageTray` command instead of installing it itself.
 
 Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (the path is kept from upstream so existing installs keep working). Logs go to `%LOCALAPPDATA%\costats\logs`.
 
 ## 9. Uninstall
 
-The app registers itself under **Settings > Apps > Installed apps** (and the classic `appwiz.cpl`) as **AI Usage Tray**, so the normal Windows uninstall works. The entry is written per user under `HKCU`, is refreshed on every start so the version stays correct after an update, and never asks for administrator rights.
+If you installed with winget, uninstall with winget. It removes the app folder and keeps your settings and usage history in `%LOCALAPPDATA%\costats`:
+
+```powershell
+winget uninstall AIUsageTray.AIUsageTray
+```
+
+The rest of this section covers the PowerShell installer. That install registers itself under **Settings > Apps > Installed apps** (and the classic `appwiz.cpl`) as **AI Usage Tray**, so the normal Windows uninstall works. The entry is written per user under `HKCU`, is refreshed on every start so the version stays correct after an update, and never asks for administrator rights.
 
 You can also run the uninstaller directly:
 

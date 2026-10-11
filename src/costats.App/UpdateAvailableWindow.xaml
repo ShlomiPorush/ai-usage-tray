@@ -95,7 +95,22 @@
                            Foreground="{DynamicResource TextPrimaryBrush}" />
                 <TextBlock Text="Review what changed, then update now or come back later."
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
-                           TextWrapping="Wrap" Margin="0,5,0,16" />
+                           TextWrapping="Wrap" Margin="0,5,0,16"
+                           Visibility="{Binding UpdatesManagedByWinget, Converter={x:Static local:BoolToVisibilityConverter.Instance}, ConverterParameter=Invert}" />
+                <StackPanel Margin="0,5,0,16"
+                            Visibility="{Binding UpdatesManagedByWinget, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <TextBlock Text="This copy was installed with winget, so winget updates it. Run:"
+                               FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                               TextWrapping="Wrap" Margin="0,0,0,6" />
+                    <TextBox Text="{Binding WingetUpgradeCommand, Mode=OneWay}"
+                             IsReadOnly="True" IsReadOnlyCaretVisible="True"
+                             Background="Transparent" BorderThickness="0" Padding="0"
+                             Foreground="{DynamicResource TextPrimaryBrush}"
+                             FontFamily="Consolas" FontSize="12" />
+                    <TextBlock Text="A new version can take a day or two to reach winget."
+                               FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
+                               TextWrapping="Wrap" Margin="0,6,0,0" />
+                </StackPanel>
                 <TextBlock Text="WHAT'S NEW" FontSize="9" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,6" />
                 <Border BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
@@ -128,7 +143,8 @@
                         IsDefault="True"
                         IsEnabled="{Binding IsUpdateBusy, Converter={x:Static local:BoolNegationConverter.Instance}}"
                         Style="{StaticResource PrimaryDialogButton}"
-                        DockPanel.Dock="Right" HorizontalAlignment="Right" />
+                        DockPanel.Dock="Right" HorizontalAlignment="Right"
+                        Visibility="{Binding UpdatesManagedByWinget, Converter={x:Static local:BoolToVisibilityConverter.Instance}, ConverterParameter=Invert}" />
             </DockPanel>
         </Grid>
     </Border>

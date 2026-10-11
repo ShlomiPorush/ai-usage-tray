@@ -74,6 +74,66 @@ public sealed class UpdateCheckFlowTests : IDisposable
     }
 
     [Fact]
+    public async Task WingetInstall_ChecksForUpdatesButNeverSelfInstalls()
+    {
+        var wingetDirectory = Path.Combine(
+            _directory,
+            "WinGet",
+            "Packages",
+            "AIUsageTray.AIUsageTray_Microsoft.Winget.Source_8wekyb3d8bbwe");
+        Directory.CreateDirectory(wingetDirectory);
+        var executablePath = Path.Combine(wingetDirectory, "AIUsageTray.exe");
+        File.WriteAllText(executablePath, "test executable");
+
+        const string releaseJson = """
+        {
+          "tag_name": "v99.0.0",
+          "html_url": "https://github.com/ShlomiPorush/ai-usage-tray/releases/tag/v99.0.0",
+          "body": "Important changes",
+          "prerelease": false,
+          "assets": [
+            {
+              "name": "ai-usage-tray-win-x64-v99.0.0.zip",
+              "browser_download_url": "https://github.com/ShlomiPorush/ai-usage-tray/releases/download/v99.0.0/ai-usage-tray-win-x64-v99.0.0.zip"
+            },
+            {
+              "name": "ai-usage-tray-win-x64-v99.0.0.zip.sha256",
+              "browser_download_url": "https://github.com/ShlomiPorush/ai-usage-tray/releases/download/v99.0.0/ai-usage-tray-win-x64-v99.0.0.zip.sha256"
+            }
+          ]
+        }
+        """;
+
+        var handler = new RecordingHandler(releaseJson);
+        var coordinator = new StartupUpdateCoordinator(new UpdateOptions());
+        SetField(coordinator, "_httpClient", new HttpClient(handler));
+        SetField(coordinator, "_appBaseDirectory", wingetDirectory);
+        SetField(coordinator, "_executablePath", executablePath);
+        SetField(coordinator, "_updatesRoot", Path.Combine(_directory, "updates"));
+        SetField(coordinator, "_statePath", Path.Combine(_directory, "updates", "state.json"));
+        SetField(coordinator, "_pendingPath", Path.Combine(_directory, "updates", "pending.json"));
+        SetField(coordinator, "_runtimeRid", "win-x64");
+        SetField(coordinator, "_currentVersion", new Version(1, 0, 0));
+
+        Assert.True(coordinator.UpdatesManagedByWinget);
+
+        var result = await coordinator.CheckForUpdateAsync(CancellationToken.None, forceCheck: true);
+
+        Assert.Equal(UpdateCheckStatus.UpdateAvailable, result.Status);
+        Assert.NotNull(result.Update);
+        Assert.Equal("99.0.0", result.Update.Version);
+
+        var staged = await coordinator.DownloadAndStageUpdateAsync(result.Update, progress: null, CancellationToken.None);
+        var applied = await coordinator.TryApplyPendingUpdateAsync(CancellationToken.None, manualTrigger: true);
+
+        Assert.False(staged);
+        Assert.False(applied);
+        Assert.Single(handler.Requests);
+        Assert.False(File.Exists(Path.Combine(_directory, "updates", "pending.json")));
+        Assert.False(File.Exists(InstallMarker.PathFor(wingetDirectory)));
+    }
+
+    [Fact]
     public async Task DownloadAndStageUpdate_ReportsProgressAndCreatesPendingUpdate()
     {
         Directory.CreateDirectory(_directory);

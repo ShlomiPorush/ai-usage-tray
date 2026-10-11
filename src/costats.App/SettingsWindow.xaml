@@ -681,7 +681,21 @@
                                 Command="{Binding InstallUpdateCommand}"
                                 IsEnabled="{Binding IsUpdateBusy, Converter={x:Static local:BoolNegationConverter.Instance}}"
                                 Style="{StaticResource SettingsButton}"
-                                HorizontalAlignment="Right" />
+                                HorizontalAlignment="Right"
+                                Visibility="{Binding UpdatesManagedByWinget, Converter={x:Static local:BoolToVisibilityConverter.Instance}, ConverterParameter=Invert}" />
+                        <StackPanel Visibility="{Binding UpdatesManagedByWinget, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                            <TextBlock Text="This copy was installed with winget, so winget updates it. Run:"
+                                       FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" Margin="0,0,0,6" />
+                            <TextBox Text="{Binding WingetUpgradeCommand, Mode=OneWay}"
+                                     IsReadOnly="True" IsReadOnlyCaretVisible="True"
+                                     Background="Transparent" BorderThickness="0" Padding="0"
+                                     Foreground="{DynamicResource TextPrimaryBrush}"
+                                     FontFamily="Consolas" FontSize="12" />
+                            <TextBlock Text="A new version can take a day or two to reach winget."
+                                       FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
+                                       TextWrapping="Wrap" Margin="0,6,0,0" />
+                        </StackPanel>
                     </StackPanel>
                         </Border>
                     </StackPanel>

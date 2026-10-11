@@ -84,6 +84,13 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
     [ObservableProperty]
     private string availableUpdateVersion = string.Empty;
 
+    /// <summary>The banner line under "Update available". A winget copy is updated by winget.</summary>
+    public string AvailableUpdateSummary => _updateCoordinator?.UpdatesManagedByWinget == true
+        ? $"Version {AvailableUpdateVersion} is out. Update it with winget."
+        : $"Version {AvailableUpdateVersion} is ready to install.";
+
+    partial void OnAvailableUpdateVersionChanged(string value) => OnPropertyChanged(nameof(AvailableUpdateSummary));
+
     /// <summary>
     /// The remote view link, or null while remote view is off or unconfigured.
     /// Mirrors AppSettings so the overview button follows the Settings toggle.
