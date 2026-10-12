@@ -1,7 +1,9 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using costats.Application.Diagnostics;
+using System.Globalization;
 using costats.Core.Shell;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -29,6 +31,13 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
     private readonly TimeSpan _timeout;
     private readonly ILogger _logger;
 
+    /// <summary>
+    /// The failure last reported at Warning per account folder. A failing
+    /// account is reported once per distinct kind of failure, not on every
+    /// refresh, and once more when it works again; Debug keeps every detail.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, string> _reportedFailures = new(StringComparer.OrdinalIgnoreCase);
+
     public CodexAppServerClient(
         string codexExecutable = "codex",
         TimeSpan? timeout = null,
@@ -39,7 +48,9 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
             throw new ArgumentException("Codex executable is required.", nameof(codexExecutable));
         }
 
-        _codexExecutable = CodexExecutableResolver.Resolve(codexExecutable);
+        // Resolved again for every start, so installing or moving Codex while
+        // the app runs needs no restart.
+        _codexExecutable = codexExecutable;
         _timeout = timeout ?? TimeSpan.FromSeconds(15);
         _logger = (ILogger?)logger ?? NullLogger.Instance;
     }
@@ -81,13 +92,15 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
             if (!process.Start())
             {
                 _logger.LogDebug("Codex app-server for {Account} did not start", account);
+                ReportFailure(codexHome, account, "the app-server did not start", null);
                 return null;
             }
 
             started = true;
             _logger.LogDebug(
-                "Codex app-server started for {Account} (PID {Pid}, refreshToken {RefreshToken})",
+                "Codex app-server started for {Account} from {Executable} (PID {Pid}, refreshToken {RefreshToken})",
                 account,
+                ShortenProfilePath(process.StartInfo.FileName),
                 process.Id,
                 refreshToken);
 
@@ -128,6 +141,14 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
                 account,
                 DescribeAccountRead(accountSnapshot),
                 stopwatch.ElapsedMilliseconds);
+            if (accountSnapshot is null)
+            {
+                ReportFailure(codexHome, account, "the app-server gave no account answer", null);
+            }
+            else
+            {
+                ReportSuccess(codexHome, account);
+            }
 
             var requiresSignIn = accountSnapshot is
                 {
@@ -185,10 +206,15 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning(
+            _logger.LogDebug(
                 "Codex app-server for {Account} did not answer within {TimeoutSeconds} s",
                 account,
                 _timeout.TotalSeconds);
+            ReportFailure(
+                codexHome,
+                account,
+                string.Create(CultureInfo.InvariantCulture, $"no answer within {_timeout.TotalSeconds} s"),
+                null);
             return rateLimitSnapshot;
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
@@ -196,18 +222,53 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
             // Codex not installed (Win32Exception), a broken pipe when the
             // child exits early, or similar. The refresh shows "no data"; the
             // reason belongs in the normal log.
-            _logger.LogWarning(
-                ex,
-                "Codex app-server read for {Account} failed ({Stage}): {ErrorKind}",
-                account,
-                started ? "while talking to the app-server" : "starting the app-server",
-                ex.GetType().Name);
+            var stage = started ? "while talking to the app-server" : "starting the app-server";
+            _logger.LogDebug(ex, "Codex app-server read for {Account} failed ({Stage})", account, stage);
+            ReportFailure(codexHome, account, $"{stage}: {ex.GetType().Name}", ex);
             return rateLimitSnapshot;
         }
         finally
         {
             TryTerminate(process, account, stopwatch, _logger);
         }
+    }
+
+    /// <summary>
+    /// Warns once per account and failure kind. The same failure on the next
+    /// refresh stays at Debug (logged by the caller with full detail).
+    /// </summary>
+    private void ReportFailure(string codexHome, string account, string kind, Exception? exception)
+    {
+        var key = Path.GetFullPath(codexHome);
+        if (_reportedFailures.TryGetValue(key, out var previous) &&
+            string.Equals(previous, kind, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _reportedFailures[key] = kind;
+        _logger.LogWarning(
+            "Codex app-server for {Account} is not working ({Failure}){Detail}; repeats are logged at Debug until it works again",
+            account,
+            kind,
+            exception is null ? string.Empty : ": " + LogRedaction.Redact(exception.Message));
+    }
+
+    private void ReportSuccess(string codexHome, string account)
+    {
+        if (_reportedFailures.TryRemove(Path.GetFullPath(codexHome), out var previous))
+        {
+            _logger.LogInformation("Codex app-server for {Account} works again (was: {Failure})", account, previous);
+        }
+    }
+
+    /// <summary>The executable path for logs, with the user profile folder shown as %USERPROFILE%.</summary>
+    internal static string ShortenProfilePath(string path)
+    {
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return !string.IsNullOrEmpty(profile) && path.StartsWith(profile + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            ? "%USERPROFILE%" + path[profile.Length..]
+            : path;
     }
 
     private static string DescribeAccountRead(CodexAppServerAccountSnapshot? snapshot) => snapshot switch
@@ -370,7 +431,7 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
     {
         var startInfo = new ProcessStartInfo
         {
-            FileName = _codexExecutable,
+            FileName = CodexExecutableResolver.Resolve(_codexExecutable),
             // Pin a trusted rooted working directory so the child does not
             // inherit or search an attacker-writable current directory.
             WorkingDirectory = SystemExecutables.TrustedWorkingDirectory,

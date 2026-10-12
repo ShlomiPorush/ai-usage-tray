@@ -1,5 +1,6 @@
 using costats.Application.SessionActivation;
 using costats.Application.Settings;
+using costats.Infrastructure.Providers;
 using costats.Infrastructure.SessionActivation;
 using Xunit;
 
@@ -59,9 +60,9 @@ public sealed class CliSessionWindowActivatorTests : IDisposable
                 @"C:\profiles\codex-gpt"));
 
         Assert.NotNull(startInfo);
-        Assert.True(
-            startInfo!.FileName.Equals("codex", StringComparison.OrdinalIgnoreCase) ||
-            startInfo.FileName.EndsWith("codex.exe", StringComparison.OrdinalIgnoreCase));
+        // The same resolver as monitoring: standalone, npm native binary, or PATH.
+        Assert.Equal(CodexExecutableResolver.Resolve("codex"), startInfo!.FileName);
+        Assert.StartsWith("codex", Path.GetFileName(startInfo.FileName), StringComparison.OrdinalIgnoreCase);
         Assert.Equal(@"C:\profiles\codex-gpt", startInfo.Environment["CODEX_HOME"]);
         Assert.False(startInfo.Environment.ContainsKey("OPENAI_API_KEY"));
         Assert.False(startInfo.Environment.ContainsKey("OPENAI_BASE_URL"));

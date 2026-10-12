@@ -30,6 +30,8 @@ Open PowerShell and run the official OpenAI installer:
 powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"
 ```
 
+An npm install (`npm install -g @openai/codex`) works too. The app looks for Codex in this order: the official installer's `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe`, the native `codex.exe` inside an npm global install under `%APPDATA%\npm`, then every folder on `PATH` (an npm `codex.cmd` there is replaced by the `codex.exe` its package ships). It checks again on every refresh, so installing Codex later needs no restart.
+
 Close and reopen PowerShell, then sign in with your paid ChatGPT account:
 
 ```powershell

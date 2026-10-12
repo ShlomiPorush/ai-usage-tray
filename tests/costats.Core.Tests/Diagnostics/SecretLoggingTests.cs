@@ -196,7 +196,9 @@ public sealed class SecretLoggingTests : IDisposable
         Assert.Contains("account/rateLimits/read answered an", text, StringComparison.Ordinal);
         Assert.Contains("refreshToken True", text, StringComparison.Ordinal);
         Assert.DoesNotContain("person@example.com", text, StringComparison.Ordinal);
-        Assert.DoesNotContain(_root, text, StringComparison.OrdinalIgnoreCase);
+        // The executable's path is logged on purpose (which Codex ran); the
+        // account folder is only ever named, never given as a path.
+        Assert.DoesNotContain(codexHome, text, StringComparison.OrdinalIgnoreCase);
         AssertNoSecrets(text, CodexToken);
     }
 
