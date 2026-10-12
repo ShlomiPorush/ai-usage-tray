@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using costats.App.ViewModels;
+using costats.Application.Settings;
 using costats.Application.Shell;
 
 namespace costats.App
@@ -31,6 +32,38 @@ namespace costats.App
             SourceInitialized += OnSourceInitialized;
             MouseLeftButtonDown += OnMouseLeftButtonDown;
             viewModel.ManualUpdateAvailable += OnManualUpdateAvailable;
+            viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        }
+
+        /// <summary>
+        /// The import confirmation and the export/import result appear below
+        /// the buttons, often past the bottom of the scroll viewport, so they
+        /// are scrolled into view as soon as they show.
+        /// </summary>
+        private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (sender is not SettingsViewModel viewModel)
+            {
+                return;
+            }
+
+            FrameworkElement? target = e.PropertyName switch
+            {
+                nameof(SettingsViewModel.IsImportConfirmationVisible) when viewModel.IsImportConfirmationVisible =>
+                    ImportConfirmationPanel,
+                nameof(SettingsViewModel.SettingsTransferMessage) when !string.IsNullOrEmpty(viewModel.SettingsTransferMessage) =>
+                    SettingsTransferResult,
+                _ => null
+            };
+            if (target is null)
+            {
+                return;
+            }
+
+            // Wait for layout so the newly visible element has its final size.
+            Dispatcher.BeginInvoke(
+                System.Windows.Threading.DispatcherPriority.Loaded,
+                () => target.BringIntoView());
         }
 
         /// <summary>
@@ -258,6 +291,55 @@ namespace costats.App
                     break;
             }
         }
+
+        private async void OnExportSettingsClick(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not ViewModels.SettingsViewModel viewModel)
+            {
+                return;
+            }
+
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "Export settings",
+                FileName = SettingsTransfer.DefaultFileName,
+                DefaultExt = ".json",
+                Filter = SettingsFileFilter,
+                AddExtension = true,
+                OverwritePrompt = true
+            };
+            if (dialog.ShowDialog(this) != true)
+            {
+                return;
+            }
+
+            await viewModel.ExportSettingsAsync(dialog.FileName);
+        }
+
+        private async void OnImportSettingsClick(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not ViewModels.SettingsViewModel viewModel)
+            {
+                return;
+            }
+
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Import settings",
+                FileName = SettingsTransfer.DefaultFileName,
+                DefaultExt = ".json",
+                Filter = SettingsFileFilter,
+                CheckFileExists = true
+            };
+            if (dialog.ShowDialog(this) != true)
+            {
+                return;
+            }
+
+            await viewModel.PrepareImportAsync(dialog.FileName);
+        }
+
+        private const string SettingsFileFilter = "AI Usage Tray settings (*.json)|*.json|All files (*.*)|*.*";
 
         private void OnUsageAlertThresholdLostFocus(object sender, RoutedEventArgs e)
         {

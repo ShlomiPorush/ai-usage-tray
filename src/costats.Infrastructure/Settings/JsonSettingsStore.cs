@@ -29,10 +29,7 @@ public sealed class JsonSettingsStore : ISettingsStore
     private const string LegacyClaudeConfigDirProperty = "claudeConfigDir";
     private const string LegacyOpenAiAccountsProperty = "openAiAccounts";
 
-    private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true
-    };
+    private readonly JsonSerializerOptions _serializerOptions = SettingsJson.SerializerOptions;
 
     private readonly SemaphoreSlim _saveGate = new(1, 1);
     private readonly ICredentialVault? _credentialVault;

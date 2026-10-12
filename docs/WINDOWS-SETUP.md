@@ -142,6 +142,7 @@ The numbers come from the Claude Code and Codex session logs already on the mach
 - **Theme**: **Follow system** (tracks the Windows apps theme), **Light** or **Dark**.
 - **Refresh interval**: how often usage is polled in the background, from 1 to 15 minutes; the default is 5.
 - **Check for updates** under **UPDATES**: checks this repository's releases, stages the update and restarts to apply it. The app also checks automatically in the background.
+- **Export settings** / **Import settings** under **General**: moves your accounts and preferences to another computer through a JSON file. API keys, tokens and the remote view link are not included, and they are kept as they are on the computer you import into. Account folders under your user profile follow the new profile automatically; any folder that is still missing is listed after the import. Sign in to Claude and Codex again on the new computer.
 
 Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (the path is kept from upstream so existing installs keep working). Logs go to `%LOCALAPPDATA%\costats\logs`.
 
