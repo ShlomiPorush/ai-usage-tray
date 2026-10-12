@@ -6,7 +6,6 @@ using System.Windows.Interop;
 using System.Windows.Threading;
 using System.Windows.Navigation;
 using costats.App.ViewModels;
-using costats.Application.Shell;
 using costats.Application.Settings;
 using costats.Application.Pulse;
 using costats.Infrastructure.Providers;
@@ -16,7 +15,6 @@ namespace costats.App
 {
     public partial class GlassWidgetWindow : Window
     {
-        private readonly IGlassBackdropService _backdropService;
         private readonly SettingsWindow _settingsWindow;
         private readonly UsageWindow _usageWindow;
         private readonly OnboardingWindow _onboardingWindow;
@@ -32,7 +30,6 @@ namespace costats.App
             SettingsWindow settingsWindow,
             UsageWindow usageWindow,
             OnboardingWindow onboardingWindow,
-            IGlassBackdropService backdropService,
             AppSettings appSettings,
             CodexResetCreditService resetCredits,
             ClaudeResetService claudeResets,
@@ -40,7 +37,6 @@ namespace costats.App
         {
             InitializeComponent();
             DataContext = viewModel;
-            _backdropService = backdropService;
             _settingsWindow = settingsWindow;
             _usageWindow = usageWindow;
             _onboardingWindow = onboardingWindow;
@@ -48,19 +44,12 @@ namespace costats.App
             _resetCredits = resetCredits;
             _claudeResets = claudeResets;
             _orchestrator = orchestrator;
-            SourceInitialized += OnSourceInitialized;
             MouseLeftButtonDown += OnMouseLeftButtonDown;
             Deactivated += OnDeactivated;
             PreviewKeyDown += OnPreviewKeyDown;
 
             // Subscribe to ViewModel property changes for dynamic height
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
-        }
-
-        private void OnSourceInitialized(object? sender, EventArgs e)
-        {
-            // Skip backdrop - we use AllowsTransparency with custom Border for rounded corners
-            // Applying DWM backdrop creates a conflicting layer with different corner radius
         }
 
         private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

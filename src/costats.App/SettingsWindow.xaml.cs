@@ -3,7 +3,6 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using costats.App.ViewModels;
 using costats.Application.Settings;
-using costats.Application.Shell;
 
 namespace costats.App
 {
@@ -21,15 +20,12 @@ namespace costats.App
 
     public partial class SettingsWindow : Window
     {
-        private readonly IGlassBackdropService _backdropService;
         private UpdateAvailableWindow? _updateAvailableWindow;
 
-        public SettingsWindow(SettingsViewModel viewModel, IGlassBackdropService backdropService)
+        public SettingsWindow(SettingsViewModel viewModel)
         {
             InitializeComponent();
             DataContext = viewModel;
-            _backdropService = backdropService;
-            SourceInitialized += OnSourceInitialized;
             MouseLeftButtonDown += OnMouseLeftButtonDown;
             viewModel.ManualUpdateAvailable += OnManualUpdateAvailable;
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -188,12 +184,6 @@ namespace costats.App
             }
 
             Hide();
-        }
-
-        private void OnSourceInitialized(object? sender, EventArgs e)
-        {
-            var hwnd = new WindowInteropHelper(this).Handle;
-            _backdropService.ApplyBackdrop(hwnd);
         }
 
         private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
