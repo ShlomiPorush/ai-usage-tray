@@ -20,7 +20,7 @@ Left-click the icon (or press `Ctrl+Alt+U`) to open the widget; right-click for 
 
 Follow the install steps in the [README](../README.md): the one-line PowerShell installer, or download the ZIP from Releases, verify the `.sha256` and extract it. Builds are self-contained and are not code-signed, so Windows may show a SmartScreen warning.
 
-Run `AIUsageTray.exe`. The app starts directly in the system tray. If the icon is hidden, open the tray overflow using the `^` button and drag the icon onto the taskbar.
+Run `AIUsageTray.exe`. The app starts directly in the system tray. On Windows 11 the icon is shown on the taskbar the first time it appears; if you later hide it in the overflow, the app respects that. On Windows 10, if the icon is hidden, open the tray overflow using the `^` button and drag the icon onto the taskbar.
 
 ## 2. Install the Codex CLI and sign in
 
