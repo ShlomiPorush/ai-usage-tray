@@ -1,8 +1,10 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using costats.Application.Diagnostics;
 using costats.Application.Pulse;
 using costats.Application.Settings;
 using costats.Core.Pulse;
@@ -30,6 +32,7 @@ namespace costats.App.Services
         private readonly AppSettings _settings;
         private readonly HttpClient _http;
         private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web);
+        private readonly ILogger? _log;
 
         private DateTimeOffset _lastSuccessfulUpload = DateTimeOffset.MinValue;
         private int _consecutiveFailures;
@@ -41,13 +44,47 @@ namespace costats.App.Services
             IEnumerable<ISignalSource> sources,
             IAccountSourceRegistry accountSources,
             AppSettings settings)
+            : this(pulseOrchestrator, sources, accountSources, settings, new HttpClient(), log: null)
+        {
+        }
+
+        /// <summary>Test seam: the handler stands in for the relay, the logger for the log.</summary>
+        internal RemoteViewUploader(
+            IPulseOrchestrator pulseOrchestrator,
+            IEnumerable<ISignalSource> sources,
+            IAccountSourceRegistry accountSources,
+            AppSettings settings,
+            HttpMessageHandler handler,
+            ILogger log)
+            : this(pulseOrchestrator, sources, accountSources, settings, new HttpClient(handler), log)
+        {
+        }
+
+        private RemoteViewUploader(
+            IPulseOrchestrator pulseOrchestrator,
+            IEnumerable<ISignalSource> sources,
+            IAccountSourceRegistry accountSources,
+            AppSettings settings,
+            HttpClient http,
+            ILogger? log)
         {
             _staticSources = sources;
             _accountSources = accountSources;
             _settings = settings;
-            _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            _log = log;
+            _http = http;
+            _http.Timeout = TimeSpan.FromSeconds(10);
             _pulseSubscription = pulseOrchestrator.PulseStream.Subscribe(this);
         }
+
+        // Resolved on every call: the static logger is replaced once the host starts.
+        // Log lines carry the relay's host name at most: the upload URL ends in
+        // the secret write id, so no URL or id is ever logged.
+        private ILogger Logger => _log ?? Log.Logger;
+
+        /// <summary>The relay's host name for logs, without the path that carries the write id.</summary>
+        private static string HostOf(string url) =>
+            Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : "(invalid address)";
 
         public void OnNext(PulseState state)
         {
@@ -63,12 +100,22 @@ namespace costats.App.Services
                     !RemoteViewIds.IsValidId(_settings.RemoteViewId) ||
                     uploadUrl is null)
                 {
+                    if (_settings.RemoteViewEnabled)
+                    {
+                        Logger.Debug(
+                            "Remote view upload skipped: {Reason}",
+                            uploadUrl is null ? "no usable upload address" : "no valid write id yet");
+                    }
+
                     return;
                 }
 
                 var now = DateTimeOffset.UtcNow;
                 if (now - _lastSuccessfulUpload < MinimumUploadInterval)
                 {
+                    Logger.Debug(
+                        "Remote view upload skipped: the last one was {Seconds:F0} s ago",
+                        (now - _lastSuccessfulUpload).TotalSeconds);
                     return;
                 }
 
@@ -79,6 +126,7 @@ namespace costats.App.Services
                 // One upload at a time; a slow endpoint must not queue refreshes up.
                 if (Interlocked.Exchange(ref _uploadInFlight, 1) == 1)
                 {
+                    Logger.Debug("Remote view upload skipped: the previous one is still running");
                     return;
                 }
 
@@ -87,13 +135,13 @@ namespace costats.App.Services
             catch (Exception ex)
             {
                 // OnNext must never throw: it would tear down the pulse stream.
-                Log.Warning(ex, "Remote view snapshot could not be prepared");
+                Logger.Warning(ex, "Remote view snapshot could not be prepared");
             }
         }
 
         public void OnError(Exception error)
         {
-            Log.Warning(error, "Remote view usage stream failed");
+            Logger.Warning(error, "Remote view usage stream failed");
         }
 
         public void OnCompleted()
@@ -156,7 +204,7 @@ namespace costats.App.Services
                 !RemoteViewEndpoints.IsAllowed(overrideUrl) &&
                 Interlocked.Exchange(ref _warnedAboutRejectedUrl, 1) == 0)
             {
-                Log.Warning(
+                Logger.Warning(
                     "Remote view upload URL is not https; uploads stay off until it is fixed or cleared");
             }
 
@@ -191,18 +239,19 @@ namespace costats.App.Services
                 Sign(request, string.Empty);
 
                 using var response = await _http.SendAsync(request).ConfigureAwait(false);
+                Logger.Debug("Remote view delete at {Host}: HTTP {StatusCode}", HostOf(url), (int)response.StatusCode);
                 if (response.IsSuccessStatusCode)
                 {
                     return true;
                 }
 
-                Log.Warning(
+                Logger.Warning(
                     "Remote view delete answered {StatusCode}", (int)response.StatusCode);
                 return false;
             }
             catch (Exception ex)
             {
-                Log.Warning(ex, "Remote view delete failed");
+                Logger.Warning(ex, "Remote view delete failed");
                 return false;
             }
         }
@@ -234,12 +283,13 @@ namespace costats.App.Services
             }
             catch (Exception ex)
             {
-                Log.Warning(ex, "Remote view request could not be signed; sending it unsigned");
+                Logger.Warning(ex, "Remote view request could not be signed; sending it unsigned");
             }
         }
 
         private async Task UploadAsync(string url, RemoteSnapshot snapshot)
         {
+            var stopwatch = Stopwatch.StartNew();
             try
             {
                 var json = JsonSerializer.Serialize(snapshot, _serializerOptions);
@@ -252,6 +302,12 @@ namespace costats.App.Services
                 Sign(request, json);
 
                 using var response = await _http.SendAsync(request).ConfigureAwait(false);
+                Logger.Debug(
+                    "Remote view upload to {Host}: HTTP {StatusCode} in {ElapsedMs} ms ({Bytes} bytes)",
+                    HostOf(url),
+                    (int)response.StatusCode,
+                    stopwatch.ElapsedMilliseconds,
+                    json.Length);
                 response.EnsureSuccessStatusCode();
 
                 _lastSuccessfulUpload = DateTimeOffset.UtcNow;
@@ -259,17 +315,25 @@ namespace costats.App.Services
                 // Only announce recovery when something was actually broken.
                 if (Interlocked.Exchange(ref _consecutiveFailures, 0) > 0)
                 {
-                    Log.Information("Remote view upload recovered");
+                    Logger.Information("Remote view upload recovered");
                 }
             }
             catch (Exception ex)
             {
                 // Log once per failure streak so an unreachable endpoint does
                 // not fill the log with one warning per refresh.
-                if (Interlocked.Increment(ref _consecutiveFailures) == 1)
+                var failures = Interlocked.Increment(ref _consecutiveFailures);
+                if (failures == 1)
                 {
-                    Log.Warning(ex, "Remote view upload failed; further failures are silent until it recovers");
+                    Logger.Warning(ex, "Remote view upload failed; further failures are silent until it recovers");
                 }
+
+                Logger.Debug(
+                    "Remote view upload failed ({Failures} in a row) after {ElapsedMs} ms: {ErrorKind}: {Error}",
+                    failures,
+                    stopwatch.ElapsedMilliseconds,
+                    ex.GetType().Name,
+                    LogRedaction.Redact(ex.Message));
             }
             finally
             {

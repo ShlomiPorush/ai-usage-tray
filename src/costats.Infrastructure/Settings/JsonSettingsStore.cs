@@ -2,6 +2,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using costats.Application.Security;
 using costats.Application.Settings;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using costats.Application.Storage;
 
 namespace costats.Infrastructure.Settings;
@@ -35,6 +37,19 @@ public sealed class JsonSettingsStore : ISettingsStore
     private readonly SemaphoreSlim _saveGate = new(1, 1);
     private readonly ICredentialVault? _credentialVault;
     private readonly string _settingsPath;
+
+    // What the file held after the last load or save, to log which settings a
+    // save changed. Secrets are compared by in-process hash only, so no extra
+    // copy of a key is kept and no value is ever logged.
+    private JsonObject? _lastSaved;
+    private int? _lastCodingKeyHash;
+    private int? _lastApiKeyHash;
+
+    /// <summary>
+    /// Debug log for saves. The store is created before the app's logger, so
+    /// the app attaches one once it exists.
+    /// </summary>
+    public ILogger Logger { get; set; } = NullLogger.Instance;
 
     /// <param name="credentialVault">
     /// Where the Z.AI keys live. When null the keys are simply not persisted,
@@ -101,8 +116,21 @@ public sealed class JsonSettingsStore : ISettingsStore
         await _saveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var saved = SerializeForComparison(settings);
+            var changed = ChangedSettingNames(_lastSaved, saved);
+            var codingKeyChanged = HashOf(settings.ZAiCodingApiKey) != _lastCodingKeyHash;
+            var apiKeyChanged = HashOf(settings.ZAiApiKey) != _lastApiKeyHash;
+
             await WriteAtomicallyAsync(settings, cancellationToken).ConfigureAwait(false);
             await PersistSecretsAsync(settings, cancellationToken).ConfigureAwait(false);
+
+            _lastSaved = saved;
+            RememberSecrets(settings);
+            Logger.LogDebug(
+                "Settings saved; changed: {Changed}; Z.AI coding key changed: {CodingKeyChanged}, Z.AI standard key changed: {ApiKeyChanged}",
+                changed.Count == 0 ? "nothing" : string.Join(", ", changed),
+                codingKeyChanged,
+                apiKeyChanged);
         }
         finally
         {
@@ -173,8 +201,51 @@ public sealed class JsonSettingsStore : ISettingsStore
 
         RedactBackupSecrets();
         DeleteLegacyPulseSnapshot();
+        _lastSaved ??= SerializeForComparison(settings);
+        RememberSecrets(settings);
         return settings;
     }
+
+    private JsonObject? SerializeForComparison(AppSettings settings)
+    {
+        try
+        {
+            return JsonSerializer.SerializeToNode(settings, _serializerOptions) as JsonObject;
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Names of the top-level settings that differ between two saved states.
+    /// Names only: values never reach the log.
+    /// </summary>
+    internal static IReadOnlyList<string> ChangedSettingNames(JsonObject? before, JsonObject? after)
+    {
+        if (before is null || after is null)
+        {
+            return before is null && after is null ? [] : ["(all)"];
+        }
+
+        return before.Select(pair => pair.Key)
+            .Union(after.Select(pair => pair.Key), StringComparer.Ordinal)
+            .Where(name => !JsonNode.DeepEquals(
+                before.TryGetPropertyValue(name, out var left) ? left : null,
+                after.TryGetPropertyValue(name, out var right) ? right : null))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private void RememberSecrets(AppSettings settings)
+    {
+        _lastCodingKeyHash = HashOf(settings.ZAiCodingApiKey);
+        _lastApiKeyHash = HashOf(settings.ZAiApiKey);
+    }
+
+    private static int? HashOf(string? secret) =>
+        string.IsNullOrEmpty(secret) ? null : StringComparer.Ordinal.GetHashCode(secret);
 
     private void DeleteLegacyPulseSnapshot()
     {

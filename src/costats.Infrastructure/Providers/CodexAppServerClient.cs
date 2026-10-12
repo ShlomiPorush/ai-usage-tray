@@ -1,13 +1,19 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using costats.Application.Diagnostics;
 using costats.Core.Shell;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace costats.Infrastructure.Providers;
 
 /// <summary>
 /// Reads ChatGPT-managed Codex quota windows through the official Codex app-server JSON-RPC API.
 /// The client never reads or copies account tokens; Codex owns authentication and refresh.
+/// Logging follows the same rule: it records the JSON-RPC method names, how
+/// each answer was classified and process lifetimes, never a raw response line,
+/// the child's environment or anything Codex prints.
 /// </summary>
 public interface ICodexAppServerClient
 {
@@ -21,8 +27,12 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
 {
     private readonly string _codexExecutable;
     private readonly TimeSpan _timeout;
+    private readonly ILogger _logger;
 
-    public CodexAppServerClient(string codexExecutable = "codex", TimeSpan? timeout = null)
+    public CodexAppServerClient(
+        string codexExecutable = "codex",
+        TimeSpan? timeout = null,
+        ILogger<CodexAppServerClient>? logger = null)
     {
         if (string.IsNullOrWhiteSpace(codexExecutable))
         {
@@ -31,7 +41,15 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
 
         _codexExecutable = CodexExecutableResolver.Resolve(codexExecutable);
         _timeout = timeout ?? TimeSpan.FromSeconds(15);
+        _logger = (ILogger?)logger ?? NullLogger.Instance;
     }
+
+    /// <summary>
+    /// The account folder's name, for logs. Not the full path, which carries
+    /// the Windows user name, and never anything from inside the folder.
+    /// </summary>
+    internal static string AccountLabel(string codexHome) =>
+        Path.GetFileName(codexHome.TrimEnd('\\', '/'));
 
     public async Task<CodexAppServerRateLimitSnapshot?> FetchAsync(
         string codexHome,
@@ -44,6 +62,7 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
         }
 
         Directory.CreateDirectory(codexHome);
+        var account = AccountLabel(codexHome);
 
         using var process = new Process
         {
@@ -54,13 +73,23 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_timeout);
         CodexAppServerRateLimitSnapshot? rateLimitSnapshot = null;
+        var stopwatch = Stopwatch.StartNew();
+        var started = false;
 
         try
         {
             if (!process.Start())
             {
+                _logger.LogDebug("Codex app-server for {Account} did not start", account);
                 return null;
             }
+
+            started = true;
+            _logger.LogDebug(
+                "Codex app-server started for {Account} (PID {Pid}, refreshToken {RefreshToken})",
+                account,
+                process.Id,
+                refreshToken);
 
             // codex app-server writes progress to stderr. Leaving that pipe
             // unread deadlocks the child once its buffer fills, which stalls the
@@ -74,6 +103,10 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
             await process.StandardInput.WriteLineAsync(
                 CreateAccountReadRequest(refreshToken));
             await process.StandardInput.FlushAsync(timeout.Token);
+            _logger.LogDebug(
+                "Codex app-server {Account}: sent initialize, initialized, account/read (refreshToken {RefreshToken})",
+                account,
+                refreshToken);
 
             CodexAppServerAccountSnapshot? accountSnapshot = null;
             while (!timeout.IsCancellationRequested)
@@ -90,6 +123,12 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
                 }
             }
 
+            _logger.LogDebug(
+                "Codex app-server {Account}: account/read answered {Result} after {ElapsedMs} ms",
+                account,
+                DescribeAccountRead(accountSnapshot),
+                stopwatch.ElapsedMilliseconds);
+
             var requiresSignIn = accountSnapshot is
                 {
                     HasAccount: false,
@@ -98,12 +137,14 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
                 (refreshToken && accountSnapshot?.HasError == true);
             if (requiresSignIn)
             {
+                _logger.LogDebug("Codex app-server {Account}: sign-in required", account);
                 return SignInRequiredSnapshot();
             }
 
             await process.StandardInput.WriteLineAsync(
                 "{\"method\":\"account/rateLimits/read\",\"id\":2}");
             await process.StandardInput.FlushAsync(timeout.Token);
+            _logger.LogDebug("Codex app-server {Account}: sent account/rateLimits/read", account);
 
             var email = accountSnapshot?.Email;
             while (!timeout.IsCancellationRequested)
@@ -117,29 +158,66 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
                 rateLimitSnapshot ??= CodexAppServerRateLimitParser.Parse(line, expectedId: 2);
                 if (CodexAppServerRateLimitParser.TryParseError(line, expectedId: 2, out var error))
                 {
-                    return IsAuthenticationError(error) ? SignInRequiredSnapshot() : null;
+                    var isAuthentication = IsAuthenticationError(error);
+                    _logger.LogDebug(
+                        "Codex app-server {Account}: account/rateLimits/read answered an {ErrorKind} error after {ElapsedMs} ms: {Error}",
+                        account,
+                        isAuthentication ? "authentication" : "other",
+                        stopwatch.ElapsedMilliseconds,
+                        LogRedaction.Redact(error));
+                    return isAuthentication ? SignInRequiredSnapshot() : null;
                 }
                 if (rateLimitSnapshot is not null)
                 {
+                    _logger.LogDebug(
+                        "Codex app-server {Account}: account/rateLimits/read answered rate limits after {ElapsedMs} ms",
+                        account,
+                        stopwatch.ElapsedMilliseconds);
                     return rateLimitSnapshot with { Email = email };
                 }
             }
 
+            _logger.LogDebug(
+                "Codex app-server {Account}: output ended after {ElapsedMs} ms without rate limits",
+                account,
+                stopwatch.ElapsedMilliseconds);
             return rateLimitSnapshot;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            _logger.LogWarning(
+                "Codex app-server for {Account} did not answer within {TimeoutSeconds} s",
+                account,
+                _timeout.TotalSeconds);
             return rateLimitSnapshot;
         }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
+            // Codex not installed (Win32Exception), a broken pipe when the
+            // child exits early, or similar. The refresh shows "no data"; the
+            // reason belongs in the normal log.
+            _logger.LogWarning(
+                ex,
+                "Codex app-server read for {Account} failed ({Stage}): {ErrorKind}",
+                account,
+                started ? "while talking to the app-server" : "starting the app-server",
+                ex.GetType().Name);
             return rateLimitSnapshot;
         }
         finally
         {
-            TryTerminate(process);
+            TryTerminate(process, account, stopwatch, _logger);
         }
     }
+
+    private static string DescribeAccountRead(CodexAppServerAccountSnapshot? snapshot) => snapshot switch
+    {
+        null => "nothing (output ended or timed out)",
+        { HasError: true } => "an error",
+        { HasAccount: true } => "a signed-in account",
+        { RequiresOpenaiAuth: true } => "no account, OpenAI sign-in required",
+        _ => "no account"
+    };
 
     internal static string CreateAccountReadRequest(bool refreshToken) =>
         $"{{\"method\":\"account/read\",\"id\":3,\"params\":{{\"refreshToken\":{refreshToken.ToString().ToLowerInvariant()}}}}}";
@@ -153,20 +231,34 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
         using var process = new Process { StartInfo = CreateStartInfo(codexHome) };
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_timeout);
+        var account = AccountLabel(codexHome);
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             if (!process.Start()) return ResetCreditOutcome.Unavailable;
+            _logger.LogDebug("Codex app-server started for {Account} to redeem a reset (PID {Pid})", account, process.Id);
             _ = DrainAsync(process.StandardError, timeout.Token);
-            return await ExchangeResetCreditAsync(process.StandardOutput, process.StandardInput,
+            var outcome = await ExchangeResetCreditAsync(process.StandardOutput, process.StandardInput,
                 creditId, idempotencyKey, timeout.Token).ConfigureAwait(false);
+            _logger.LogDebug(
+                "Codex app-server {Account}: account/rateLimitResetCredit/consume answered {Outcome} after {ElapsedMs} ms",
+                account,
+                outcome,
+                stopwatch.ElapsedMilliseconds);
+            return outcome;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Losing the response does not prove that the provider refused the
             // reset. The service keeps the same key for a subsequent retry.
+            _logger.LogWarning(
+                ex,
+                "Codex reset redemption for {Account} lost its answer: {ErrorKind}; the outcome is unknown",
+                account,
+                ex.GetType().Name);
             return ResetCreditOutcome.Unknown;
         }
-        finally { TryTerminate(process); }
+        finally { TryTerminate(process, account, stopwatch, _logger); }
     }
 
     internal static async Task<ResetCreditOutcome> ExchangeResetCreditAsync(
@@ -293,7 +385,7 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
         return startInfo;
     }
 
-    private static void TryTerminate(Process process)
+    private static void TryTerminate(Process process, string account, Stopwatch stopwatch, ILogger logger)
     {
         try
         {
@@ -301,11 +393,28 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
             {
                 process.Kill(entireProcessTree: true);
                 process.WaitForExit(1000);
+                logger.LogDebug(
+                    "Codex app-server for {Account} stopped by the app after {ElapsedMs} ms",
+                    account,
+                    stopwatch.ElapsedMilliseconds);
+            }
+            else
+            {
+                logger.LogDebug(
+                    "Codex app-server for {Account} exited with code {ExitCode} after {ElapsedMs} ms",
+                    account,
+                    process.ExitCode,
+                    stopwatch.ElapsedMilliseconds);
             }
         }
-        catch
+        catch (InvalidOperationException)
+        {
+            // The process never started, so there is nothing to stop.
+        }
+        catch (Exception ex)
         {
             // Process cleanup must not turn a failed refresh into an app crash.
+            logger.LogDebug("Stopping the Codex app-server for {Account} failed: {ErrorKind}: {Error}", account, ex.GetType().Name, LogRedaction.Redact(ex.Message));
         }
     }
 

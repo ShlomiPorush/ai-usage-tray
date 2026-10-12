@@ -4,7 +4,10 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using costats.Core.Pulse;
+using costats.Application.Diagnostics;
 using costats.Core.Shell;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using costats.Application.Storage;
 
 namespace costats.Infrastructure.Providers;
@@ -51,6 +54,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
     private readonly HttpClient _httpClient;
     private readonly string? _configDir;
     private readonly bool _keepSessionActive;
+    private readonly ILogger _logger;
 
     private int _consecutiveFailures;
     private DateTimeOffset _blockedUntil = DateTimeOffset.MinValue;
@@ -61,24 +65,41 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
 
     public ProviderAuthenticationState AuthenticationState { get; private set; }
 
-    public ClaudeOAuthUsageFetcher()
+    public ClaudeOAuthUsageFetcher() : this(new HttpClient(), configDir: null, keepSessionActive: false, logger: null)
     {
-        _httpClient = new HttpClient
-        {
-            BaseAddress = new Uri(BaseUrl),
-            Timeout = TimeSpan.FromSeconds(30)
-        };
+    }
+
+    public ClaudeOAuthUsageFetcher(string configDir, bool keepSessionActive = false, ILogger? logger = null)
+        : this(new HttpClient(), configDir, keepSessionActive, logger)
+    {
+    }
+
+    /// <summary>Test seam: the handler stands in for the network.</summary>
+    internal ClaudeOAuthUsageFetcher(string configDir, HttpMessageHandler handler, ILogger? logger)
+        : this(new HttpClient(handler), configDir, keepSessionActive: false, logger)
+    {
+    }
+
+    private ClaudeOAuthUsageFetcher(HttpClient httpClient, string? configDir, bool keepSessionActive, ILogger? logger)
+    {
+        _configDir = configDir;
+        _keepSessionActive = keepSessionActive;
+        _logger = logger ?? NullLogger.Instance;
+        _httpClient = httpClient;
+        _httpClient.BaseAddress = new Uri(BaseUrl);
+        _httpClient.Timeout = TimeSpan.FromSeconds(30);
         _httpClient.DefaultRequestHeaders.Add("anthropic-beta", BetaHeader);
         _httpClient.DefaultRequestHeaders.Add("User-Agent", $"claude-cli/{ClientVersion} (external, cli)");
         _httpClient.DefaultRequestHeaders.Add("x-app", "cli");
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
-    public ClaudeOAuthUsageFetcher(string configDir, bool keepSessionActive = false) : this()
-    {
-        _configDir = configDir;
-        _keepSessionActive = keepSessionActive;
-    }
+    /// <summary>
+    /// The account folder's name, for logs. Never a token, and not the full
+    /// path, which carries the Windows user name.
+    /// </summary>
+    private string AccountLabel =>
+        _configDir is null ? "default" : Path.GetFileName(_configDir.TrimEnd('\\', '/'));
 
     //  Public API
     public async Task<ClaudeOAuthUsageResult?> FetchAsync(CancellationToken cancellationToken)
@@ -97,6 +118,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
 
         if (credentials is null || string.IsNullOrWhiteSpace(credentials.AccessToken))
         {
+            _logger.LogDebug("Claude account {Account}: no Claude Code sign-in found in its folder", AccountLabel);
             AuthenticationState = ProviderAuthenticationState.SignInRequired;
             return null;
         }
@@ -110,6 +132,11 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                 tokenExpired,
                 IsTokenNearExpiry(credentials)))
         {
+            _logger.LogDebug(
+                "Claude account {Account}: session refresh needed (token expired: {Expired}, keep active: {KeepActive})",
+                AccountLabel,
+                tokenExpired,
+                _keepSessionActive);
             await TryDelegatedRefreshAsync(cancellationToken).ConfigureAwait(false);
             credentials = await LoadCredentialsAsync(_configDir);
 
@@ -125,6 +152,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
 
         if (credentials?.AccessToken is null || IsTokenExpired(credentials))
         {
+            _logger.LogDebug("Claude account {Account}: token is still expired after the refresh attempt; sign-in required", AccountLabel);
             AuthenticationState = ProviderAuthenticationState.SignInRequired;
             return null;
         }
@@ -132,6 +160,11 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         // 3. Check failure gate
         if (DateTimeOffset.UtcNow < _blockedUntil)
         {
+            _logger.LogDebug(
+                "Claude account {Account}: skipping the request until {Until:u} after {Failures} failure(s); using the cached reading",
+                AccountLabel,
+                _blockedUntil,
+                _consecutiveFailures);
             if (AuthenticationState == ProviderAuthenticationState.SignInRequired)
             {
                 return null;
@@ -155,6 +188,11 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         // 5. Record failure & compute backoff
         _consecutiveFailures++;
         _blockedUntil = DateTimeOffset.UtcNow + ComputeBackoff(_consecutiveFailures);
+        _logger.LogDebug(
+            "Claude account {Account}: request failed {Failures} time(s) in a row; next try after {Until:u}",
+            AccountLabel,
+            _consecutiveFailures,
+            _blockedUntil);
 
         if (AuthenticationState == ProviderAuthenticationState.SignInRequired)
         {
@@ -168,6 +206,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
     private async Task<ClaudeOAuthUsageResult?> TryFetchAsync(
         ClaudeCredentials? credentials, CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             if (credentials?.AccessToken is null || IsTokenExpired(credentials))
@@ -181,6 +220,11 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credentials.AccessToken);
 
             using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            _logger.LogDebug(
+                "Claude usage request for {Account}: HTTP {StatusCode} in {ElapsedMs} ms",
+                AccountLabel,
+                (int)response.StatusCode,
+                stopwatch.ElapsedMilliseconds);
 
             if (response.IsSuccessStatusCode)
             {
@@ -188,6 +232,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                 var usage = ParseResponse(content, credentials.SubscriptionType, credentials.RateLimitTier);
                 if (usage is null)
                 {
+                    _logger.LogDebug("Claude usage response for {Account} could not be read", AccountLabel);
                     return null;
                 }
 
@@ -215,8 +260,14 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogDebug(
+                "Claude usage request for {Account} failed after {ElapsedMs} ms: {ErrorKind}: {Error}",
+                AccountLabel,
+                stopwatch.ElapsedMilliseconds,
+                ex.GetType().Name,
+                LogRedaction.Redact(ex.Message));
             return null;
         }
     }
@@ -230,12 +281,18 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         string accessToken,
         CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, ProfilePath);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
             using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            _logger.LogDebug(
+                "Claude profile request for {Account}: HTTP {StatusCode} in {ElapsedMs} ms",
+                AccountLabel,
+                (int)response.StatusCode,
+                stopwatch.ElapsedMilliseconds);
             if (!response.IsSuccessStatusCode)
             {
                 return null;
@@ -248,8 +305,14 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogDebug(
+                "Claude profile request for {Account} failed after {ElapsedMs} ms: {ErrorKind}: {Error}",
+                AccountLabel,
+                stopwatch.ElapsedMilliseconds,
+                ex.GetType().Name,
+                LogRedaction.Redact(ex.Message));
             return null;
         }
     }
@@ -271,6 +334,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             var claudePath = FindClaudeCli();
             if (claudePath is null)
             {
+                _logger.LogDebug("Claude account {Account}: Claude Code CLI not found, cannot refresh the session", AccountLabel);
                 _refreshBlockedUntil = DateTimeOffset.UtcNow + RefreshCooldownFailure;
                 return;
             }
@@ -295,7 +359,9 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                 process.StartInfo.EnvironmentVariables["CLAUDE_CONFIG_DIR"] = _configDir;
             }
 
+            var stopwatch = Stopwatch.StartNew();
             process.Start();
+            _logger.LogDebug("Claude account {Account}: started claude /status (PID {Pid}) to refresh the session", AccountLabel, process.Id);
 
             // Wait up to 5 seconds for the process to complete
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -310,10 +376,16 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             {
                 await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
                 await Task.WhenAll(stdoutDrain, stderrDrain).ConfigureAwait(false);
+                _logger.LogDebug(
+                    "Claude account {Account}: claude /status exited with code {ExitCode} in {ElapsedMs} ms",
+                    AccountLabel,
+                    process.ExitCode,
+                    stopwatch.ElapsedMilliseconds);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 // Timed out: kill the process but don't propagate
+                _logger.LogDebug("Claude account {Account}: claude /status did not finish within 5 s and was stopped", AccountLabel);
                 try { process.Kill(); } catch { /* best effort */ }
             }
 
@@ -323,8 +395,13 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogDebug(
+                "Claude account {Account}: session refresh through Claude Code failed: {ErrorKind}: {Error}",
+                AccountLabel,
+                ex.GetType().Name,
+                LogRedaction.Redact(ex.Message));
             _refreshBlockedUntil = DateTimeOffset.UtcNow + RefreshCooldownFailure;
         }
     }

@@ -28,7 +28,7 @@ AI Usage Tray: a .NET 10 WPF Windows tray app (fork of fmdz387/costats, MIT) sho
 - Publish: `publish src/costats.App/costats.App.csproj -c Release -r win-x64 -o <dir>`.
 - Local deploy: `Stop-Process -Name AIUsageTray -Force` first (the exe locks), copy over `%LOCALAPPDATA%\AIUsageTray\app\`, relaunch. Settings live outside that folder and survive.
 - Visual check: run the exe once with `--screenshot "<path with quotes>"` (quotes matter, the profile path has a space); it opens the widget, waits ~15s, saves a PNG and exits. Look at the PNG.
-- What the app actually did: `%LOCALAPPDATA%\AIUsageTray\logs\`.
+- What the app actually did: `%LOCALAPPDATA%\AIUsageTray\logs\`, and `logs\debug\` while Settings > General > Debug logging is on (7-day auto-off, deleted when off). Debug lines go through `ILogger.LogDebug`/`Log.Debug`; never log tokens, keys, Authorization headers, raw provider responses, `RemoteViewId` or a URL containing it, and pass any provider or exception text through `LogRedaction.Redact`. `SecretLoggingTests` checks this for the provider fetchers, the Codex client, settings saves and the remote uploader.
 
 ## Architecture map (30 seconds)
 

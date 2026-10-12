@@ -2,6 +2,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using costats.App.Services;
+using costats.App.Services.Diagnostics;
 using costats.App.Services.Updates;
 using costats.App.ViewModels;
 using costats.Application.Abstractions;
@@ -26,6 +27,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 
 namespace costats.App
 {
@@ -51,6 +54,16 @@ namespace costats.App
         private SingleInstanceCoordinator? _singleInstance;
         private StartupUpdateCoordinator? _updateCoordinator;
         private CancellationTokenSource? _updateLoopCts;
+
+        /// <summary>
+        /// Drives the minimum level of the app logger: the configured level
+        /// normally, Debug while debug logging is on. The normal log file keeps
+        /// the configured level either way.
+        /// </summary>
+        private readonly LoggingLevelSwitch _logLevelSwitch = new(LogEventLevel.Information);
+        private readonly DebugLogSink _debugLogSink = new(AppDataPaths.DebugLogsDirectory);
+        private LogEventLevel _baseLogLevel = LogEventLevel.Information;
+        private DebugLoggingController? _debugLogging;
 
         protected override void OnStartup(System.Windows.StartupEventArgs e)
         {
@@ -192,6 +205,7 @@ namespace costats.App
             }
 
             _singleInstance?.Dispose();
+            _debugLogging?.Dispose();
             _updateLoopCts?.Dispose();
             Log.CloseAndFlush();
             base.OnExit(e);
@@ -212,6 +226,18 @@ namespace costats.App
 
                 var settingsStore = new JsonSettingsStore(new CredentialVault());
                 var settings = await settingsStore.LoadAsync(CancellationToken.None).ConfigureAwait(false);
+
+                // Before the host logger exists, so it starts at the right level
+                // and an expired debug log is gone before anything writes to it.
+                _baseLogLevel = ReadBaseLogLevel(startupConfiguration);
+                _logLevelSwitch.MinimumLevel = _baseLogLevel;
+                _debugLogging = new DebugLoggingController(
+                    settings,
+                    settingsStore,
+                    _debugLogSink,
+                    _logLevelSwitch,
+                    _baseLogLevel);
+                await _debugLogging.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
                 ApplyPreviewTheme(settings);
                 ApplyPreviewSafety(settings);
 
@@ -297,7 +323,13 @@ namespace costats.App
 
                         try
                         {
+                            Log.Debug("Background update check started");
                             var result = await _updateCoordinator.CheckForUpdateAsync(timeoutCts.Token).ConfigureAwait(false);
+                            Log.Debug(
+                                "Background update check finished: {Status}, version {Version}, from cache {FromCache}",
+                                result.Status,
+                                result.Update?.Version,
+                                result.FromCache);
                             await Dispatcher.InvokeAsync(() => tray.HandleBackgroundUpdateResult(result));
                         }
                         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -495,6 +527,19 @@ namespace costats.App
             return value.Length == 0 ? null : value;
         }
 
+        /// <summary>
+        /// The configured minimum level (<c>Serilog:MinimumLevel</c>, either a
+        /// plain value or its <c>Default</c>): Information when shipped, Debug in
+        /// a Development environment.
+        /// </summary>
+        private static LogEventLevel ReadBaseLogLevel(IConfiguration configuration)
+        {
+            var value = configuration["Serilog:MinimumLevel"] ?? configuration["Serilog:MinimumLevel:Default"];
+            return Enum.TryParse<LogEventLevel>(value, ignoreCase: true, out var level)
+                ? level
+                : LogEventLevel.Information;
+        }
+
         /// <summary>Reads a value from configuration, treating blank as "not shipped".</summary>
         private static string? ReadConfiguredValue(IConfiguration configuration, string key)
         {
@@ -675,17 +720,26 @@ namespace costats.App
                     // appsettings.json so its folder comes from AppDataPaths.
                     loggerConfig
                         .ReadFrom.Configuration(context.Configuration)
+                        // After ReadFrom: the configuration reader sets a fixed
+                        // minimum level, which would otherwise win.
+                        .MinimumLevel.ControlledBy(_logLevelSwitch)
                         .WriteTo.File(
                             MainLogFilePath,
+                            restrictedToMinimumLevel: _baseLogLevel,
                             rollingInterval: RollingInterval.Day,
                             retainedFileCountLimit: 14,
                             outputTemplate: LogOutputTemplate)
+                        .WriteTo.Sink(_debugLogSink)
                         .Enrich.FromLogContext();
                 })
                 .ConfigureServices(services =>
                 {
                     services.AddSingleton<ISettingsStore>(settingsStore);
                     services.AddSingleton(settings);
+                    if (_debugLogging is not null)
+                    {
+                        services.AddSingleton(_debugLogging);
+                    }
 
                     if (_updateCoordinator is not null)
                     {
@@ -704,7 +758,8 @@ namespace costats.App
                     services.AddSingleton<PulseBroadcaster>();
                     services.AddSingleton<ISourceSelector, SourceSelector>();
                     services.AddSingleton<CopilotUsageFetcher>();
-                    services.AddSingleton<CodexAppServerClient>();
+                    services.AddSingleton(sp => new CodexAppServerClient(
+                        logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CodexAppServerClient>>()));
                     services.AddSingleton<ICodexAppServerClient>(sp => sp.GetRequiredService<CodexAppServerClient>());
                     services.AddSingleton<ICodexResetCreditClient>(sp => sp.GetRequiredService<CodexAppServerClient>());
                     services.AddSingleton<CodexResetCreditService>();
@@ -714,11 +769,16 @@ namespace costats.App
 
                     // Per-account sources live in a registry so Settings edits
                     // apply at the next refresh without restarting the app.
-                    services.AddSingleton<IAccountSourceRegistry, AccountSourceRegistry>();
+                    services.AddSingleton<IAccountSourceRegistry>(sp => new AccountSourceRegistry(
+                        sp.GetRequiredService<AppSettings>(),
+                        sp.GetRequiredService<ICodexAppServerClient>(),
+                        sp.GetRequiredService<ISessionActivationWindowRegistry>(),
+                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()));
 
                     services.AddSingleton<ISignalSource, CopilotPersonalSource>();
                     // Z.AI / GLM coding-plan monitor (Bearer-token auth).
-                    services.AddSingleton<IZaiUsageClient>(_ => new ZaiUsageFetcher());
+                    services.AddSingleton<IZaiUsageClient>(sp => new ZaiUsageFetcher(
+                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ZaiUsageFetcher>>()));
                     services.AddSingleton<ISignalSource>(sp => new ZaiUsageSource(
                         sp.GetRequiredService<IZaiUsageClient>(),
                         () => settings.ZAiCodingApiKey,
@@ -774,6 +834,12 @@ namespace costats.App
                 .Build();
 
             _host.Start();
+            if (settingsStore is JsonSettingsStore jsonSettingsStore)
+            {
+                jsonSettingsStore.Logger = _host.Services
+                    .GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonSettingsStore>>();
+            }
+            _debugLogging?.StartExpiryChecks(TimeSpan.FromHours(1));
 
             var lifetime = _host.Services.GetRequiredService<IHostApplicationLifetime>();
             lifetime.ApplicationStopping.Register(() => Log.Warning("Host is stopping"));

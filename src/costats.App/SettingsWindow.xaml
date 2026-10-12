@@ -307,6 +307,35 @@
                         <TextBlock x:Name="SettingsTransferResult" Text="{Binding SettingsTransferMessage}" FontSize="11"
                                    Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,8,0,0" TextWrapping="Wrap"
                                    Visibility="{Binding SettingsTransferMessage, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+
+                        <!-- Troubleshooting -->
+                        <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,12,0,12" />
+                        <CheckBox IsChecked="{Binding DebugLoggingEnabled}" Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                            <TextBlock Text="Debug logging" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                        </CheckBox>
+                        <TextBlock Text="Records everything the app does in a separate log to help find problems. Turns off by itself after 7 days, and the log is deleted when it turns off."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,8"
+                                   TextWrapping="Wrap" />
+                        <DockPanel Margin="30,0,0,0">
+                            <Button Content="Open log folder" Command="{Binding OpenDebugLogFolderCommand}"
+                                    Padding="12,6" FontSize="11" DockPanel.Dock="Left">
+                                <!-- Visibly dimmed while debug logging is off and there is no folder to open. -->
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource SettingsButton}">
+                                        <Style.Triggers>
+                                            <Trigger Property="IsEnabled" Value="False">
+                                                <Setter Property="Opacity" Value="0.45" />
+                                                <Setter Property="Cursor" Value="Arrow" />
+                                            </Trigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <TextBlock Text="{Binding DebugLoggingStatus}" FontSize="11"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="10,0,0,0"
+                                       VerticalAlignment="Center" TextWrapping="Wrap"
+                                       Visibility="{Binding DebugLoggingStatus, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                        </DockPanel>
                     </StackPanel>
                 </Expander>
 

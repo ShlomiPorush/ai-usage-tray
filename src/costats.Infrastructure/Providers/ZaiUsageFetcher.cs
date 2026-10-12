@@ -1,6 +1,10 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using costats.Application.Diagnostics;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace costats.Infrastructure.Providers;
 
@@ -20,17 +24,19 @@ public sealed class ZaiUsageFetcher : IZaiUsageClient, IDisposable
     private const string QuotaUsagePath = "/api/monitor/usage/quota/limit";
 
     private readonly HttpClient _httpClient;
+    private readonly ILogger _logger;
 
-    public ZaiUsageFetcher() : this(new HttpClient())
+    public ZaiUsageFetcher(ILogger? logger = null) : this(new HttpClient(), logger)
     {
     }
 
-    internal ZaiUsageFetcher(HttpMessageHandler handler) : this(new HttpClient(handler))
+    internal ZaiUsageFetcher(HttpMessageHandler handler, ILogger? logger = null) : this(new HttpClient(handler), logger)
     {
     }
 
-    private ZaiUsageFetcher(HttpClient httpClient)
+    private ZaiUsageFetcher(HttpClient httpClient, ILogger? logger)
     {
+        _logger = logger ?? NullLogger.Instance;
         _httpClient = httpClient;
         _httpClient.BaseAddress ??= new Uri("https://api.z.ai/");
         _httpClient.Timeout = RequestTimeout;
@@ -43,7 +49,7 @@ public sealed class ZaiUsageFetcher : IZaiUsageClient, IDisposable
         string? standardApiKey,
         CancellationToken cancellationToken)
     {
-        var coding = await TryFetchAsync(QuotaUsagePath, codingApiKey, cancellationToken).ConfigureAwait(false);
+        var coding = await TryFetchAsync(QuotaUsagePath, codingApiKey, "coding plan key", cancellationToken).ConfigureAwait(false);
         if (coding is not null)
         {
             return coding;
@@ -57,12 +63,13 @@ public sealed class ZaiUsageFetcher : IZaiUsageClient, IDisposable
             return null;
         }
 
-        return await TryFetchAsync(QuotaUsagePath, standardApiKey, cancellationToken).ConfigureAwait(false);
+        return await TryFetchAsync(QuotaUsagePath, standardApiKey, "standard key", cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<ZaiUsageSnapshot?> TryFetchAsync(
         string relativePath,
         string? apiKey,
+        string keyKind,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -70,6 +77,7 @@ public sealed class ZaiUsageFetcher : IZaiUsageClient, IDisposable
             return null;
         }
 
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, relativePath);
@@ -78,6 +86,11 @@ public sealed class ZaiUsageFetcher : IZaiUsageClient, IDisposable
             // an API key is not an RFC authentication scheme.
             request.Headers.TryAddWithoutValidation("Authorization", apiKey.Trim());
             using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            _logger.LogDebug(
+                "Z.AI quota request ({KeyKind}): HTTP {StatusCode} in {ElapsedMs} ms",
+                keyKind,
+                (int)response.StatusCode,
+                stopwatch.ElapsedMilliseconds);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -85,14 +98,26 @@ public sealed class ZaiUsageFetcher : IZaiUsageClient, IDisposable
             }
 
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-            return ZaiResponseParser.Parse(body);
+            var snapshot = ZaiResponseParser.Parse(body);
+            if (snapshot is null)
+            {
+                _logger.LogDebug("Z.AI quota response ({KeyKind}) carried no quota this app can read", keyKind);
+            }
+
+            return snapshot;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogDebug(
+                "Z.AI quota request ({KeyKind}) failed after {ElapsedMs} ms: {ErrorKind}: {Error}",
+                keyKind,
+                stopwatch.ElapsedMilliseconds,
+                ex.GetType().Name,
+                LogRedaction.Redact(ex.Message));
             return null;
         }
     }

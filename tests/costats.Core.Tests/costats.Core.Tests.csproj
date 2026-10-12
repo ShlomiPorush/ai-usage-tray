@@ -20,6 +20,7 @@
     </PackageReference>
     <PackageReference Include="ZXing.Net.Bindings.ImageSharp.V3" />
     <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/costats.Core/costats.Core.csproj" />
@@ -38,5 +39,11 @@
          let the pipe hand-off and listener be exercised without launching WPF. -->
     <Compile Include="../../src/costats.App/Services/ActivationMessage.cs" Link="Services/ActivationMessage.cs" />
     <Compile Include="../../src/costats.App/Services/SingleInstanceCoordinator.cs" Link="Services/SingleInstanceCoordinator.cs" />
+    <!-- Debug logging and the remote-view uploader: Serilog and HttpClient
+         only, so their switch-off, file release and no-secrets rules are
+         tested here without WPF. -->
+    <Compile Include="../../src/costats.App/Services/Diagnostics/DebugLogSink.cs" Link="Services/Diagnostics/DebugLogSink.cs" />
+    <Compile Include="../../src/costats.App/Services/Diagnostics/DebugLoggingController.cs" Link="Services/Diagnostics/DebugLoggingController.cs" />
+    <Compile Include="../../src/costats.App/Services/RemoteViewUploader.cs" Link="Services/RemoteViewUploader.cs" />
   </ItemGroup>
 </Project>

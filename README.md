@@ -66,6 +66,8 @@ Then follow **[docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md)** for the step-by-s
 ## Configuration
 Settings, logs and caches are stored in `%LOCALAPPDATA%\AIUsageTray` (for example `settings.json` and `logs\`), next to the installed `app` folder. Versions up to 2.18 used `%LOCALAPPDATA%\costats`; the first start of a newer version moves that data over by itself, never overwriting anything already in the new folder, and removes the old folder once it is empty.
 
+**Debug logging** (Settings > General, off by default) writes a detailed log of everything the app does to `%LOCALAPPDATA%\AIUsageTray\logs\debug\`, next to the normal log, to help find a problem. It takes effect immediately, turns itself off after 7 days, and the debug log is deleted when it turns off. It never contains tokens, API keys or the remote view link, and it is not part of a settings export.
+
 The export file (`ai-usage-tray-settings.json`) carries the same settings minus everything tied to one machine or secret: the Z.AI keys and Copilot token, the remote view write id, onboarding state and the floating panel size. Importing keeps those values as they are on the target computer; if remote view is on and the target has no link yet, a new one is created. Account folders that do not exist after the move are still imported and listed, so you can sign in with **Relogin** or pick the right folder with **Edit**.
 
 | Setting | Default | Meaning |
@@ -74,6 +76,7 @@ The export file (`ai-usage-tray-settings.json`) carries the same settings minus 
 | `HotkeyEnabled` | `true` | Register the global widget shortcut |
 | `Hotkey` | `Ctrl+Alt+U` | Toggle the widget |
 | `AutomaticUpdateChecksEnabled` | `true` | Check GitHub for updates in the background |
+| `DebugLoggingEnabled` / `DebugLoggingEnabledAt` | `false` / empty | Detailed log in `logs\debug`; turns itself off 7 days after `DebugLoggingEnabledAt` (UTC). Not exported. |
 | `StartAtLogin` | `false` | Registers `AiUsageTray` in the Run key |
 | `Accounts[]` | one Claude (`~/.claude`) + one Codex (`~/.codex`) | Any mix of accounts: `Id`, `Type` (`claude`/`codex`), `DisplayName`, `ConfigDir`. Editable in Settings (add/remove). Legacy `OpenAiAccounts`/`ClaudeConfigDir` settings are migrated automatically. |
 | Z.AI keys | empty | Coding-plan / pay-as-you-go keys. Set them in Settings → Accounts; they are stored in Windows Credential Manager, never in `settings.json`. |

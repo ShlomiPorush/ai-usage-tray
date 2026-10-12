@@ -148,6 +148,7 @@ namespace costats.App.Services
             _pulseSubscription = pulseOrchestrator.PulseStream.Subscribe(this);
 
             SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+            SystemEvents.PowerModeChanged += OnPowerModeChanged;
             _widgetWindow.SizeChanged += OnWidgetSizeChanged;
             _statusPanelWindow.SizeChanged += OnStatusPanelSizeChanged;
             _settingsWindow.Dismissing += OnSettingsDismissing;
@@ -536,6 +537,7 @@ namespace costats.App.Services
                 return;
             }
 
+            LogAlerts(usageAlerts, resetAlerts, signInAlerts);
             dispatcher.BeginInvoke(() =>
             {
                 ApplyTrayStatus(status, rows, floatingRows);
@@ -543,6 +545,32 @@ namespace costats.App.Services
                 ShowUsageResetAlerts(resetAlerts, displayNames);
                 ShowSignInRequiredAlerts(signInAlerts, displayNames);
             });
+        }
+
+        private static void LogAlerts(
+            IReadOnlyList<UsageThresholdAlert> usageAlerts,
+            IReadOnlyList<UsageResetAlert> resetAlerts,
+            IReadOnlyList<string> signInAlerts)
+        {
+            foreach (var alert in usageAlerts)
+            {
+                Log.Debug(
+                    "Usage alert fired for {ProviderId}: {Window} {Scope} at {UsedPercent}% used",
+                    alert.ProviderId,
+                    alert.WindowLabel,
+                    alert.Scope,
+                    alert.UsedPercent);
+            }
+
+            foreach (var alert in resetAlerts)
+            {
+                Log.Debug("Usage reset alert fired for {ProviderId}: {Window} {Scope}", alert.ProviderId, alert.WindowLabel, alert.Scope);
+            }
+
+            foreach (var providerId in signInAlerts)
+            {
+                Log.Debug("Sign-in required alert fired for {ProviderId}", providerId);
+            }
         }
 
         private void ShowSignInRequiredAlerts(
@@ -721,6 +749,7 @@ namespace costats.App.Services
                 settingsViewModel.TestNotificationRequested -= OnTestNotificationRequested;
             }
             SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+            SystemEvents.PowerModeChanged -= OnPowerModeChanged;
             _taskbarIcon.Dispose();
             _currentIcon.Dispose();
             _widgetWindow.Close();
@@ -769,8 +798,15 @@ namespace costats.App.Services
                 System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
+        private static void OnPowerModeChanged(object? sender, PowerModeChangedEventArgs e) =>
+            Log.Debug("Power mode changed: {Mode}", e.Mode);
+
         private void OnDisplaySettingsChanged(object? sender, EventArgs e)
         {
+            Log.Debug(
+                "Display settings changed (widget visible {WidgetVisible}, status panel visible {PanelVisible})",
+                _widgetWindow.IsVisible,
+                _statusPanelWindow.IsVisible);
             if (_widgetWindow.IsVisible)
             {
                 PositionWidget();

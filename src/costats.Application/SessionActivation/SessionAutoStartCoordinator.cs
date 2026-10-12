@@ -71,6 +71,7 @@ public sealed class SessionAutoStartCoordinator
             var state = _pulseOrchestrator.CurrentState;
             if (state is null || state.IsRefreshing)
             {
+                _logger.LogDebug("Session activation check skipped: no settled usage reading yet");
                 return;
             }
 
@@ -79,6 +80,12 @@ public sealed class SessionAutoStartCoordinator
             var targets = EligibleTargets()
                 .Where(target => state.Providers.ContainsKey(target.ProviderId))
                 .ToList();
+            if (targets.Count > 0)
+            {
+                _logger.LogDebug(
+                    "Session activation check for {Targets}",
+                    string.Join(", ", targets.Select(target => target.ProviderId)));
+            }
 
             foreach (var target in targets)
             {
@@ -113,6 +120,7 @@ public sealed class SessionAutoStartCoordinator
         if (!TryReadCurrentReading(target.ProviderId, out var reading) ||
             !TryResolveReset(target, reading, checkpoint, out var resetAt))
         {
+            _logger.LogDebug("Session activation {ProviderId}: skipped, no five-hour window in the current reading", target.ProviderId);
             return;
         }
 
@@ -132,6 +140,10 @@ public sealed class SessionAutoStartCoordinator
                     cancellationToken)
                 .ConfigureAwait(false);
 
+            _logger.LogDebug(
+                "Session activation {ProviderId}: skipped, the current window runs until {ResetAt:u}",
+                target.ProviderId,
+                resetAt);
             if (restoredVisibleActivatedWindow)
             {
                 await _pulseOrchestrator
@@ -143,17 +155,33 @@ public sealed class SessionAutoStartCoordinator
 
         if (checkpoint?.RequiresFutureObservation == true)
         {
+            _logger.LogDebug(
+                "Session activation {ProviderId}: skipped, waiting to see a live window first after a state reset",
+                target.ProviderId);
             return;
         }
 
         if (!SessionActivationSchedule.AllowsStart(_settings, now, _localTimeZone))
         {
+            _logger.LogDebug(
+                "Session activation {ProviderId}: skipped, outside the daily schedule ({Start}:00 to {End}:00)",
+                target.ProviderId,
+                _settings.SessionActivationScheduleStartHour,
+                _settings.SessionActivationScheduleEndHour);
             return;
         }
 
         checkpoint = GetOrCreateExpiredCheckpoint(target.ProviderId, resetAt, now);
         if (checkpoint.Completed || now < checkpoint.NextAttemptAt || IsInsideActivationFloor(checkpoint, now))
         {
+            _logger.LogDebug(
+                "Session activation {ProviderId}: skipped ({Reason})",
+                target.ProviderId,
+                checkpoint.Completed
+                    ? "no attempts left for this window"
+                    : now < checkpoint.NextAttemptAt
+                        ? $"next attempt due at {checkpoint.NextAttemptAt:u}"
+                        : "a window was started less than five hours ago");
             return;
         }
 
@@ -167,6 +195,9 @@ public sealed class SessionAutoStartCoordinator
         if (!refresh.Succeeded || refresh.Reading is null ||
             !TryResolveReset(target, refresh.Reading, checkpoint, out var refreshedResetAt))
         {
+            _logger.LogDebug(
+                "Session activation {ProviderId}: skipped, the verification read failed; retrying in five minutes",
+                target.ProviderId);
             checkpoint.NextAttemptAt = now + RetryInterval;
             await SaveAsync(cancellationToken).ConfigureAwait(false);
             return;
@@ -174,6 +205,10 @@ public sealed class SessionAutoStartCoordinator
 
         if (refreshedResetAt > now)
         {
+            _logger.LogDebug(
+                "Session activation {ProviderId}: skipped, a fresh read shows a window until {ResetAt:u}",
+                target.ProviderId,
+                refreshedResetAt);
             await ArmAsync(
                     target.ProviderId,
                     refreshedResetAt,
@@ -201,7 +236,16 @@ public sealed class SessionAutoStartCoordinator
         checkpoint.NextAttemptAt = now + RetryInterval;
         await SaveAsync(cancellationToken).ConfigureAwait(false);
 
+        _logger.LogDebug(
+            "Session activation {ProviderId}: starting a new window, attempt {Attempt} of {Maximum}",
+            target.ProviderId,
+            checkpoint.Attempts,
+            MaximumAttempts);
         var result = await _activator.ActivateAsync(target, cancellationToken).ConfigureAwait(false);
+        _logger.LogDebug(
+            "Session activation {ProviderId}: activation {Outcome}",
+            target.ProviderId,
+            result.Succeeded ? "succeeded" : "failed");
         var finishedAt = _clock.UtcNow;
         checkpoint.Succeeded = result.Succeeded;
         if (result.Succeeded)

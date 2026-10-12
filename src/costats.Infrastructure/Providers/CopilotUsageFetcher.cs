@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -22,14 +23,22 @@ public sealed class CopilotUsageFetcher : IDisposable
     private readonly HttpClient _httpClient;
     private readonly ILogger<CopilotUsageFetcher> _logger;
 
-    public CopilotUsageFetcher(ILogger<CopilotUsageFetcher> logger)
+    public CopilotUsageFetcher(ILogger<CopilotUsageFetcher> logger) : this(logger, new HttpClient())
+    {
+    }
+
+    /// <summary>Test seam: the handler stands in for the network.</summary>
+    internal CopilotUsageFetcher(ILogger<CopilotUsageFetcher> logger, HttpMessageHandler handler)
+        : this(logger, new HttpClient(handler))
+    {
+    }
+
+    private CopilotUsageFetcher(ILogger<CopilotUsageFetcher> logger, HttpClient httpClient)
     {
         _logger = logger;
-        _httpClient = new HttpClient
-        {
-            BaseAddress = new Uri(BaseUrl),
-            Timeout = TimeSpan.FromSeconds(10)
-        };
+        _httpClient = httpClient;
+        _httpClient.BaseAddress = new Uri(BaseUrl);
+        _httpClient.Timeout = TimeSpan.FromSeconds(10);
         _httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(CopilotUserAgent);
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
@@ -54,12 +63,18 @@ public sealed class CopilotUsageFetcher : IDisposable
     {
         for (var attempt = 0; attempt <= RetryDelays.Length; attempt++)
         {
+            var stopwatch = Stopwatch.StartNew();
             try
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get, path);
                 request.Headers.Authorization = new AuthenticationHeaderValue("token", token);
 
                 var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                _logger.LogDebug(
+                    "Copilot usage request (attempt {Attempt}): HTTP {StatusCode} in {ElapsedMs} ms",
+                    attempt + 1,
+                    (int)response.StatusCode,
+                    stopwatch.ElapsedMilliseconds);
 
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
