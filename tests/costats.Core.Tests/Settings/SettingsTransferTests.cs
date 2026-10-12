@@ -59,6 +59,8 @@ public sealed class SettingsTransferTests
             nameof(AppSettings.FloatingPanelWidth),
             nameof(AppSettings.FloatingPanelHeight),
             nameof(AppSettings.LegacyKeepWidgetOpen),
+            nameof(AppSettings.DebugLoggingEnabled),
+            nameof(AppSettings.DebugLoggingEnabledAt),
         ];
 
         Assert.Equal(
@@ -110,6 +112,24 @@ public sealed class SettingsTransferTests
         Assert.False(payload.ContainsKey("zAiApiKey"));
         Assert.True(payload.ContainsKey("accounts"));
         Assert.True(payload.ContainsKey("remoteViewEnabled"));
+    }
+
+    [Fact]
+    public void Debug_logging_stays_on_the_machine_it_was_turned_on()
+    {
+        var source = SourceSettings();
+        source.DebugLoggingEnabled = true;
+        source.DebugLoggingEnabledAt = ExportedAt;
+        var target = new AppSettings();
+
+        var json = Export(source);
+        SettingsTransfer.Apply(target, Parse(json), TargetProfile, _ => true);
+
+        var payload = (JsonObject)JsonNode.Parse(json)!["settings"]!;
+        Assert.False(payload.ContainsKey("debugLoggingEnabled"));
+        Assert.False(payload.ContainsKey("debugLoggingEnabledAt"));
+        Assert.False(target.DebugLoggingEnabled);
+        Assert.Null(target.DebugLoggingEnabledAt);
     }
 
     [Fact]

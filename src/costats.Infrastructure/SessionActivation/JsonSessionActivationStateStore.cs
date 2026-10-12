@@ -1,5 +1,6 @@
 using System.Text.Json;
 using costats.Application.SessionActivation;
+using costats.Application.Storage;
 
 namespace costats.Infrastructure.SessionActivation;
 
@@ -19,10 +20,8 @@ public sealed class JsonSessionActivationStateStore : ISessionActivationStateSto
 
     public JsonSessionActivationStateStore(string? basePath = null)
     {
-        var root = string.IsNullOrWhiteSpace(basePath)
-            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-            : basePath;
-        _path = Path.Combine(root, "costats", FileName);
+        var root = AppDataPaths.ResolveRoot(basePath);
+        _path = Path.Combine(root, FileName);
     }
 
     public async Task<SessionActivationLoadResult> LoadAsync(

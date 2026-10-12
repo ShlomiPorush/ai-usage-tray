@@ -2,6 +2,7 @@ using System.Diagnostics;
 using costats.Application.SessionActivation;
 using costats.Application.Settings;
 using costats.Infrastructure.Providers;
+using costats.Application.Storage;
 
 namespace costats.Infrastructure.SessionActivation;
 
@@ -23,11 +24,9 @@ public sealed class CliSessionWindowActivator : ISessionWindowActivator
     public CliSessionWindowActivator(AppSettings settings, string? basePath = null)
     {
         _settings = settings;
-        var root = string.IsNullOrWhiteSpace(basePath)
-            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-            : basePath;
-        _workingDirectory = Path.Combine(root, "costats", "session-activation-work");
-        _zaiConfigDirectory = Path.Combine(root, "costats", "session-activation-glm-config");
+        var root = AppDataPaths.ResolveRoot(basePath);
+        _workingDirectory = Path.Combine(root, "session-activation-work");
+        _zaiConfigDirectory = Path.Combine(root, "session-activation-glm-config");
     }
 
     public async Task<SessionActivationResult> ActivateAsync(

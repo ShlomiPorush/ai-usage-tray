@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using costats.Application.Abstractions;
 using costats.Core.Pulse;
 using Microsoft.Extensions.Hosting;
@@ -176,9 +177,11 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
         string providerId,
         CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
         var providerSources = AllSources()
             .Where(s => s.Profile.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase))
             .ToList();
+        _logger.LogDebug("Single-provider refresh started for {ProviderId} ({SourceCount} source(s))", providerId, providerSources.Count);
 
         if (providerSources.Count == 0)
         {
@@ -203,7 +206,7 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
         _lastState = state;
         _broadcaster.Publish(state);
 
-        _logger.LogDebug("Silent refresh completed for {ProviderId}", providerId);
+        _logger.LogDebug("Silent refresh completed for {ProviderId} in {ElapsedMs} ms", providerId, stopwatch.ElapsedMilliseconds);
         return reading;
     }
 
@@ -256,6 +259,8 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
 
     private async Task RefreshCoreAsync(RefreshTrigger trigger, CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogDebug("Refresh started ({Trigger})", trigger);
         try
         {
             if (ShouldShowShimmer(trigger))
@@ -282,10 +287,15 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
             _hasSuccessfulLoad = true;
             Interlocked.Exchange(ref _lastFullRefreshUtcTicks, state.LastRefresh.UtcTicks);
             _broadcaster.Publish(state);
+            _logger.LogDebug(
+                "Refresh finished ({Trigger}) in {ElapsedMs} ms for {ProviderCount} provider(s)",
+                trigger,
+                stopwatch.ElapsedMilliseconds,
+                providerReads.Count);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogDebug("Pulse refresh cancelled ({Trigger})", trigger);
+            _logger.LogDebug("Pulse refresh cancelled ({Trigger}) after {ElapsedMs} ms", trigger, stopwatch.ElapsedMilliseconds);
             throw;
         }
         catch (Exception ex)

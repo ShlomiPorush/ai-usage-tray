@@ -30,6 +30,8 @@ Open PowerShell and run the official OpenAI installer:
 powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"
 ```
 
+An npm install (`npm install -g @openai/codex`) works too. The app looks for Codex in this order: the official installer's `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe`, the native `codex.exe` inside an npm global install under `%APPDATA%\npm`, then every folder on `PATH` (an npm `codex.cmd` there is replaced by the `codex.exe` its package ships). It checks again on every refresh, so installing Codex later needs no restart.
+
 Close and reopen PowerShell, then sign in with your paid ChatGPT account:
 
 ```powershell
@@ -133,7 +135,7 @@ The numbers come from the Claude Code and Codex session logs already on the mach
 - Range: the past 24 hours (hour by hour), or the last 7, 30 or 90 days.
 - Account filter: all accounts, or one account.
 - A per-provider split, a chart of the range, and a breakdown table you can switch between **Model** and **Day**.
-- Models no price list covers are still counted in tokens and listed as unpriced. To price them yourself, or to correct a listed price, create `%LOCALAPPDATA%\costats\pricing.json` with a flat map of model id to USD per million tokens, for example `{ "some-new-model": { "input": 0.2, "output": 1.2 } }`.
+- Models no price list covers are still counted in tokens and listed as unpriced. To price them yourself, or to correct a listed price, create `%LOCALAPPDATA%\AIUsageTray\pricing.json` with a flat map of model id to USD per million tokens, for example `{ "some-new-model": { "input": 0.2, "output": 1.2 } }`.
 
 ## 8. Other settings
 
@@ -142,9 +144,12 @@ The numbers come from the Claude Code and Codex session logs already on the mach
 - **Theme**: **Follow system** (tracks the Windows apps theme), **Light** or **Dark**.
 - **Refresh interval**: how often usage is polled in the background, from 1 to 15 minutes; the default is 5.
 - **Check for updates** under **UPDATES**: checks this repository's releases, stages the update and restarts to apply it. The app also checks automatically in the background.
+- **Debug logging** under **General**: off by default. While on, the app writes a detailed log of every refresh, provider request, account state change, alert, update check and settings save to `%LOCALAPPDATA%\AIUsageTray\logs\debug\` (one file per day, up to 20 MB each). **Open log folder** opens it. It takes effect without a restart, turns itself off after 7 days, and the debug log is deleted as soon as it turns off; if a file is still open elsewhere, it is deleted on the next start. Tokens, API keys, Authorization headers and the remote view link are never written. The setting stays on the computer and is not exported. Send the files from that folder when you report a problem.
 - **Export settings** / **Import settings** under **General**: moves your accounts and preferences to another computer through a JSON file. API keys, tokens and the remote view link are not included, and they are kept as they are on the computer you import into. Account folders under your user profile follow the new profile automatically; any folder that is still missing is listed after the import. Sign in to Claude and Codex again on the new computer.
 
-Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (the path is kept from upstream so existing installs keep working). Logs go to `%LOCALAPPDATA%\costats\logs`.
+Settings are stored at `%LOCALAPPDATA%\AIUsageTray\settings.json`, next to the installed `app` folder. Logs go to `%LOCALAPPDATA%\AIUsageTray\logs`, and caches, state files and update downloads live in the same folder.
+
+Versions up to 2.18 kept this data in `%LOCALAPPDATA%\costats`. The first start of a newer version moves it into `%LOCALAPPDATA%\AIUsageTray` by itself. Nothing already in the new folder is overwritten: if a file exists in both places, the new one is kept and the old one stays where it was. Files another program holds open are moved on a later start, and the old folder is deleted once it is empty. Do not install the app straight into `%LOCALAPPDATA%\AIUsageTray` (use its `app` subfolder, the default); the installer refuses that folder because updates replace the install folder whole.
 
 ## 9. Uninstall
 
@@ -156,9 +161,9 @@ You can also run the uninstaller directly:
 & "$env:LOCALAPPDATA\AIUsageTray\app\uninstall.ps1"
 ```
 
-Either route stops the app, removes the Start Menu shortcut and the start-at-login entries, deletes the Add/remove programs registration and deletes `%LOCALAPPDATA%\AIUsageTray`.
+Either route stops the app, removes the Start Menu shortcut and the start-at-login entries, deletes the Add/remove programs registration and deletes `%LOCALAPPDATA%\AIUsageTray\app`.
 
-Interactive uninstall asks whether to keep or remove settings, logs and cached usage history in `%LOCALAPPDATA%\costats`. Quiet uninstall keeps them unless `-PurgeData` is supplied. To request removal directly:
+Interactive uninstall asks whether to keep or remove settings, logs and cached usage history in `%LOCALAPPDATA%\AIUsageTray` (and in `%LOCALAPPDATA%\costats`, if version 2.18 or earlier left it behind). Quiet uninstall keeps them unless `-PurgeData` is supplied. To request removal directly:
 
 ```powershell
 & "$env:LOCALAPPDATA\AIUsageTray\app\uninstall.ps1" -PurgeData

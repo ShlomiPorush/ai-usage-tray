@@ -12,6 +12,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Reflection;
 using costats.Core.Shell;
+using costats.Application.Storage;
 
 namespace costats.App.Services.Updates;
 
@@ -66,10 +67,7 @@ public sealed class StartupUpdateCoordinator
         _runtimeRid = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64";
         _currentVersion = ResolveCurrentVersion();
 
-        _updatesRoot = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "costats",
-            "updates");
+        _updatesRoot = AppDataPaths.Combine("updates");
         _statePath = Path.Combine(_updatesRoot, "state.json");
         _pendingPath = Path.Combine(_updatesRoot, "pending.json");
 
@@ -1051,7 +1049,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$logDir = Join-Path $env:LOCALAPPDATA "costats\updates"
+$logDir = Join-Path $env:LOCALAPPDATA "AIUsageTray\updates"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $logPath = Join-Path $logDir "apply-update.log"
 
@@ -1478,8 +1476,8 @@ public static class InstallMarker
     /// <summary>Current marker layout version.</summary>
     public const int SchemaVersion = 1;
 
-    private const string ManagedRootFolderName = "AIUsageTray";
-    private const string ManagedAppFolderName = "app";
+    private const string ManagedRootFolderName = AppDataPaths.FolderName;
+    private const string ManagedAppFolderName = AppDataPaths.InstalledAppFolderName;
 
     private static readonly JsonSerializerOptions MarkerJsonOptions = new(JsonSerializerDefaults.Web)
     {

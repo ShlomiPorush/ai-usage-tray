@@ -57,7 +57,7 @@
 <h2 id="features">2. יכולות</h2>
 <div class="grid">
   <div class="card"><h3>תצוגת שימוש</h3><ul><li>ניצול סשן (5 שעות) ושבועי לכל חשבון, עם טיימר איפוס</li><li>מגבלות ברמת מודל שמדווחות על ידי <bdi>Claude</bdi></li><li>שבבי תוכנית (<bdi>Max</bdi>, <bdi>Plus</bdi>, <bdi>Pro Lite</bdi>) ל-<bdi>Claude</bdi> ול-<bdi>Codex</bdi></li><li>הערכות עלות יומית ו-30 יום היכן שזמין</li></ul></div>
-  <div class="card"><h3>חוויית משתמש</h3><ul><li>ווידג'ט "זכוכית" (Mica/Acrylic) מהמגש, פתיחה בתצוגת סקירה</li><li>מקש קיצור גלובלי נשלט וניתן לעריכה, ברירת מחדל <code>Ctrl+Alt+U</code></li><li>ערכת נושא בהירה/כהה, ברירת מחדל לפי Windows</li><li>הפעלה בכניסה, מופע יחיד, הגדרות ב-<code>%LOCALAPPDATA%\costats\settings.json</code></li></ul></div>
+  <div class="card"><h3>חוויית משתמש</h3><ul><li>ווידג'ט "זכוכית" (Mica/Acrylic) מהמגש, פתיחה בתצוגת סקירה</li><li>מקש קיצור גלובלי נשלט וניתן לעריכה, ברירת מחדל <code>Ctrl+Alt+U</code></li><li>ערכת נושא בהירה/כהה, ברירת מחדל לפי Windows</li><li>הפעלה בכניסה, מופע יחיד, הגדרות ב-<code>%LOCALAPPDATA%\AIUsageTray\settings.json</code></li></ul></div>
   <div class="card"><h3>ניהול חשבונות</h3><ul><li>טבלת ספקים בהגדרות עם דיאלוג הוספה/עריכה לכל חשבון</li><li>שינויים נכנסים לתוקף בלי הפעלה מחדש</li><li>חשבון ראשי (כוכב) שמכתיב את אייקון המגש</li><li>הגירה אוטומטית מהגדרות ישנות (<code>ClaudeConfigDir</code>, <code>OpenAiAccounts</code>)</li></ul></div>
   <div class="card"><h3>הפצה ועדכון עצמי</h3><ul><li>בדיקת עדכון אוטומטית מול GitHub Releases כל 6 שעות, עם מתג בהגדרות</li><li>אימות <bdi>SHA-256</bdi>, החלפה עם גיבוי ו-rollback</li><li>התקנה ב-PowerShell one-liner, בינארים <bdi>x64</bdi>+<bdi>arm64</bdi> עצמאיים</li><li>CLI ב-Node שהועבר מהמקור: <code>npx costats ccinsights</code></li></ul></div>
 </div>
@@ -127,7 +127,7 @@
 <li><strong>עדכון עצמי:</strong> ב-<code>appsettings.json</code> תחת <code>Costats:Update</code>: <code>"Enabled": true</code>, <code>"Repository": "ShlomiPorush/ai-usage-tray"</code>. המשתמש שולט בבדיקות האוטומטיות דרך <code>AutomaticUpdateChecksEnabled</code>.</li>
 <li><strong>מיתוג ואריזה:</strong> הבינארי הוא <code>AIUsageTray.exe</code>, שם המוצר "AI Usage Tray", והנכסים הם <code>ai-usage-tray-win-x64-vX.Y.Z.zip</code> / <code>-arm64</code>; סקריפטי ההתקנה והפרסום ו-manifest מפנים לריפו הזה. ההתקנה היא per-user ל-<code>%LOCALAPPDATA%\AIUsageTray\app</code>.</li>
 <li><strong>רישיון ושיוך:</strong> קובץ ה-LICENSE (MIT) שומר את הודעת זכויות היוצרים של המקור, וה-README פותח בשורת "fork of <bdi>fmdz387/costats</bdi>" ומכיל טבלת השוואה מפורשת מול המקור וסעיף קרדיטים.</li>
-<li><strong>תאימות לאחור:</strong> נתיב ההגדרות נשאר <code>%LOCALAPPDATA%\costats\settings.json</code> ושמות הפרויקטים נשארו <code>costats.*</code>, כדי לא לשבור התקנות קיימות ולהקל על מיזוג שינויים עתידיים מהמקור.</li>
+<li><strong>תאימות לאחור:</strong> עד גרסה 2.18 נתיב ההגדרות היה <code>%LOCALAPPDATA%\costats\settings.json</code>; בגרסאות שאחרי 2.18 הנתונים עוברים בהפעלה הראשונה ל-<code>%LOCALAPPDATA%\AIUsageTray</code>. שמות הפרויקטים נשארו <code>costats.*</code>, כדי לא לשבור התקנות קיימות ולהקל על מיזוג שינויים עתידיים מהמקור.</li>
 <li><strong>קוד לא מחווט:</strong> מסלולי provider ישנים ושכבת <bdi>Multicc</bdi> הוסרו כדי שמפת הקוד תשקף רק התנהגות חיה.</li>
 </ul>
 

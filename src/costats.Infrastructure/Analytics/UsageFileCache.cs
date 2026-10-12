@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using costats.Core.Analytics;
+using costats.Application.Storage;
 
 namespace costats.Infrastructure.Analytics;
 
@@ -17,7 +18,7 @@ public sealed record UsageCacheInfo(int FileCount, long Bytes)
 /// <remarks>
 /// A full first scan reads well over a gigabyte of JSONL. Almost all of it is
 /// closed sessions that will never change again, so each file's parsed usage is
-/// written to <c>%LOCALAPPDATA%\costats\cache\usage\</c> and reused while the
+/// written to <c>%LOCALAPPDATA%\AIUsageTray\cache\usage\</c> and reused while the
 /// file's <em>length</em> and <em>last write time</em> both still match. Only
 /// new or changed files are re-parsed, which is what makes a repeat scan cheap.
 /// <para>
@@ -48,7 +49,7 @@ public sealed class UsageFileCache
 
     /// <summary>
     /// Creates a cache rooted at <paramref name="directory"/>, or at the default
-    /// <c>%LOCALAPPDATA%\costats\cache\usage</c> when null. Pass
+    /// <c>%LOCALAPPDATA%\AIUsageTray\cache\usage</c> when null. Pass
     /// <see cref="Disabled"/> to skip caching entirely.
     /// </summary>
     public UsageFileCache(string? directory = null)
@@ -100,11 +101,7 @@ public sealed class UsageFileCache
     }
 
     /// <summary>The default cache location.</summary>
-    public static string DefaultDirectory() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "costats",
-        "cache",
-        "usage");
+    public static string DefaultDirectory() => AppDataPaths.Combine("cache", "usage");
 
     /// <summary>
     /// Returns the cached parse for <paramref name="file"/> when one exists and

@@ -42,6 +42,17 @@ public sealed class AppSettings
     public bool AutomaticUpdateChecksEnabled { get; set; } = true;
 
     /// <summary>
+    /// Writes a detailed diagnostic log to <c>logs\debug</c> next to the normal
+    /// log. Off by default; it turns itself off after
+    /// <c>DebugLoggingPolicy.Lifetime</c> and the debug log is deleted when it
+    /// does. Per-machine diagnostics, so it is never exported.
+    /// </summary>
+    public bool DebugLoggingEnabled { get; set; } = false;
+
+    /// <summary>When debug logging was last turned on (UTC); drives the automatic switch-off.</summary>
+    public DateTimeOffset? DebugLoggingEnabledAt { get; set; }
+
+    /// <summary>
     /// Whether the GitHub Copilot personal usage provider is enabled.
     /// </summary>
     public bool CopilotEnabled { get; set; } = false;

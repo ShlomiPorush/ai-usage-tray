@@ -26,6 +26,9 @@ namespace costats.Application.Settings;
 /// The Copilot token never lives in <see cref="AppSettings"/>.</item>
 /// <item><see cref="AppSettings.LegacyKeepWidgetOpen"/>: a read-only migration
 /// shim that always serializes as absent.</item>
+/// <item><see cref="AppSettings.DebugLoggingEnabled"/> and
+/// <see cref="AppSettings.DebugLoggingEnabledAt"/>: troubleshooting for this
+/// machine, with its own seven-day clock.</item>
 /// </list>
 /// State files next to <c>settings.json</c> (reset state, activation state,
 /// caches, snapshots) are never part of the export.
@@ -47,6 +50,8 @@ public static class SettingsTransfer
         nameof(AppSettings.FloatingPanelWidth),
         nameof(AppSettings.FloatingPanelHeight),
         nameof(AppSettings.LegacyKeepWidgetOpen),
+        nameof(AppSettings.DebugLoggingEnabled),
+        nameof(AppSettings.DebugLoggingEnabledAt),
     };
 
     /// <summary>

@@ -3,6 +3,7 @@ using costats.Application.Security;
 using costats.Application.Settings;
 using costats.Infrastructure.Settings;
 using Xunit;
+using costats.Application.Storage;
 
 namespace costats.Core.Tests.Settings;
 
@@ -33,8 +34,8 @@ public sealed class JsonSettingsStoreTests : IDisposable
         }
     }
 
-    private string SettingsPath => Path.Combine(_root, "costats", "settings.json");
-    private string BackupPath => Path.Combine(_root, "costats", "settings.bad.json");
+    private string SettingsPath => Path.Combine(_root, AppDataPaths.FolderName, "settings.json");
+    private string BackupPath => Path.Combine(_root, AppDataPaths.FolderName, "settings.bad.json");
 
     private void WriteSettingsFile(string content)
     {
@@ -267,7 +268,7 @@ public sealed class JsonSettingsStoreTests : IDisposable
     [Fact]
     public async Task Legacy_main_widget_setting_migrates_to_the_floating_panel()
     {
-        var settingsDirectory = Path.Combine(_root, "costats");
+        var settingsDirectory = Path.Combine(_root, AppDataPaths.FolderName);
         Directory.CreateDirectory(settingsDirectory);
         await File.WriteAllTextAsync(
             Path.Combine(settingsDirectory, "settings.json"),
@@ -322,7 +323,7 @@ public sealed class JsonSettingsStoreTests : IDisposable
     [Fact]
     public async Task Load_removes_the_unused_legacy_pulse_snapshot()
     {
-        var snapshot = Path.Combine(_root, "costats", "snapshots", "pulse.json");
+        var snapshot = Path.Combine(_root, AppDataPaths.FolderName, "snapshots", "pulse.json");
         Directory.CreateDirectory(Path.GetDirectoryName(snapshot)!);
         File.WriteAllText(snapshot, "{\"email\":\"local@example.com\"}");
 

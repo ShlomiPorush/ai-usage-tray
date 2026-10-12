@@ -5,11 +5,12 @@
 .DESCRIPTION
     Stops the app, removes the Start Menu and startup entries, deletes the
     Add/remove programs registration and deletes the installed files under
-    %LOCALAPPDATA%\AIUsageTray.
+    %LOCALAPPDATA%\AIUsageTray\app.
 
     Interactive uninstall asks whether to remove settings, logs and caches in
-    %LOCALAPPDATA%\costats. Quiet uninstall keeps them unless you pass
-    -PurgeData.
+    %LOCALAPPDATA%\AIUsageTray (and the older %LOCALAPPDATA%\costats folder
+    used up to version 2.18, if it is still there). Quiet uninstall keeps them
+    unless you pass -PurgeData.
 
     This script ships inside the app folder it deletes, so it copies itself to
     %TEMP% and re-runs from there.
@@ -19,7 +20,8 @@
     path. A ZIP unpacked next to your own files is never deleted.
 
 .PARAMETER PurgeData
-    Also delete %LOCALAPPDATA%\costats (settings, logs, snapshots).
+    Also delete %LOCALAPPDATA%\AIUsageTray (settings, logs, caches) and the
+    older %LOCALAPPDATA%\costats folder.
 
 .PARAMETER Silent
     Do not print progress. Used by the Add/remove programs quiet uninstall.
@@ -91,29 +93,6 @@ function Test-DefaultManagedDir {
     if (-not $env:LOCALAPPDATA) { return $false }
     $expected = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "AIUsageTray\app"))
     return ($Directory.TrimEnd('/', [char]92) -ieq $expected.TrimEnd('/', [char]92))
-}
-
-function Test-RootHoldsOnlyLeftovers {
-    # After the app folder is gone the install root may still hold updater
-    # leftovers: log files and abandoned "<name>.__backup" copies. Any other
-    # file means the folder is shared with something else and must survive.
-    param([string]$Root)
-
-    $files = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force -ErrorAction SilentlyContinue)
-    foreach ($file in $files) {
-        if ($file.Extension -ieq ".log") { continue }
-
-        $relative = $file.FullName.Substring($Root.Length).TrimStart('/', [char]92)
-        $fromUpdater = $false
-        foreach ($segment in $relative.Split([char]92)) {
-            if ($segment -like "*.__backup") { $fromUpdater = $true; break }
-        }
-        if ($fromUpdater) { continue }
-
-        return $false
-    }
-
-    return $true
 }
 
 function Remove-Tree {
@@ -241,30 +220,55 @@ if (-not (Remove-Tree -Path $AppDir)) {
     Write-Step "Deleted $AppDir"
 }
 
-# The standard layout is <root>\AIUsageTray\app, and the updater leaves backups
-# and logs beside it, so the root goes too - but only when nothing else is left
-# inside it. Matching on the folder name rather than on a LOCALAPPDATA prefix
-# avoids short-path ("SHLOMI~1") mismatches.
+# The standard layout is <root>\AIUsageTray\app, and the updater leaves
+# "<name>.__backup" copies beside it. Those are never user data, so they go.
+# Matching on the folder name rather than on a LOCALAPPDATA prefix avoids
+# short-path ("SHLOMI~1") mismatches.
 $installRoot = Split-Path -Parent $AppDir
-if ($installRoot -and (Split-Path -Leaf $installRoot) -eq "AIUsageTray" -and (Test-Path -LiteralPath $installRoot)) {
-    if (Test-RootHoldsOnlyLeftovers -Root $installRoot) {
-        if (Remove-Tree -Path $installRoot) {
-            Write-Step "Deleted $installRoot"
+$isStandardRoot = $installRoot -and (Split-Path -Leaf $installRoot) -eq "AIUsageTray" -and (Test-Path -LiteralPath $installRoot)
+if ($isStandardRoot) {
+    foreach ($backup in @(Get-ChildItem -LiteralPath $installRoot -Directory -Force -Filter "*.__backup" -ErrorAction SilentlyContinue)) {
+        if (Remove-Tree -Path $backup.FullName) {
+            Write-Step "Deleted updater leftover $($backup.FullName)"
         }
-    } else {
-        Write-Step "Kept $installRoot - it holds files that are not ours." "Yellow"
     }
 }
 
 # 6. Interactive uninstall follows the user's choice. Quiet uninstall keeps
-# data unless the caller explicitly passed -PurgeData.
-$dataDir = Join-Path $env:LOCALAPPDATA "costats"
-if ($purgeUserData) {
-    if (Remove-Tree -Path $dataDir) {
-        Write-Step "Deleted settings and logs in $dataDir"
+# data unless the caller explicitly passed -PurgeData. After version 2.18 the
+# data lives in %LOCALAPPDATA%\AIUsageTray, next to the app folder; 2.18 and
+# earlier used %LOCALAPPDATA%\costats, which is handled the same way.
+$dataDirs = @()
+if ($env:LOCALAPPDATA) {
+    $dataDirs += (Join-Path $env:LOCALAPPDATA "AIUsageTray")
+    $dataDirs += (Join-Path $env:LOCALAPPDATA "costats")
+}
+foreach ($dataDir in $dataDirs) {
+    if (-not (Test-Path -LiteralPath $dataDir)) { continue }
+    if ($purgeUserData) {
+        if (Remove-Tree -Path $dataDir) {
+            Write-Step "Deleted settings and logs in $dataDir"
+        } else {
+            Write-Step "Could not delete $dataDir - close AI Usage Tray and delete it manually." "Yellow"
+        }
+    } elseif (@(Get-ChildItem -LiteralPath $dataDir -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+        # Nothing of the user's is left (for example only the app folder was
+        # here), so the empty folder goes too.
+        if (Remove-Tree -Path $dataDir) {
+            Write-Step "Deleted $dataDir"
+        }
+    } else {
+        Write-Step "Kept your settings in $dataDir (re-run with -PurgeData to remove them)."
     }
-} elseif (Test-Path -LiteralPath $dataDir) {
-    Write-Step "Kept your settings in $dataDir (re-run with -PurgeData to remove them)."
+}
+
+# A custom install root named AIUsageTray outside LOCALAPPDATA is removed when
+# the app folder and updater leftovers were all it held.
+if ($isStandardRoot -and (Test-Path -LiteralPath $installRoot) -and
+    @(Get-ChildItem -LiteralPath $installRoot -Force -ErrorAction SilentlyContinue).Count -eq 0) {
+    if (Remove-Tree -Path $installRoot) {
+        Write-Step "Deleted $installRoot"
+    }
 }
 
 Write-Step "AI Usage Tray has been uninstalled." "Green"

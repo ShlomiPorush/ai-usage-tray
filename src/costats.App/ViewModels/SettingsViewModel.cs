@@ -8,7 +8,9 @@ using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using costats.App.Services;
+using costats.App.Services.Diagnostics;
 using costats.App.Services.Updates;
+using costats.Application.Diagnostics;
 using costats.Application.Pulse;
 using costats.Application.RemoteView;
 using costats.Application.Security;
@@ -39,6 +41,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     private AvailableUpdate? _availableUpdate;
     private readonly IAccountSourceRegistry? _accountSources;
     private readonly RemoteViewUploader? _remoteViewUploader;
+    private readonly DebugLoggingController? _debugLogging;
+    private bool _suppressDebugLoggingChange;
     private bool _suppressHotkeyChange;
     private bool _isApplyingImport;
     private SettingsExportFile? _pendingImport;
@@ -57,7 +61,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         IUsageAnalyticsService analytics,
         IAccountSourceRegistry? accountSources = null,
         StartupUpdateCoordinator? updateCoordinator = null,
-        RemoteViewUploader? remoteViewUploader = null)
+        RemoteViewUploader? remoteViewUploader = null,
+        DebugLoggingController? debugLogging = null)
     {
         _settingsStore = settingsStore;
         _settings = settings;
@@ -69,12 +74,20 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         _analytics = analytics;
         _updateCoordinator = updateCoordinator;
         _remoteViewUploader = remoteViewUploader;
+        _debugLogging = debugLogging;
 
         refreshMinutes = settings.RefreshMinutes;
         startAtLogin = GetStartupRegistryValue();
         hotkeyEnabled = settings.HotkeyEnabled;
         hotkey = settings.Hotkey;
         automaticUpdateChecksEnabled = settings.AutomaticUpdateChecksEnabled;
+        debugLoggingEnabled = settings.DebugLoggingEnabled;
+        if (_debugLogging is not null)
+        {
+            // Auto-expiry runs on a timer thread; the checkbox follows it.
+            _debugLogging.StateChanged += (_, _) =>
+                System.Windows.Application.Current?.Dispatcher.InvokeAsync(SyncDebugLoggingFromController);
+        }
 
         _settings.Accounts = settings.GetEffectiveAccounts().ToList();
         RebuildProviderRows();
@@ -125,6 +138,17 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
 
     [ObservableProperty]
     private bool automaticUpdateChecksEnabled;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DebugLoggingStatus))]
+    [NotifyCanExecuteChangedFor(nameof(OpenDebugLogFolderCommand))]
+    private bool debugLoggingEnabled;
+
+    /// <summary>When debug logging switches itself off, shown while it is on.</summary>
+    public string DebugLoggingStatus =>
+        DebugLoggingEnabled && _debugLogging?.ExpiresAt is { } expiresAt
+            ? DebugLoggingPolicy.FormatStatus(expiresAt.ToLocalTime())
+            : string.Empty;
 
     [ObservableProperty]
     private string usageCacheSummary = string.Empty;
@@ -472,6 +496,81 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     {
         _settings.AutomaticUpdateChecksEnabled = value;
         SaveSettingsInBackground();
+    }
+
+    partial void OnDebugLoggingEnabledChanged(bool value)
+    {
+        if (_suppressDebugLoggingChange || _debugLogging is null)
+        {
+            return;
+        }
+
+        // The controller saves the setting itself and raises StateChanged,
+        // which brings the checkbox back in line if turning on failed.
+        _ = ApplyDebugLoggingAsync(value);
+    }
+
+    private async Task ApplyDebugLoggingAsync(bool enabled)
+    {
+        try
+        {
+            await _debugLogging!.SetEnabledAsync(enabled).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Changing debug logging failed");
+        }
+
+        SyncDebugLoggingFromController();
+    }
+
+    private void SyncDebugLoggingFromController()
+    {
+        if (_debugLogging is null)
+        {
+            return;
+        }
+
+        _suppressDebugLoggingChange = true;
+        try
+        {
+            DebugLoggingEnabled = _debugLogging.IsEnabled;
+        }
+        finally
+        {
+            _suppressDebugLoggingChange = false;
+        }
+
+        OnPropertyChanged(nameof(DebugLoggingStatus));
+    }
+
+    private bool CanOpenDebugLogFolder() => DebugLoggingEnabled;
+
+    [RelayCommand(CanExecute = nameof(CanOpenDebugLogFolder))]
+    private void OpenDebugLogFolder()
+    {
+        if (_debugLogging is null)
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_debugLogging.Directory);
+            Process.Start(new ProcessStartInfo
+            {
+                // Absolute path: a bare "explorer.exe" could be resolved from
+                // an attacker-writable directory.
+                FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"),
+                WorkingDirectory = SystemExecutables.TrustedWorkingDirectory,
+                ArgumentList = { _debugLogging.Directory },
+                UseShellExecute = false
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Could not open the debug log folder");
+        }
     }
 
     private void RebuildProviderRows()
@@ -1225,7 +1324,12 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
 
         try
         {
+            Log.Debug("Manual update check started");
             var result = await _updateCoordinator.CheckForUpdateAsync(ct, forceCheck: true);
+            Log.Debug(
+                "Manual update check finished: {Status}, version {Version}",
+                result.Status,
+                result.Update?.Version);
             ApplyUpdateCheckResult(result);
             promptForAvailableUpdate = result.Status == UpdateCheckStatus.UpdateAvailable &&
                 result.Update is not null;
@@ -1584,7 +1688,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         catch (Exception ex)
         {
             Log.Error(ex, "Saving imported settings failed");
-            SettingsTransferMessage = "Imported settings are active now but could not be saved. Check that %LOCALAPPDATA%\\costats is writable, then import again.";
+            SettingsTransferMessage = "Imported settings are active now but could not be saved. Check that %LOCALAPPDATA%\\AIUsageTray is writable, then import again.";
             IsSettingsTransferBusy = false;
             return;
         }
@@ -1752,7 +1856,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         catch (Exception ex)
         {
             Log.Error(ex, "Saving settings failed");
-            AccountsRestartMessage = "Could not save settings. Check that %LOCALAPPDATA%\\costats is writable.";
+            AccountsRestartMessage = "Could not save settings. Check that %LOCALAPPDATA%\\AIUsageTray is writable.";
         }
     }
 

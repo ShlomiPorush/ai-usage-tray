@@ -1,6 +1,7 @@
 using costats.Application.Pulse;
 using costats.Application.SessionActivation;
 using costats.Application.Settings;
+using Microsoft.Extensions.Logging;
 
 namespace costats.Infrastructure.Providers;
 
@@ -14,16 +15,19 @@ public sealed class AccountSourceRegistry : IAccountSourceRegistry
     private readonly AppSettings _settings;
     private readonly ICodexAppServerClient _codexClient;
     private readonly ISessionActivationWindowRegistry _windowRegistry;
+    private readonly ILoggerFactory? _loggerFactory;
     private volatile IReadOnlyList<ISignalSource> _current = [];
 
     public AccountSourceRegistry(
         AppSettings settings,
         ICodexAppServerClient codexClient,
-        ISessionActivationWindowRegistry windowRegistry)
+        ISessionActivationWindowRegistry windowRegistry,
+        ILoggerFactory? loggerFactory = null)
     {
         _settings = settings;
         _codexClient = codexClient;
         _windowRegistry = windowRegistry;
+        _loggerFactory = loggerFactory;
         Reload();
     }
 
@@ -52,7 +56,10 @@ public sealed class AccountSourceRegistry : IAccountSourceRegistry
                 {
                     sources.Add(new ClaudeSubscriptionSource(
                         new ClaudeAccountProfile(account.Id, displayName, account.ConfigDir),
-                        new ClaudeOAuthUsageFetcher(account.ConfigDir, account.KeepSessionActive),
+                        new ClaudeOAuthUsageFetcher(
+                            account.ConfigDir,
+                            account.KeepSessionActive,
+                            _loggerFactory?.CreateLogger<ClaudeOAuthUsageFetcher>()),
                         _windowRegistry));
                 }
             }
@@ -64,5 +71,9 @@ public sealed class AccountSourceRegistry : IAccountSourceRegistry
         }
 
         _current = sources;
+        _loggerFactory?.CreateLogger<AccountSourceRegistry>().LogDebug(
+            "Account sources rebuilt: {Count} account(s) ({Ids})",
+            sources.Count,
+            string.Join(", ", sources.Select(source => source.Profile.ProviderId)));
     }
 }

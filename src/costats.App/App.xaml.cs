@@ -2,6 +2,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using costats.App.Services;
+using costats.App.Services.Diagnostics;
 using costats.App.Services.Updates;
 using costats.App.ViewModels;
 using costats.Application.Abstractions;
@@ -11,7 +12,9 @@ using costats.Application.Security;
 using costats.Application.SessionActivation;
 using costats.Application.Settings;
 using costats.Application.Shell;
+using costats.Application.Storage;
 using costats.Infrastructure.Analytics;
+using costats.Infrastructure.Storage;
 using costats.Infrastructure.Providers;
 using costats.Infrastructure.Security;
 using costats.Infrastructure.SessionActivation;
@@ -24,6 +27,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Serilog;
+using Serilog.Core;
+using Serilog.Events;
 
 namespace costats.App
 {
@@ -50,20 +55,36 @@ namespace costats.App
         private StartupUpdateCoordinator? _updateCoordinator;
         private CancellationTokenSource? _updateLoopCts;
 
+        /// <summary>
+        /// Drives the minimum level of the app logger: the configured level
+        /// normally, Debug while debug logging is on. The normal log file keeps
+        /// the configured level either way.
+        /// </summary>
+        private readonly LoggingLevelSwitch _logLevelSwitch = new(LogEventLevel.Information);
+        private readonly DebugLogSink _debugLogSink = new(AppDataPaths.DebugLogsDirectory);
+        private LogEventLevel _baseLogLevel = LogEventLevel.Information;
+        private DebugLoggingController? _debugLogging;
+
         protected override void OnStartup(System.Windows.StartupEventArgs e)
         {
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             base.OnStartup(e);
 
-            BootstrapEarlyLogger();
             RegisterExceptionHandlers();
 
-            var version = Assembly.GetExecutingAssembly().GetName().Version;
-            Log.Information("costats starting (v{Version}, PID {Pid})", version, Environment.ProcessId);
-
+            // The mutex/pipe name stays "costats" on purpose: it is how this
+            // build recognises an older running instance and hands off to it
+            // instead of moving that instance's data folder out from under it.
             _singleInstance = new SingleInstanceCoordinator("costats");
             if (!_singleInstance.IsPrimary)
             {
+                // Until this instance knows it is the primary it writes nothing
+                // under the data folder: the running primary owns it, and the
+                // one-time data folder move must not race a log file this
+                // process created.
+                BootstrapDebugOnlyLogger();
+                Log.Information("Second instance starting (PID {Pid}); handing off to the primary", Environment.ProcessId);
+
                 // We did not create the single-instance mutex. Usually that means a
                 // genuine primary is already running, so we hand our activation to
                 // it and exit. But the mutex name is only same-user scoped: it can
@@ -88,6 +109,7 @@ namespace costats.App
                         }
                         else
                         {
+                            PrepareDataFolderAndLogging();
                             Log.Warning(
                                 "Single-instance lock was held but no primary answered the activation pipe; starting anyway");
                             _ = InitializeAsync();
@@ -97,7 +119,72 @@ namespace costats.App
                 return;
             }
 
+            PrepareDataFolderAndLogging();
             _ = InitializeAsync();
+        }
+
+        /// <summary>
+        /// Runs in the primary instance only, before anything opens a file in
+        /// the data folder: moves data written by 2.18 and earlier from %LOCALAPPDATA%\costats,
+        /// then starts the file logger and records what the move did.
+        /// </summary>
+        private void PrepareDataFolderAndLogging()
+        {
+            LegacyDataMigrationResult? migration = null;
+            Exception? migrationError = null;
+            try
+            {
+                migration = LegacyDataMigrator.ForCurrentUser().Migrate();
+            }
+            catch (Exception ex)
+            {
+                // The move is best effort and retried on the next start; it
+                // must never stop the app from starting.
+                migrationError = ex;
+            }
+
+            BootstrapEarlyLogger(JsonSettingsStore.IsDebugLoggingOnAtStartup(DateTimeOffset.UtcNow));
+
+            var version = Assembly.GetExecutingAssembly().GetName().Version;
+            Log.Information("costats starting (v{Version}, PID {Pid})", version, Environment.ProcessId);
+            LogMigration(migration, migrationError);
+        }
+
+        private static void LogMigration(LegacyDataMigrationResult? migration, Exception? error)
+        {
+            if (error is not null)
+            {
+                Log.Warning(error, "Moving data from {LegacyRoot} failed; it is retried on the next start", AppDataPaths.LegacyRoot);
+                return;
+            }
+
+            if (migration is null || !migration.LegacyFolderFound)
+            {
+                return;
+            }
+
+            Log.Information(
+                "Moved {Moved} item(s) from {LegacyRoot} to {DataRoot}; old folder {Outcome}",
+                migration.Moved.Count,
+                AppDataPaths.LegacyRoot,
+                AppDataPaths.Root,
+                migration.LegacyFolderRemoved ? "removed" : "kept");
+
+            if (migration.Kept.Count > 0)
+            {
+                Log.Information(
+                    "Left {Count} item(s) in the old data folder because the new folder already has them: {Items}",
+                    migration.Kept.Count,
+                    string.Join(", ", migration.Kept));
+            }
+
+            foreach (var failure in migration.Failed)
+            {
+                Log.Warning(
+                    "Could not move {Item} from the old data folder; retrying on the next start: {Error}",
+                    failure.RelativePath.Length == 0 ? "(folder)" : failure.RelativePath,
+                    failure.Error);
+            }
         }
 
         protected override async void OnExit(System.Windows.ExitEventArgs e)
@@ -118,6 +205,7 @@ namespace costats.App
             }
 
             _singleInstance?.Dispose();
+            _debugLogging?.Dispose();
             _updateLoopCts?.Dispose();
             Log.CloseAndFlush();
             base.OnExit(e);
@@ -138,6 +226,18 @@ namespace costats.App
 
                 var settingsStore = new JsonSettingsStore(new CredentialVault());
                 var settings = await settingsStore.LoadAsync(CancellationToken.None).ConfigureAwait(false);
+
+                // Before the host logger exists, so it starts at the right level
+                // and an expired debug log is gone before anything writes to it.
+                _baseLogLevel = ReadBaseLogLevel(startupConfiguration);
+                _logLevelSwitch.MinimumLevel = _baseLogLevel;
+                _debugLogging = new DebugLoggingController(
+                    settings,
+                    settingsStore,
+                    _debugLogSink,
+                    _logLevelSwitch,
+                    _baseLogLevel);
+                await _debugLogging.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
                 ApplyPreviewTheme(settings);
                 ApplyPreviewSafety(settings);
 
@@ -223,7 +323,13 @@ namespace costats.App
 
                         try
                         {
+                            Log.Debug("Background update check started");
                             var result = await _updateCoordinator.CheckForUpdateAsync(timeoutCts.Token).ConfigureAwait(false);
+                            Log.Debug(
+                                "Background update check finished: {Status}, version {Version}, from cache {FromCache}",
+                                result.Status,
+                                result.Update?.Version,
+                                result.FromCache);
                             await Dispatcher.InvokeAsync(() => tray.HandleBackgroundUpdateResult(result));
                         }
                         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -421,6 +527,19 @@ namespace costats.App
             return value.Length == 0 ? null : value;
         }
 
+        /// <summary>
+        /// The configured minimum level (<c>Serilog:MinimumLevel</c>, either a
+        /// plain value or its <c>Default</c>): Information when shipped, Debug in
+        /// a Development environment.
+        /// </summary>
+        private static LogEventLevel ReadBaseLogLevel(IConfiguration configuration)
+        {
+            var value = configuration["Serilog:MinimumLevel"] ?? configuration["Serilog:MinimumLevel:Default"];
+            return Enum.TryParse<LogEventLevel>(value, ignoreCase: true, out var level)
+                ? level
+                : LogEventLevel.Information;
+        }
+
         /// <summary>Reads a value from configuration, treating blank as "not shipped".</summary>
         private static string? ReadConfiguredValue(IConfiguration configuration, string key)
         {
@@ -489,24 +608,61 @@ namespace costats.App
         /// exception-handler logs reach the file sink even if host init fails.
         /// The host builder replaces this logger with the fully-configured one.
         /// </summary>
-        private static void BootstrapEarlyLogger()
+        /// <summary>
+        /// The logger used until the host starts. When settings.json already has
+        /// debug logging on (and not expired), the debug sink opens here, so the
+        /// debug log also covers startup and the data folder move. The normal
+        /// log stays at Information either way.
+        /// </summary>
+        private void BootstrapEarlyLogger(bool debugLoggingOn)
         {
-            var logDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "costats", "logs");
-            Directory.CreateDirectory(logDir);
+            Directory.CreateDirectory(AppDataPaths.LogsDirectory);
+
+            if (debugLoggingOn)
+            {
+                try
+                {
+                    _debugLogSink.Open();
+                    _logLevelSwitch.MinimumLevel = LogEventLevel.Debug;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // The controller retries once settings are loaded.
+                }
+            }
 
             Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Information()
-                .WriteTo.Debug()
+                .MinimumLevel.ControlledBy(_logLevelSwitch)
+                .WriteTo.Debug(restrictedToMinimumLevel: LogEventLevel.Information)
                 .WriteTo.File(
-                    Path.Combine(logDir, "costats-.log"),
+                    MainLogFilePath,
+                    restrictedToMinimumLevel: LogEventLevel.Information,
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 14,
-                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}")
+                    outputTemplate: LogOutputTemplate)
+                .WriteTo.Sink(_debugLogSink)
                 .Enrich.FromLogContext()
                 .CreateLogger();
         }
+
+        /// <summary>
+        /// Logger for a second instance that has not yet confirmed a primary is
+        /// running: debugger output only, so it creates nothing on disk.
+        /// </summary>
+        private static void BootstrapDebugOnlyLogger()
+        {
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Information()
+                .WriteTo.Debug()
+                .Enrich.FromLogContext()
+                .CreateLogger();
+        }
+
+        private const string LogOutputTemplate =
+            "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}";
+
+        /// <summary>The daily application log, %LOCALAPPDATA%\AIUsageTray\logs\costats-YYYYMMDD.log.</summary>
+        private static string MainLogFilePath => Path.Combine(AppDataPaths.LogsDirectory, "costats-.log");
 
         private void RegisterExceptionHandlers()
         {
@@ -581,14 +737,30 @@ namespace costats.App
                 })
                 .UseSerilog((context, services, loggerConfig) =>
                 {
+                    // The file sink is configured here rather than in
+                    // appsettings.json so its folder comes from AppDataPaths.
                     loggerConfig
                         .ReadFrom.Configuration(context.Configuration)
+                        // After ReadFrom: the configuration reader sets a fixed
+                        // minimum level, which would otherwise win.
+                        .MinimumLevel.ControlledBy(_logLevelSwitch)
+                        .WriteTo.File(
+                            MainLogFilePath,
+                            restrictedToMinimumLevel: _baseLogLevel,
+                            rollingInterval: RollingInterval.Day,
+                            retainedFileCountLimit: 14,
+                            outputTemplate: LogOutputTemplate)
+                        .WriteTo.Sink(_debugLogSink)
                         .Enrich.FromLogContext();
                 })
                 .ConfigureServices(services =>
                 {
                     services.AddSingleton<ISettingsStore>(settingsStore);
                     services.AddSingleton(settings);
+                    if (_debugLogging is not null)
+                    {
+                        services.AddSingleton(_debugLogging);
+                    }
 
                     if (_updateCoordinator is not null)
                     {
@@ -607,7 +779,8 @@ namespace costats.App
                     services.AddSingleton<PulseBroadcaster>();
                     services.AddSingleton<ISourceSelector, SourceSelector>();
                     services.AddSingleton<CopilotUsageFetcher>();
-                    services.AddSingleton<CodexAppServerClient>();
+                    services.AddSingleton(sp => new CodexAppServerClient(
+                        logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CodexAppServerClient>>()));
                     services.AddSingleton<ICodexAppServerClient>(sp => sp.GetRequiredService<CodexAppServerClient>());
                     services.AddSingleton<ICodexResetCreditClient>(sp => sp.GetRequiredService<CodexAppServerClient>());
                     services.AddSingleton<CodexResetCreditService>();
@@ -617,11 +790,16 @@ namespace costats.App
 
                     // Per-account sources live in a registry so Settings edits
                     // apply at the next refresh without restarting the app.
-                    services.AddSingleton<IAccountSourceRegistry, AccountSourceRegistry>();
+                    services.AddSingleton<IAccountSourceRegistry>(sp => new AccountSourceRegistry(
+                        sp.GetRequiredService<AppSettings>(),
+                        sp.GetRequiredService<ICodexAppServerClient>(),
+                        sp.GetRequiredService<ISessionActivationWindowRegistry>(),
+                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()));
 
                     services.AddSingleton<ISignalSource, CopilotPersonalSource>();
                     // Z.AI / GLM coding-plan monitor (Bearer-token auth).
-                    services.AddSingleton<IZaiUsageClient>(_ => new ZaiUsageFetcher());
+                    services.AddSingleton<IZaiUsageClient>(sp => new ZaiUsageFetcher(
+                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ZaiUsageFetcher>>()));
                     services.AddSingleton<ISignalSource>(sp => new ZaiUsageSource(
                         sp.GetRequiredService<IZaiUsageClient>(),
                         () => settings.ZAiCodingApiKey,
@@ -677,6 +855,12 @@ namespace costats.App
                 .Build();
 
             _host.Start();
+            if (settingsStore is JsonSettingsStore jsonSettingsStore)
+            {
+                jsonSettingsStore.Logger = _host.Services
+                    .GetRequiredService<Microsoft.Extensions.Logging.ILogger<JsonSettingsStore>>();
+            }
+            _debugLogging?.StartExpiryChecks(TimeSpan.FromHours(1));
 
             var lifetime = _host.Services.GetRequiredService<IHostApplicationLifetime>();
             lifetime.ApplicationStopping.Register(() => Log.Warning("Host is stopping"));

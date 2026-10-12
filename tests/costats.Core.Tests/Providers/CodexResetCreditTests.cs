@@ -2,6 +2,7 @@ using System.Text.Json;
 using costats.Core.Pulse;
 using costats.Infrastructure.Providers;
 using Xunit;
+using costats.Application.Storage;
 
 namespace costats.Core.Tests.Providers;
 
@@ -240,9 +241,9 @@ public sealed class CodexResetCreditTests : IDisposable
     [InlineData("")]
     public async Task A_damaged_key_file_never_blocks_redemption(string content)
     {
-        Directory.CreateDirectory(Path.Combine(_root, "costats"));
+        Directory.CreateDirectory(Path.Combine(_root, AppDataPaths.FolderName));
         await File.WriteAllTextAsync(
-            Path.Combine(_root, "costats", "codex-reset-credit-keys.json"), content);
+            Path.Combine(_root, AppDataPaths.FolderName, "codex-reset-credit-keys.json"), content);
 
         var fake = new ResetClientFake { Outcome = ResetCreditOutcome.Unknown };
         Assert.Equal(ResetCreditOutcome.Unknown,

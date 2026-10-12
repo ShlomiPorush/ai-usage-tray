@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using costats.Core.Analytics;
+using costats.Application.Storage;
 
 namespace costats.Infrastructure.Analytics;
 
@@ -8,7 +9,7 @@ namespace costats.Infrastructure.Analytics;
 /// Loads the pricing table by layering, lowest first: the bundled snapshot
 /// (<see cref="ModelPricingTable.Default"/>), the cached live catalog, the
 /// models pinned as unpriced, and a user file at
-/// <c>%LOCALAPPDATA%\costats\pricing.json</c>.
+/// <c>%LOCALAPPDATA%\AIUsageTray\pricing.json</c>.
 /// </summary>
 /// <remarks>
 /// The override file wins over everything, so a user can correct a catalog
@@ -34,10 +35,7 @@ public static class ModelPricingLoader
     };
 
     /// <summary>Default location of the user override file.</summary>
-    public static string DefaultOverridePath() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "costats",
-        "pricing.json");
+    public static string DefaultOverridePath() => AppDataPaths.Combine("pricing.json");
 
     /// <summary>
     /// Returns <see cref="ModelPricingTable.Default"/> with the live
