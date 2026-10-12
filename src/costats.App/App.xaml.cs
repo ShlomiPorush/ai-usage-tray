@@ -11,7 +11,6 @@ using costats.Application.Alerts;
 using costats.Application.Security;
 using costats.Application.SessionActivation;
 using costats.Application.Settings;
-using costats.Application.Shell;
 using costats.Application.Storage;
 using costats.Infrastructure.Analytics;
 using costats.Infrastructure.Storage;
@@ -21,7 +20,6 @@ using costats.Infrastructure.SessionActivation;
 using costats.Infrastructure.Settings;
 using costats.Infrastructure.Alerts;
 using costats.Infrastructure.Time;
-using costats.Infrastructure.Windows;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -835,7 +833,6 @@ namespace costats.App
                         sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<UsageAnalyticsService>>()));
 
                     services.AddSingleton<ICredentialVault, CredentialVault>();
-                    services.AddSingleton<IGlassBackdropService, GlassBackdropService>();
 
                     services.AddSingleton<PulseViewModel>();
                     services.AddSingleton<OnboardingViewModel>();

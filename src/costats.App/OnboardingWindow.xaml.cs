@@ -3,24 +3,20 @@ using System.Windows;
 using System.Windows.Input;
 using costats.App.ViewModels;
 using costats.Application.Settings;
-using costats.Application.Shell;
 
 namespace costats.App;
 
 public partial class OnboardingWindow : Window
 {
     private readonly OnboardingViewModel _viewModel;
-    private readonly IGlassBackdropService _backdropService;
     private bool _isDismissing;
     private bool _previewOnly;
 
-    public OnboardingWindow(OnboardingViewModel viewModel, IGlassBackdropService backdropService)
+    public OnboardingWindow(OnboardingViewModel viewModel)
     {
         InitializeComponent();
         DataContext = viewModel;
         _viewModel = viewModel;
-        _backdropService = backdropService;
-        SourceInitialized += OnSourceInitialized;
         MouseLeftButtonDown += OnMouseLeftButtonDown;
     }
 
@@ -54,12 +50,6 @@ public partial class OnboardingWindow : Window
 
         e.Cancel = true;
         _ = DismissAsync();
-    }
-
-    private void OnSourceInitialized(object? sender, EventArgs e)
-    {
-        var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-        _backdropService.ApplyBackdrop(hwnd);
     }
 
     private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
