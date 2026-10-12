@@ -10,6 +10,7 @@ using CommunityToolkit.Mvvm.Input;
 using costats.App.Services;
 using costats.App.Services.Diagnostics;
 using costats.App.Services.Updates;
+using costats.Application.Diagnostics;
 using costats.Application.Pulse;
 using costats.Application.RemoteView;
 using costats.Application.Security;
@@ -146,7 +147,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     /// <summary>When debug logging switches itself off, shown while it is on.</summary>
     public string DebugLoggingStatus =>
         DebugLoggingEnabled && _debugLogging?.ExpiresAt is { } expiresAt
-            ? $"On until {expiresAt.ToLocalTime():MMM d, HH:mm}."
+            ? DebugLoggingPolicy.FormatStatus(expiresAt.ToLocalTime())
             : string.Empty;
 
     [ObservableProperty]

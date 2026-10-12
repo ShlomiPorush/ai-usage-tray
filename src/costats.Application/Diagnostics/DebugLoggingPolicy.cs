@@ -34,6 +34,15 @@ public static class DebugLoggingPolicy
         return now - start >= Lifetime || start - now > FutureTolerance;
     }
 
+    /// <summary>
+    /// The Settings line under the switch. The Settings text is English, so the
+    /// date is too: invariant culture, never the Windows display language (a
+    /// Hebrew month name inside an English sentence renders right to left and
+    /// scrambles the line).
+    /// </summary>
+    public static string FormatStatus(DateTimeOffset localExpiry) =>
+        string.Create(System.Globalization.CultureInfo.InvariantCulture, $"On until {localExpiry:MMM d, HH:mm}.");
+
     /// <summary>When debug logging that started at <paramref name="enabledAt"/> turns off.</summary>
     public static DateTimeOffset ExpiresAt(DateTimeOffset enabledAt) => enabledAt + Lifetime;
 }

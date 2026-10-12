@@ -180,7 +180,7 @@ public sealed class SessionAutoStartCoordinator
                 checkpoint.Completed
                     ? "no attempts left for this window"
                     : now < checkpoint.NextAttemptAt
-                        ? $"next attempt due at {checkpoint.NextAttemptAt:u}"
+                        ? string.Create(System.Globalization.CultureInfo.InvariantCulture, $"next attempt due at {checkpoint.NextAttemptAt:u}")
                         : "a window was started less than five hours ago");
             return;
         }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using costats.Application.Security;
+using costats.Application.Diagnostics;
 using costats.Application.Settings;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -64,6 +65,31 @@ public sealed class JsonSettingsStore : ISettingsStore
     {
         _credentialVault = credentialVault;
         _settingsPath = Path.Combine(AppDataPaths.ResolveRoot(basePath), "settings.json");
+    }
+
+    /// <summary>
+    /// Startup peek, before the logger exists: true when settings.json has
+    /// debug logging on and its seven days are not over. Reads the file only;
+    /// any problem counts as off. The full load decides again later.
+    /// </summary>
+    public static bool IsDebugLoggingOnAtStartup(DateTimeOffset now, string? basePath = null)
+    {
+        try
+        {
+            var path = Path.Combine(AppDataPaths.ResolveRoot(basePath), "settings.json");
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
+            var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), SettingsJson.SerializerOptions);
+            return settings is { DebugLoggingEnabled: true } &&
+                   !DebugLoggingPolicy.IsExpired(true, settings.DebugLoggingEnabledAt, now);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        {
+            return false;
+        }
     }
 
     public async Task<AppSettings> LoadAsync(CancellationToken cancellationToken)

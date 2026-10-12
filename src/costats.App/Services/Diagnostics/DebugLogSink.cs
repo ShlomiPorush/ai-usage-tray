@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using Serilog;
 using Serilog.Core;
@@ -67,7 +68,10 @@ public sealed class DebugLogSink : ILogEventSink, IDisposable
                     fileSizeLimitBytes: FileSizeLimitBytes,
                     rollOnFileSizeLimit: true,
                     retainedFileCountLimit: RetainedFileCountLimit,
-                    outputTemplate: OutputTemplate)
+                    outputTemplate: OutputTemplate,
+                    // Numbers and dates read the same on every machine,
+                    // whatever the Windows display language.
+                    formatProvider: CultureInfo.InvariantCulture)
                 .CreateLogger();
         }
     }

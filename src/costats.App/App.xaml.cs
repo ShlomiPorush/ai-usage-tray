@@ -128,7 +128,7 @@ namespace costats.App
         /// the data folder: moves data written by 2.18 and earlier from %LOCALAPPDATA%\costats,
         /// then starts the file logger and records what the move did.
         /// </summary>
-        private static void PrepareDataFolderAndLogging()
+        private void PrepareDataFolderAndLogging()
         {
             LegacyDataMigrationResult? migration = null;
             Exception? migrationError = null;
@@ -143,7 +143,7 @@ namespace costats.App
                 migrationError = ex;
             }
 
-            BootstrapEarlyLogger();
+            BootstrapEarlyLogger(JsonSettingsStore.IsDebugLoggingOnAtStartup(DateTimeOffset.UtcNow));
 
             var version = Assembly.GetExecutingAssembly().GetName().Version;
             Log.Information("costats starting (v{Version}, PID {Pid})", version, Environment.ProcessId);
@@ -608,18 +608,39 @@ namespace costats.App
         /// exception-handler logs reach the file sink even if host init fails.
         /// The host builder replaces this logger with the fully-configured one.
         /// </summary>
-        private static void BootstrapEarlyLogger()
+        /// <summary>
+        /// The logger used until the host starts. When settings.json already has
+        /// debug logging on (and not expired), the debug sink opens here, so the
+        /// debug log also covers startup and the data folder move. The normal
+        /// log stays at Information either way.
+        /// </summary>
+        private void BootstrapEarlyLogger(bool debugLoggingOn)
         {
             Directory.CreateDirectory(AppDataPaths.LogsDirectory);
 
+            if (debugLoggingOn)
+            {
+                try
+                {
+                    _debugLogSink.Open();
+                    _logLevelSwitch.MinimumLevel = LogEventLevel.Debug;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // The controller retries once settings are loaded.
+                }
+            }
+
             Log.Logger = new LoggerConfiguration()
-                .MinimumLevel.Information()
-                .WriteTo.Debug()
+                .MinimumLevel.ControlledBy(_logLevelSwitch)
+                .WriteTo.Debug(restrictedToMinimumLevel: LogEventLevel.Information)
                 .WriteTo.File(
                     MainLogFilePath,
+                    restrictedToMinimumLevel: LogEventLevel.Information,
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 14,
                     outputTemplate: LogOutputTemplate)
+                .WriteTo.Sink(_debugLogSink)
                 .Enrich.FromLogContext()
                 .CreateLogger();
         }
