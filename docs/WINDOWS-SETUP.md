@@ -20,7 +20,7 @@ Left-click the icon (or press `Ctrl+Alt+U`) to open the widget; right-click for 
 
 Follow the install steps in the [README](../README.md): the one-line PowerShell installer, or download the ZIP from Releases, verify the `.sha256` and extract it. Builds are self-contained and are not code-signed, so Windows may show a SmartScreen warning.
 
-Run `AIUsageTray.exe`. The app starts directly in the system tray. If the icon is hidden, open the tray overflow using the `^` button and drag the icon onto the taskbar.
+Run `AIUsageTray.exe`. The app starts directly in the system tray. On Windows 11 the icon is shown on the taskbar the first time it appears; if you later hide it in the overflow, the app respects that. On Windows 10, if the icon is hidden, open the tray overflow using the `^` button and drag the icon onto the taskbar.
 
 ## 2. Install the Codex CLI and sign in
 
@@ -142,6 +142,7 @@ The numbers come from the Claude Code and Codex session logs already on the mach
 - **Theme**: **Follow system** (tracks the Windows apps theme), **Light** or **Dark**.
 - **Refresh interval**: how often usage is polled in the background, from 1 to 15 minutes; the default is 5.
 - **Check for updates** under **UPDATES**: checks this repository's releases, stages the update and restarts to apply it. The app also checks automatically in the background.
+- **Export settings** / **Import settings** under **General**: moves your accounts and preferences to another computer through a JSON file. API keys, tokens and the remote view link are not included, and they are kept as they are on the computer you import into. Account folders under your user profile follow the new profile automatically; any folder that is still missing is listed after the import. Sign in to Claude and Codex again on the new computer.
 
 Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (the path is kept from upstream so existing installs keep working). Logs go to `%LOCALAPPDATA%\costats\logs`.
 

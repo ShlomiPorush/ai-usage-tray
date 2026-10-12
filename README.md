@@ -30,6 +30,7 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 - Tray icon shows the worst window's percentage as a number; Settings can display either used or remaining quota, with matching numbers and bars across desktop surfaces and the default remote view.
 - **Four usage levels everywhere**, derived from the canonical used percentage: green when capacity is available, yellow and orange as quota runs down, and red near exhaustion. The same state is preserved when remaining quota is displayed.
 - Percentages are shown as quiet tinted pills, so a calm account stays calm and a hot one stands out.
+- On Windows 11 the icon is placed on the taskbar instead of the hidden overflow the first time it appears. If you later move it back into the overflow, that choice is kept.
 - Hovering the icon opens a popup next to it listing every account, one line each with a status dot.
 - An optional always-on floating panel reuses those status rows and lets you choose which accounts stay visible.
 - The widget (click the icon or `Ctrl+Alt+U`) opens on an overview of all accounts, sized to fit them; click a card for details.
@@ -41,6 +42,7 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 - **Scheduled five-hour window starts**: opt in per provider, then limit automatic activation to local daily hours so an expired window can start before your workday. If the PC wakes during the schedule, the app catches up immediately.
 - **Warm stone light and blue steel dark themes**, following the Windows theme by default.
 - Providers managed in Settings as a table with add/edit dialogs; changes apply without restarting.
+- **Move to another computer**: Settings → General → **Export settings** writes your accounts and preferences to a JSON file; **Import settings** on the other computer applies them at once. API keys, tokens and the remote view link are not included, and account folders under your user profile are moved to the new profile automatically.
 - Optional reset countdowns on the overview cards; daily / 30-day cost estimates where the provider supplies them.
 - Optional remote view: see your usage from a phone via a private link: one checkbox, no setup (self-hosting possible). Once it is on, a globe button in the widget opens the link straight away.
 - Self-update from this repository's releases.
@@ -63,6 +65,8 @@ Then follow **[docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md)** for the step-by-s
 
 ## Configuration
 Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from upstream so existing installs keep working).
+
+The export file (`ai-usage-tray-settings.json`) carries the same settings minus everything tied to one machine or secret: the Z.AI keys and Copilot token, the remote view write id, onboarding state and the floating panel size. Importing keeps those values as they are on the target computer; if remote view is on and the target has no link yet, a new one is created. Account folders that do not exist after the move are still imported and listed, so you can sign in with **Relogin** or pick the right folder with **Edit**.
 
 | Setting | Default | Meaning |
 |---|---|---|

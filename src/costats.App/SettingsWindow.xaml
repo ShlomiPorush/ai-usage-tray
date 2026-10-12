@@ -270,6 +270,43 @@
                         <TextBlock Text="{Binding HotkeyStatus}" FontSize="11" Foreground="#F97316" Margin="30,0,0,12"
                                    TextWrapping="Wrap"
                                    Visibility="{Binding HotkeyStatus, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+
+                        <!-- Move to another computer -->
+                        <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,8,0,12" />
+                        <TextBlock Text="Move to another computer" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
+                        <TextBlock Text="Moves your accounts and preferences to another computer. API keys, tokens and the remote view link are not included. Sign in to Claude and Codex again on the new computer."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,8"
+                                   TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal"
+                                    IsEnabled="{Binding IsSettingsTransferBusy, Converter={x:Static local:BoolNegationConverter.Instance}}">
+                            <Button Content="Export settings" Click="OnExportSettingsClick"
+                                    Style="{StaticResource SettingsButton}" Padding="12,6" FontSize="11" />
+                            <Button Content="Import settings" Click="OnImportSettingsClick"
+                                    Style="{StaticResource SettingsButton}" Padding="12,6" FontSize="11" Margin="8,0,0,0" />
+                        </StackPanel>
+
+                        <Border x:Name="ImportConfirmationPanel" CornerRadius="8" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
+                                Background="{DynamicResource PanelBgBrush}" Padding="12" Margin="0,10,0,0"
+                                Visibility="{Binding IsImportConfirmationVisible, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                            <StackPanel>
+                                <TextBlock Text="Replace current settings?" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
+                                <TextBlock Text="{Binding ImportConfirmationText}" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button Content="Cancel" Command="{Binding CancelImportCommand}"
+                                            Style="{StaticResource SettingsButton}" Padding="12,6" FontSize="11" />
+                                    <Button Content="Import and replace" Command="{Binding ConfirmImportCommand}"
+                                            Style="{StaticResource SettingsButton}" Padding="12,6" FontSize="11" Margin="8,0,0,0"
+                                            BorderBrush="{DynamicResource AccentBrush}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock x:Name="SettingsTransferResult" Text="{Binding SettingsTransferMessage}" FontSize="11"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,8,0,0" TextWrapping="Wrap"
+                                   Visibility="{Binding SettingsTransferMessage, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
                     </StackPanel>
                 </Expander>
 

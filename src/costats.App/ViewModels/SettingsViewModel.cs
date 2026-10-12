@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Windows;
@@ -39,6 +40,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     private readonly IAccountSourceRegistry? _accountSources;
     private readonly RemoteViewUploader? _remoteViewUploader;
     private bool _suppressHotkeyChange;
+    private bool _isApplyingImport;
+    private SettingsExportFile? _pendingImport;
     private const string StartupRegistryKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
     // Renamed from "costats" so the entry does not collide with upstream builds.
     private const string AppName = "AiUsageTray";
@@ -1416,6 +1419,295 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
 
     private CancellationTokenSource? _updateCheckCts;
 
+    /// <summary>Short result line under the export and import actions.</summary>
+    [ObservableProperty]
+    private string settingsTransferMessage = string.Empty;
+
+    [ObservableProperty]
+    private bool isSettingsTransferBusy;
+
+    /// <summary>True while a validated file waits for the user to confirm the import.</summary>
+    [ObservableProperty]
+    private bool isImportConfirmationVisible;
+
+    [ObservableProperty]
+    private string importConfirmationText = string.Empty;
+
+    /// <summary>
+    /// Writes the transferable settings to <paramref name="path"/>. Secrets and
+    /// this machine's remote-view write id are never part of the file.
+    /// </summary>
+    public async Task ExportSettingsAsync(string path)
+    {
+        if (IsSettingsTransferBusy)
+        {
+            return;
+        }
+
+        IsSettingsTransferBusy = true;
+        CancelImport();
+        try
+        {
+            // The checkbox mirrors the Run key, which can drift from the saved value.
+            _settings.StartAtLogin = StartAtLogin;
+            var json = SettingsTransfer.Export(
+                _settings,
+                Version,
+                DateTimeOffset.Now,
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+            await File.WriteAllTextAsync(path, json, CancellationToken.None).ConfigureAwait(true);
+            SettingsTransferMessage = "Settings exported. Copy the file to the other computer and choose Import settings there.";
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Settings export failed");
+            SettingsTransferMessage = "Could not save the file. Choose another folder and try again.";
+        }
+        finally
+        {
+            IsSettingsTransferBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Reads and validates an export file, then asks for confirmation. Nothing
+    /// changes until <see cref="ConfirmImportCommand"/> runs.
+    /// </summary>
+    public async Task PrepareImportAsync(string path)
+    {
+        if (IsSettingsTransferBusy)
+        {
+            return;
+        }
+
+        IsSettingsTransferBusy = true;
+        CancelImport();
+        try
+        {
+            string json;
+            try
+            {
+                json = await File.ReadAllTextAsync(path, CancellationToken.None).ConfigureAwait(true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warning(ex, "Settings import file could not be read");
+                SettingsTransferMessage = "Could not read the file. Check that it is not open in another app and try again.";
+                return;
+            }
+
+            var parsed = SettingsTransfer.Parse(json);
+            if (!parsed.IsSuccess)
+            {
+                SettingsTransferMessage = parsed.Error switch
+                {
+                    SettingsImportError.NewerSchema =>
+                        "This file comes from a newer version of AI Usage Tray. Update this app, then import again.",
+                    SettingsImportError.Damaged =>
+                        "This settings file is damaged. Export it again on the other computer.",
+                    _ => "This is not an AI Usage Tray settings file. Choose a file made with Export settings."
+                };
+                return;
+            }
+
+            _pendingImport = parsed.File;
+            var accountCount = parsed.File!.Settings.Accounts?.Count(account => account.IsValid) ?? 0;
+            var from = parsed.File.ExportedAt is { } exportedAt
+                ? string.Create(CultureInfo.InvariantCulture, $"Exported {exportedAt.ToLocalTime():d MMM yyyy, HH:mm} with {AccountCountText(accountCount)}. ")
+                : $"Contains {AccountCountText(accountCount)}. ";
+            ImportConfirmationText = from +
+                "Importing replaces your preferences and account list on this computer. API keys, tokens and the remote view link here stay as they are.";
+            IsImportConfirmationVisible = true;
+        }
+        finally
+        {
+            IsSettingsTransferBusy = false;
+        }
+    }
+
+    [RelayCommand]
+    private void CancelImport()
+    {
+        _pendingImport = null;
+        IsImportConfirmationVisible = false;
+        ImportConfirmationText = string.Empty;
+        SettingsTransferMessage = string.Empty;
+    }
+
+    /// <summary>
+    /// Applies the confirmed import to the shared settings instance and then
+    /// pushes every value through the same handlers a click would run, so
+    /// account sources, refresh timer, hotkey, theme, Run key and panels all
+    /// update live without a restart.
+    /// </summary>
+    [RelayCommand]
+    private async Task ConfirmImportAsync()
+    {
+        var import = _pendingImport;
+        if (import is null || IsSettingsTransferBusy)
+        {
+            return;
+        }
+
+        IsSettingsTransferBusy = true;
+        _pendingImport = null;
+        IsImportConfirmationVisible = false;
+        ImportConfirmationText = string.Empty;
+        SettingsImportResult result;
+        _isApplyingImport = true;
+        try
+        {
+            result = SettingsTransfer.Apply(
+                _settings,
+                import,
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                Directory.Exists);
+            _settings.Accounts = _settings.GetEffectiveAccounts().ToList();
+            SyncFromImportedSettings();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Applying imported settings failed");
+            SettingsTransferMessage = "Could not apply the imported settings. Your current settings may be partly changed; check them before closing.";
+            IsSettingsTransferBusy = false;
+            return;
+        }
+        finally
+        {
+            _isApplyingImport = false;
+        }
+
+        try
+        {
+            await _settingsStore.SaveAsync(_settings, CancellationToken.None).ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Saving imported settings failed");
+            SettingsTransferMessage = "Imported settings are active now but could not be saved. Check that %LOCALAPPDATA%\\costats is writable, then import again.";
+            IsSettingsTransferBusy = false;
+            return;
+        }
+
+        SettingsTransferMessage = DescribeImportResult(result);
+        IsSettingsTransferBusy = false;
+        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+    }
+
+    private void SyncFromImportedSettings()
+    {
+        // Assigning the mirrored properties runs their normal change handlers
+        // (refresh timer, Run key, remote view id, republish). A handler only
+        // fires when the value differs from what the screen showed, and in that
+        // case it writes the same imported value back into _settings.
+        RefreshMinutes = _settings.RefreshMinutes;
+        StartAtLogin = _settings.StartAtLogin;
+        AutomaticUpdateChecksEnabled = _settings.AutomaticUpdateChecksEnabled;
+        CopilotEnabled = _settings.CopilotEnabled;
+        ShowOverviewResetTimes = _settings.ShowOverviewResetTimes;
+        ShowRemainingPercentages = _settings.ShowRemainingPercentages;
+        ShowWeeklyBeforeSession = _settings.ShowWeeklyBeforeSession;
+        FloatingPanelPosition = _settings.FloatingPanelPosition;
+        ShowFloatingStatusPanel = _settings.ShowFloatingStatusPanel;
+        UsageAlertsEnabled = _settings.UsageAlertsEnabled;
+        UsageResetAlertsEnabled = _settings.UsageResetAlertsEnabled;
+        AutoStartClaudeFiveHourWindow = _settings.AutoStartClaudeFiveHourWindow;
+        AutoStartCodexFiveHourWindow = _settings.AutoStartCodexFiveHourWindow;
+        AutoStartZaiFiveHourWindow = _settings.AutoStartZaiFiveHourWindow;
+        SessionActivationScheduleEnabled = _settings.SessionActivationScheduleEnabled;
+        RemoteViewUploadUrl = _settings.RemoteViewUploadUrl ?? string.Empty;
+        RemoteViewPageUrl = _settings.RemoteViewPageUrl ?? string.Empty;
+        RemoteViewEnabled = _settings.RemoteViewEnabled;
+        if (_settings.RemoteViewEnabled && !RemoteViewIds.IsValidId(_settings.RemoteViewId))
+        {
+            // Normally minted by the enable handler; covers the case where the
+            // checkbox was already on.
+            _settings.RemoteViewId = RemoteViewIds.MintWriteId();
+        }
+
+        ApplyImportedHotkey();
+
+        // These setters compare against _settings, which already holds the
+        // imported values, so they are refreshed explicitly.
+        Services.ThemeService.Apply(_settings.Theme);
+        OnPropertyChanged(nameof(SelectedTheme));
+        OnPropertyChanged(nameof(SelectedSessionActivationScheduleStart));
+        OnPropertyChanged(nameof(SelectedSessionActivationScheduleEnd));
+        NotifySessionActivationScheduleDescriptionChanged();
+        OnPropertyChanged(nameof(CanAutoStartZaiFiveHourWindow));
+        RemoteViewQrImage = null;
+        RemoteViewMessage = DescribeRemoteViewUrlProblems();
+        OnPropertyChanged(nameof(ShareLink));
+        OnPropertyChanged(nameof(RemoteViewHint));
+
+        _accountSources?.Reload();
+        _analytics.Invalidate();
+        RebuildProviderRows();
+        AccountsRestartMessage = string.Empty;
+        _pulseOrchestrator.RepublishLastState();
+    }
+
+    private void ApplyImportedHotkey()
+    {
+        _suppressHotkeyChange = true;
+        try
+        {
+            HotkeyEnabled = _settings.HotkeyEnabled;
+            Hotkey = _settings.Hotkey;
+
+            var applied = _hotkeyService.Apply(_settings.HotkeyEnabled, _settings.Hotkey);
+            if (!applied.IsSuccess)
+            {
+                // Same outcome as a rejected shortcut typed by hand: it stays off
+                // until the user picks one that works on this computer.
+                _hotkeyService.Apply(false, _settings.Hotkey);
+                _settings.HotkeyEnabled = false;
+                HotkeyEnabled = false;
+                HotkeyStatus = applied.Error;
+                return;
+            }
+
+            if (_settings.HotkeyEnabled)
+            {
+                _settings.Hotkey = applied.NormalizedHotkey;
+                Hotkey = applied.NormalizedHotkey;
+                HotkeyStatus = $"Active: {applied.NormalizedHotkey}";
+            }
+            else
+            {
+                HotkeyStatus = "Global shortcut is off.";
+            }
+        }
+        finally
+        {
+            _suppressHotkeyChange = false;
+        }
+    }
+
+    private string DescribeImportResult(SettingsImportResult result)
+    {
+        var lines = new List<string>
+        {
+            "Settings imported and applied. If Claude or Codex shows as signed out, use Relogin in Accounts."
+        };
+
+        if (result.MissingAccountFolders.Count > 0)
+        {
+            lines.Add("These account folders were not found on this computer. Use Relogin to sign in there, or Edit to pick the right folder:");
+            lines.AddRange(result.MissingAccountFolders.Select(account =>
+                $"  {MonitoredAccountSettings.NormalizeDisplayName(account.DisplayName, account.Id)}: {account.ConfigDir}"));
+        }
+
+        if (_settings.CopilotEnabled && !HasCopilotToken)
+        {
+            lines.Add("Copilot is on but has no token here. Add it with Edit on the Copilot account.");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string AccountCountText(int count) => count == 1 ? "1 account" : string.Create(CultureInfo.InvariantCulture, $"{count} accounts");
+
     private async Task LoadCopilotTokenStatusAsync()
     {
         try
@@ -1439,6 +1731,12 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     /// </summary>
     private void SaveSettingsInBackground()
     {
+        if (_isApplyingImport)
+        {
+            // The import finishes with one awaited save of the complete result.
+            return;
+        }
+
         Task saving = SaveSettingsAsync();
         // SaveSettingsAsync handles its own failures, so this task can never
         // fault and there is no unobserved-exception path left behind.

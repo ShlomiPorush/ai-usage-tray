@@ -144,6 +144,7 @@ namespace costats.App.Services
             _taskbarIcon.TrayBalloonTipClicked += (_, _) =>
                 (_notificationClickAction ?? ShowWidget).Invoke();
             _taskbarIcon.ForceCreate(enablesEfficiencyMode: false);
+            TrayIconPromotionService.PromoteInBackground();
             _pulseSubscription = pulseOrchestrator.PulseStream.Subscribe(this);
 
             SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
