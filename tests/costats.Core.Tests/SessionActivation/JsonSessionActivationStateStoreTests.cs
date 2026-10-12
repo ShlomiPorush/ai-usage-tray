@@ -1,6 +1,7 @@
 using costats.Application.SessionActivation;
 using costats.Infrastructure.SessionActivation;
 using Xunit;
+using costats.Application.Storage;
 
 namespace costats.Core.Tests.SessionActivation;
 
@@ -45,13 +46,13 @@ public sealed class JsonSessionActivationStateStoreTests : IDisposable
         Assert.False(checkpoint.Completed);
         Assert.Equal(resetAt.AddMinutes(1), checkpoint.LastActivationAttemptAt);
         Assert.Equal(resetAt.AddMinutes(2), checkpoint.LastSuccessfulActivationAt);
-        Assert.False(File.Exists(Path.Combine(_root, "costats", "session-activation-state.json.tmp")));
+        Assert.False(File.Exists(Path.Combine(_root, AppDataPaths.FolderName, "session-activation-state.json.tmp")));
     }
 
     [Fact]
     public async Task Corrupt_state_fails_closed_as_empty()
     {
-        var directory = Path.Combine(_root, "costats");
+        var directory = Path.Combine(_root, AppDataPaths.FolderName);
         Directory.CreateDirectory(directory);
         await File.WriteAllTextAsync(Path.Combine(directory, "session-activation-state.json"), "not json");
 

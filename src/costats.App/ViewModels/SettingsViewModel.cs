@@ -1584,7 +1584,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         catch (Exception ex)
         {
             Log.Error(ex, "Saving imported settings failed");
-            SettingsTransferMessage = "Imported settings are active now but could not be saved. Check that %LOCALAPPDATA%\\costats is writable, then import again.";
+            SettingsTransferMessage = "Imported settings are active now but could not be saved. Check that %LOCALAPPDATA%\\AIUsageTray is writable, then import again.";
             IsSettingsTransferBusy = false;
             return;
         }
@@ -1752,7 +1752,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         catch (Exception ex)
         {
             Log.Error(ex, "Saving settings failed");
-            AccountsRestartMessage = "Could not save settings. Check that %LOCALAPPDATA%\\costats is writable.";
+            AccountsRestartMessage = "Could not save settings. Check that %LOCALAPPDATA%\\AIUsageTray is writable.";
         }
     }
 

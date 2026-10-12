@@ -1,6 +1,7 @@
 using costats.Application.Settings;
 using costats.Infrastructure.Settings;
 using Xunit;
+using costats.Application.Storage;
 
 namespace costats.Core.Tests.Settings;
 
@@ -25,7 +26,7 @@ public sealed class OnboardingSettingsTests : IDisposable
     [Fact]
     public async Task Legacy_settings_without_onboarding_state_do_not_show_first_run()
     {
-        var path = Path.Combine(_root, "costats", "settings.json");
+        var path = Path.Combine(_root, AppDataPaths.FolderName, "settings.json");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await File.WriteAllTextAsync(path, "{\"refreshMinutes\":5}");
 

@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using costats.Core.Pulse;
+using costats.Application.Storage;
 
 namespace costats.Infrastructure.Providers;
 
@@ -47,10 +48,8 @@ public sealed class ClaudeResetService
     public ClaudeResetService(IClaudeResetCreditClient client, string? basePath = null)
     {
         _client = client;
-        var root = string.IsNullOrWhiteSpace(basePath)
-            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-            : basePath;
-        _statePath = Path.Combine(root, "costats", FileName);
+        var root = AppDataPaths.ResolveRoot(basePath);
+        _statePath = Path.Combine(root, FileName);
     }
 
     public Task<ClaudeResetSnapshot?> LoadAsync(string configDir, CancellationToken cancellationToken) =>

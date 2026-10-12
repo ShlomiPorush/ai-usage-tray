@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using costats.Core.Pulse;
 using costats.Core.Shell;
+using costats.Application.Storage;
 
 namespace costats.Infrastructure.Providers;
 
@@ -466,8 +467,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
     // Disk cache I/O
     private string GetDiskCachePath()
     {
-        var basePath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(basePath, "costats", "cache", BuildDiskCacheFileName(_configDir));
+        return AppDataPaths.Combine("cache", BuildDiskCacheFileName(_configDir));
     }
 
     /// <summary>

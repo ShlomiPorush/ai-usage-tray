@@ -11,7 +11,9 @@ using costats.Application.Security;
 using costats.Application.SessionActivation;
 using costats.Application.Settings;
 using costats.Application.Shell;
+using costats.Application.Storage;
 using costats.Infrastructure.Analytics;
+using costats.Infrastructure.Storage;
 using costats.Infrastructure.Providers;
 using costats.Infrastructure.Security;
 using costats.Infrastructure.SessionActivation;
@@ -55,15 +57,21 @@ namespace costats.App
             ShutdownMode = ShutdownMode.OnExplicitShutdown;
             base.OnStartup(e);
 
-            BootstrapEarlyLogger();
             RegisterExceptionHandlers();
 
-            var version = Assembly.GetExecutingAssembly().GetName().Version;
-            Log.Information("costats starting (v{Version}, PID {Pid})", version, Environment.ProcessId);
-
+            // The mutex/pipe name stays "costats" on purpose: it is how this
+            // build recognises an older running instance and hands off to it
+            // instead of moving that instance's data folder out from under it.
             _singleInstance = new SingleInstanceCoordinator("costats");
             if (!_singleInstance.IsPrimary)
             {
+                // Until this instance knows it is the primary it writes nothing
+                // under the data folder: the running primary owns it, and the
+                // one-time data folder move must not race a log file this
+                // process created.
+                BootstrapDebugOnlyLogger();
+                Log.Information("Second instance starting (PID {Pid}); handing off to the primary", Environment.ProcessId);
+
                 // We did not create the single-instance mutex. Usually that means a
                 // genuine primary is already running, so we hand our activation to
                 // it and exit. But the mutex name is only same-user scoped: it can
@@ -88,6 +96,7 @@ namespace costats.App
                         }
                         else
                         {
+                            PrepareDataFolderAndLogging();
                             Log.Warning(
                                 "Single-instance lock was held but no primary answered the activation pipe; starting anyway");
                             _ = InitializeAsync();
@@ -97,7 +106,72 @@ namespace costats.App
                 return;
             }
 
+            PrepareDataFolderAndLogging();
             _ = InitializeAsync();
+        }
+
+        /// <summary>
+        /// Runs in the primary instance only, before anything opens a file in
+        /// the data folder: moves data written by 2.18 and earlier from %LOCALAPPDATA%\costats,
+        /// then starts the file logger and records what the move did.
+        /// </summary>
+        private static void PrepareDataFolderAndLogging()
+        {
+            LegacyDataMigrationResult? migration = null;
+            Exception? migrationError = null;
+            try
+            {
+                migration = LegacyDataMigrator.ForCurrentUser().Migrate();
+            }
+            catch (Exception ex)
+            {
+                // The move is best effort and retried on the next start; it
+                // must never stop the app from starting.
+                migrationError = ex;
+            }
+
+            BootstrapEarlyLogger();
+
+            var version = Assembly.GetExecutingAssembly().GetName().Version;
+            Log.Information("costats starting (v{Version}, PID {Pid})", version, Environment.ProcessId);
+            LogMigration(migration, migrationError);
+        }
+
+        private static void LogMigration(LegacyDataMigrationResult? migration, Exception? error)
+        {
+            if (error is not null)
+            {
+                Log.Warning(error, "Moving data from {LegacyRoot} failed; it is retried on the next start", AppDataPaths.LegacyRoot);
+                return;
+            }
+
+            if (migration is null || !migration.LegacyFolderFound)
+            {
+                return;
+            }
+
+            Log.Information(
+                "Moved {Moved} item(s) from {LegacyRoot} to {DataRoot}; old folder {Outcome}",
+                migration.Moved.Count,
+                AppDataPaths.LegacyRoot,
+                AppDataPaths.Root,
+                migration.LegacyFolderRemoved ? "removed" : "kept");
+
+            if (migration.Kept.Count > 0)
+            {
+                Log.Information(
+                    "Left {Count} item(s) in the old data folder because the new folder already has them: {Items}",
+                    migration.Kept.Count,
+                    string.Join(", ", migration.Kept));
+            }
+
+            foreach (var failure in migration.Failed)
+            {
+                Log.Warning(
+                    "Could not move {Item} from the old data folder; retrying on the next start: {Error}",
+                    failure.RelativePath.Length == 0 ? "(folder)" : failure.RelativePath,
+                    failure.Error);
+            }
         }
 
         protected override async void OnExit(System.Windows.ExitEventArgs e)
@@ -491,22 +565,38 @@ namespace costats.App
         /// </summary>
         private static void BootstrapEarlyLogger()
         {
-            var logDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "costats", "logs");
-            Directory.CreateDirectory(logDir);
+            Directory.CreateDirectory(AppDataPaths.LogsDirectory);
 
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Information()
                 .WriteTo.Debug()
                 .WriteTo.File(
-                    Path.Combine(logDir, "costats-.log"),
+                    MainLogFilePath,
                     rollingInterval: RollingInterval.Day,
                     retainedFileCountLimit: 14,
-                    outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}")
+                    outputTemplate: LogOutputTemplate)
                 .Enrich.FromLogContext()
                 .CreateLogger();
         }
+
+        /// <summary>
+        /// Logger for a second instance that has not yet confirmed a primary is
+        /// running: debugger output only, so it creates nothing on disk.
+        /// </summary>
+        private static void BootstrapDebugOnlyLogger()
+        {
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Information()
+                .WriteTo.Debug()
+                .Enrich.FromLogContext()
+                .CreateLogger();
+        }
+
+        private const string LogOutputTemplate =
+            "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] [{SourceContext}] {Message:lj}{NewLine}{Exception}";
+
+        /// <summary>The daily application log, %LOCALAPPDATA%\AIUsageTray\logs\costats-YYYYMMDD.log.</summary>
+        private static string MainLogFilePath => Path.Combine(AppDataPaths.LogsDirectory, "costats-.log");
 
         private void RegisterExceptionHandlers()
         {
@@ -581,8 +671,15 @@ namespace costats.App
                 })
                 .UseSerilog((context, services, loggerConfig) =>
                 {
+                    // The file sink is configured here rather than in
+                    // appsettings.json so its folder comes from AppDataPaths.
                     loggerConfig
                         .ReadFrom.Configuration(context.Configuration)
+                        .WriteTo.File(
+                            MainLogFilePath,
+                            rollingInterval: RollingInterval.Day,
+                            retainedFileCountLimit: 14,
+                            outputTemplate: LogOutputTemplate)
                         .Enrich.FromLogContext();
                 })
                 .ConfigureServices(services =>

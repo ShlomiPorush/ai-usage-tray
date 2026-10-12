@@ -28,7 +28,7 @@ AI Usage Tray: a .NET 10 WPF Windows tray app (fork of fmdz387/costats, MIT) sho
 - Publish: `publish src/costats.App/costats.App.csproj -c Release -r win-x64 -o <dir>`.
 - Local deploy: `Stop-Process -Name AIUsageTray -Force` first (the exe locks), copy over `%LOCALAPPDATA%\AIUsageTray\app\`, relaunch. Settings live outside that folder and survive.
 - Visual check: run the exe once with `--screenshot "<path with quotes>"` (quotes matter, the profile path has a space); it opens the widget, waits ~15s, saves a PNG and exits. Look at the PNG.
-- What the app actually parsed: `%LOCALAPPDATA%\costats\snapshots\` (pulse snapshot JSON) and `%LOCALAPPDATA%\costats\logs\`.
+- What the app actually did: `%LOCALAPPDATA%\AIUsageTray\logs\`.
 
 ## Architecture map (30 seconds)
 
@@ -48,10 +48,11 @@ Run `node scripts/update-pricing-snapshot.mjs` and review its diff -> bump `Vers
 
 ## Known traps
 
-- Model prices are data, not code. The app layers, lowest first: the bundled snapshot `src/costats.Core/Analytics/pricing-snapshot.json` (generated from LiteLLM by `scripts/update-pricing-snapshot.mjs`, append-only so retired models keep their last price), the daily cached LiteLLM catalog (`%LOCALAPPDATA%\costats\pricing-catalog.json`, URL in `appsettings.json` under `Costats:Pricing`), `ModelPricingTable.PinnedUnpriced`, and the user's `pricing.json`. Do not add prices to C# code, and never guess a price from a model family.
+- Model prices are data, not code. The app layers, lowest first: the bundled snapshot `src/costats.Core/Analytics/pricing-snapshot.json` (generated from LiteLLM by `scripts/update-pricing-snapshot.mjs`, append-only so retired models keep their last price), the daily cached LiteLLM catalog (`%LOCALAPPDATA%\AIUsageTray\pricing-catalog.json`, URL in `appsettings.json` under `Costats:Pricing`), `ModelPricingTable.PinnedUnpriced`, and the user's `pricing.json`. Do not add prices to C# code, and never guess a price from a model family.
 
 - Windows shell tray tooltips cap at 127 chars; the real hover popup is our own window fed by `TrayStatus.FullTooltip`.
 - PowerShell 5.1 runs the install one-liner: no `RuntimeInformation.ProcessArchitecture`, needs TLS 1.2, and a UTF-8 BOM in `install.ps1` breaks `iwr | iex`.
-- `settings.json` is user state at `%LOCALAPPDATA%\costats\settings.json`; app defaults (remote-view URLs, updater) live in `appsettings.json`. Do not write defaults into user state.
+- `settings.json` is user state at `%LOCALAPPDATA%\AIUsageTray\settings.json`; app defaults (remote-view URLs, updater) live in `appsettings.json`. Do not write defaults into user state.
+- All user data lives under `%LOCALAPPDATA%\AIUsageTray\`, beside the `app\` folder the installer and updater replace. Build every data path from `AppDataPaths` (`costats.Application/Storage`), never from a literal folder name; `AppDataPathsTests` fails on a stray `costats\` path. Versions up to 2.18 used `%LOCALAPPDATA%\costats`; `LegacyDataMigrator` moves it at startup in the primary instance, before the log file opens. Never name a data file or folder `app`. Credential Manager targets still use the `costats:` prefix; renaming them needs a secret migration.
 - Heredocs and inline scripts on this machine mangle backslashes; write patch scripts to a file and run them.
 - The `--screenshot` argument must be quoted (space in the profile path); an unquoted path fails silently.

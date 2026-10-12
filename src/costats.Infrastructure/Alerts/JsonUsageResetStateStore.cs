@@ -1,6 +1,7 @@
 using System.Text.Json;
 using costats.Application.Alerts;
 using costats.Core.Alerts;
+using costats.Application.Storage;
 
 namespace costats.Infrastructure.Alerts;
 
@@ -17,10 +18,8 @@ public sealed class JsonUsageResetStateStore : IUsageResetStateStore
 
     public JsonUsageResetStateStore(string? basePath = null)
     {
-        var root = string.IsNullOrWhiteSpace(basePath)
-            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-            : basePath;
-        path = Path.Combine(root, "costats", FileName);
+        var root = AppDataPaths.ResolveRoot(basePath);
+        path = Path.Combine(root, FileName);
     }
 
     public IReadOnlyList<UsageResetCheckpoint> Load()

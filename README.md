@@ -64,7 +64,7 @@ Then follow **[docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md)** for the step-by-s
 3. Changes apply immediately, no restart needed. Each row has **Edit**, **✕** (remove) and a star to mark the primary account.
 
 ## Configuration
-Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (path kept from upstream so existing installs keep working).
+Settings, logs and caches are stored in `%LOCALAPPDATA%\AIUsageTray` (for example `settings.json` and `logs\`), next to the installed `app` folder. Versions up to 2.18 used `%LOCALAPPDATA%\costats`; the first start of a newer version moves that data over by itself, never overwriting anything already in the new folder, and removes the old folder once it is empty.
 
 The export file (`ai-usage-tray-settings.json`) carries the same settings minus everything tied to one machine or secret: the Z.AI keys and Copilot token, the remote view write id, onboarding state and the floating panel size. Importing keeps those values as they are on the target computer; if remote view is on and the target has no link yet, a new one is created. Account folders that do not exist after the move are still imported and listed, so you can sign in with **Relogin** or pick the right folder with **Edit**.
 

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using costats.Core.Pulse;
+using costats.Application.Storage;
 
 namespace costats.Infrastructure.Providers;
 
@@ -41,10 +42,8 @@ public sealed class CodexResetCreditService
     {
         _reader = reader;
         _consumer = consumer;
-        var root = string.IsNullOrWhiteSpace(basePath)
-            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-            : basePath;
-        _statePath = Path.Combine(root, "costats", FileName);
+        var root = AppDataPaths.ResolveRoot(basePath);
+        _statePath = Path.Combine(root, FileName);
     }
 
     public Task<CodexAppServerRateLimitSnapshot?> LoadAsync(string codexHome, CancellationToken cancellationToken) =>

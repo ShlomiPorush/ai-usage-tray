@@ -2,11 +2,12 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using costats.Application.Security;
 using costats.Application.Settings;
+using costats.Application.Storage;
 
 namespace costats.Infrastructure.Settings;
 
 /// <summary>
-/// Reads and writes <c>%LOCALAPPDATA%\costats\settings.json</c>.
+/// Reads and writes <c>%LOCALAPPDATA%\AIUsageTray\settings.json</c>.
 ///
 /// Two things are deliberate here. Writes go to a temp file and are then moved
 /// over the real one, so a crash mid-save can never leave a truncated or empty
@@ -40,17 +41,14 @@ public sealed class JsonSettingsStore : ISettingsStore
     /// which is only useful in tests.
     /// </param>
     /// <param name="basePath">
-    /// Root folder to place the <c>costats</c> directory in. Defaults to
+    /// Root folder to place the <c>AIUsageTray</c> data directory in. Defaults to
     /// LocalApplicationData; tests point it at a temp folder so they never touch
     /// the user's real settings.
     /// </param>
     public JsonSettingsStore(ICredentialVault? credentialVault = null, string? basePath = null)
     {
         _credentialVault = credentialVault;
-        var root = string.IsNullOrWhiteSpace(basePath)
-            ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-            : basePath;
-        _settingsPath = Path.Combine(root, "costats", "settings.json");
+        _settingsPath = Path.Combine(AppDataPaths.ResolveRoot(basePath), "settings.json");
     }
 
     public async Task<AppSettings> LoadAsync(CancellationToken cancellationToken)

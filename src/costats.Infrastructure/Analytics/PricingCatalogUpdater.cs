@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using costats.Core.Analytics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using costats.Application.Storage;
 
 namespace costats.Infrastructure.Analytics;
 
@@ -24,7 +25,7 @@ public sealed record PricingCatalogOptions
 
 /// <summary>
 /// Keeps a local copy of the live price catalog at
-/// <c>%LOCALAPPDATA%\costats\pricing-catalog.json</c>, checked at most once per
+/// <c>%LOCALAPPDATA%\AIUsageTray\pricing-catalog.json</c>, checked at most once per
 /// <see cref="PricingCatalogOptions.RefreshInterval"/>.
 /// </summary>
 /// <remarks>
@@ -76,10 +77,7 @@ public sealed class PricingCatalogUpdater
     }
 
     /// <summary>Default location of the cached catalog.</summary>
-    public static string DefaultCachePath() => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "costats",
-        "pricing-catalog.json");
+    public static string DefaultCachePath() => AppDataPaths.Combine("pricing-catalog.json");
 
     /// <summary>The cache file this updater reads and writes.</summary>
     public string CachePath => _cachePath;

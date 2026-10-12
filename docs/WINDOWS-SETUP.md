@@ -133,7 +133,7 @@ The numbers come from the Claude Code and Codex session logs already on the mach
 - Range: the past 24 hours (hour by hour), or the last 7, 30 or 90 days.
 - Account filter: all accounts, or one account.
 - A per-provider split, a chart of the range, and a breakdown table you can switch between **Model** and **Day**.
-- Models no price list covers are still counted in tokens and listed as unpriced. To price them yourself, or to correct a listed price, create `%LOCALAPPDATA%\costats\pricing.json` with a flat map of model id to USD per million tokens, for example `{ "some-new-model": { "input": 0.2, "output": 1.2 } }`.
+- Models no price list covers are still counted in tokens and listed as unpriced. To price them yourself, or to correct a listed price, create `%LOCALAPPDATA%\AIUsageTray\pricing.json` with a flat map of model id to USD per million tokens, for example `{ "some-new-model": { "input": 0.2, "output": 1.2 } }`.
 
 ## 8. Other settings
 
@@ -144,7 +144,9 @@ The numbers come from the Claude Code and Codex session logs already on the mach
 - **Check for updates** under **UPDATES**: checks this repository's releases, stages the update and restarts to apply it. The app also checks automatically in the background.
 - **Export settings** / **Import settings** under **General**: moves your accounts and preferences to another computer through a JSON file. API keys, tokens and the remote view link are not included, and they are kept as they are on the computer you import into. Account folders under your user profile follow the new profile automatically; any folder that is still missing is listed after the import. Sign in to Claude and Codex again on the new computer.
 
-Settings are stored at `%LOCALAPPDATA%\costats\settings.json` (the path is kept from upstream so existing installs keep working). Logs go to `%LOCALAPPDATA%\costats\logs`.
+Settings are stored at `%LOCALAPPDATA%\AIUsageTray\settings.json`, next to the installed `app` folder. Logs go to `%LOCALAPPDATA%\AIUsageTray\logs`, and caches, state files and update downloads live in the same folder.
+
+Versions up to 2.18 kept this data in `%LOCALAPPDATA%\costats`. The first start of a newer version moves it into `%LOCALAPPDATA%\AIUsageTray` by itself. Nothing already in the new folder is overwritten: if a file exists in both places, the new one is kept and the old one stays where it was. Files another program holds open are moved on a later start, and the old folder is deleted once it is empty. Do not install the app straight into `%LOCALAPPDATA%\AIUsageTray` (use its `app` subfolder, the default); the installer refuses that folder because updates replace the install folder whole.
 
 ## 9. Uninstall
 
@@ -156,9 +158,9 @@ You can also run the uninstaller directly:
 & "$env:LOCALAPPDATA\AIUsageTray\app\uninstall.ps1"
 ```
 
-Either route stops the app, removes the Start Menu shortcut and the start-at-login entries, deletes the Add/remove programs registration and deletes `%LOCALAPPDATA%\AIUsageTray`.
+Either route stops the app, removes the Start Menu shortcut and the start-at-login entries, deletes the Add/remove programs registration and deletes `%LOCALAPPDATA%\AIUsageTray\app`.
 
-Interactive uninstall asks whether to keep or remove settings, logs and cached usage history in `%LOCALAPPDATA%\costats`. Quiet uninstall keeps them unless `-PurgeData` is supplied. To request removal directly:
+Interactive uninstall asks whether to keep or remove settings, logs and cached usage history in `%LOCALAPPDATA%\AIUsageTray` (and in `%LOCALAPPDATA%\costats`, if version 2.18 or earlier left it behind). Quiet uninstall keeps them unless `-PurgeData` is supplied. To request removal directly:
 
 ```powershell
 & "$env:LOCALAPPDATA\AIUsageTray\app\uninstall.ps1" -PurgeData

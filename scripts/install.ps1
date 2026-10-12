@@ -188,6 +188,16 @@ if ($forbidden -contains $InstallDir.TrimEnd('/', [char]92)) {
     throw "Refusing to install into '$InstallDir' - choose a dedicated subfolder."
 }
 
+# %LOCALAPPDATA%\AIUsageTray holds the user's settings and logs next to the
+# app folder. Installing straight into it would wipe that data now and on every
+# update, so only its "app" subfolder (the default) is allowed.
+if ($env:LOCALAPPDATA) {
+    $dataDir = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "AIUsageTray"))
+    if ($InstallDir.TrimEnd('/', [char]92) -ieq $dataDir.TrimEnd('/', [char]92)) {
+        throw "Refusing to install into '$InstallDir' - it holds your settings. Use the default '$dataDir\app' or another folder."
+    }
+}
+
 # The directory is wiped below, so it must be empty or an existing install of
 # this app. Anything else is someone else's data.
 if (Test-Path -LiteralPath $InstallDir) {
