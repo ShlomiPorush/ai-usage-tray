@@ -223,10 +223,57 @@ namespace costats.App.Services
                 GuidItem = _taskbarIcon.TrayIcon.Id
             };
 
-            return Shell_NotifyIconGetRect(ref identifier, out var bounds) == 0 &&
-                   cursor.X >= bounds.Left && cursor.X < bounds.Right &&
-                   cursor.Y >= bounds.Top && cursor.Y < bounds.Bottom;
+            var result = Shell_NotifyIconGetRect(ref identifier, out var bounds);
+            if (result != 0)
+            {
+                Log.Debug("Tray hover test: icon rectangle unavailable (0x{Result:X8})", result);
+                return false;
+            }
+
+            var taskbar = FindRightToLeftTaskbar(bounds);
+            return TrayIconHitTest.IsPointerOverIcon(
+                cursor.X, cursor.Y,
+                bounds.Left, bounds.Top, bounds.Right, bounds.Bottom,
+                taskbar?.Left, taskbar?.Right);
         }
+
+        // Returns the bounds of the taskbar holding the icon when that taskbar
+        // is laid out right to left, because the shell then reports the icon
+        // rectangle mirrored across it.
+        private static NativeRect? FindRightToLeftTaskbar(NativeRect icon)
+        {
+            var centerX = (icon.Left + icon.Right) / 2;
+            var centerY = (icon.Top + icon.Bottom) / 2;
+            foreach (var className in new[] { "Shell_TrayWnd", "Shell_SecondaryTrayWnd" })
+            {
+                var taskbar = IntPtr.Zero;
+                while ((taskbar = FindWindowEx(IntPtr.Zero, taskbar, className, null)) != IntPtr.Zero)
+                {
+                    if (!GetWindowRect(taskbar, out var rect) ||
+                        centerX < rect.Left || centerX >= rect.Right ||
+                        centerY < rect.Top || centerY >= rect.Bottom)
+                    {
+                        continue;
+                    }
+
+                    return (GetWindowLong(taskbar, GwlExStyle) & WsExLayoutRtl) != 0 ? rect : null;
+                }
+            }
+
+            return null;
+        }
+
+        private const int GwlExStyle = -20;
+        private const int WsExLayoutRtl = 0x00400000;
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr childAfter, string className, string? windowName);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr window, out NativeRect rect);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern int GetWindowLong(IntPtr window, int index);
 
         [System.Runtime.InteropServices.DllImport("user32.dll")]
         private static extern bool GetCursorPos(out NativePoint point);
