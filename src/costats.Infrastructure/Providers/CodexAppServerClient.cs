@@ -37,6 +37,7 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
     /// refresh, and once more when it works again; Debug keeps every detail.
     /// </summary>
     private readonly ConcurrentDictionary<string, string> _reportedFailures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, byte> _reportedRefreshFailures = new(StringComparer.OrdinalIgnoreCase);
 
     public CodexAppServerClient(
         string codexExecutable = "codex",
@@ -113,34 +114,26 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
                 "{\"method\":\"initialize\",\"id\":1,\"params\":{\"clientInfo\":{\"name\":\"ai_usage_tray\",\"title\":\"AI Usage Tray\",\"version\":\"0.1.0\"}}}");
             await process.StandardInput.WriteLineAsync(
                 "{\"method\":\"initialized\",\"params\":{}}");
+            // The sign-in state always comes from a plain read. A failed
+            // session refresh answers "no account" and leaves this app-server
+            // treating the account as signed out, while the stored sign-in
+            // still works, so the optional refresh runs last and only gets
+            // logged.
             await process.StandardInput.WriteLineAsync(
-                CreateAccountReadRequest(refreshToken));
+                CreateAccountReadRequest(refreshToken: false));
             await process.StandardInput.FlushAsync(timeout.Token);
             _logger.LogDebug(
-                "Codex app-server {Account}: sent initialize, initialized, account/read (refreshToken {RefreshToken})",
+                "Codex app-server {Account}: sent initialize, initialized, account/read (session refresh afterwards {RefreshToken})",
                 account,
                 refreshToken);
 
-            CodexAppServerAccountSnapshot? accountSnapshot = null;
-            while (!timeout.IsCancellationRequested)
-            {
-                var line = await process.StandardOutput.ReadLineAsync(timeout.Token);
-                if (line is null)
-                {
-                    break;
-                }
-
-                if (CodexAppServerRateLimitParser.TryParseAccount(line, expectedId: 3, out accountSnapshot))
-                {
-                    break;
-                }
-            }
-
+            var accountSnapshot = await ReadAccountAnswerAsync(process, expectedId: 3, timeout.Token);
             _logger.LogDebug(
                 "Codex app-server {Account}: account/read answered {Result} after {ElapsedMs} ms",
                 account,
                 DescribeAccountRead(accountSnapshot),
                 stopwatch.ElapsedMilliseconds);
+
             if (accountSnapshot is null)
             {
                 ReportFailure(codexHome, account, "the app-server gave no account answer", null);
@@ -151,11 +144,10 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
             }
 
             var requiresSignIn = accountSnapshot is
-                {
-                    HasAccount: false,
-                    RequiresOpenaiAuth: true
-                } ||
-                (refreshToken && accountSnapshot?.HasError == true);
+            {
+                HasAccount: false,
+                RequiresOpenaiAuth: true
+            };
             if (requiresSignIn)
             {
                 _logger.LogDebug("Codex app-server {Account}: sign-in required", account);
@@ -194,6 +186,11 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
                         "Codex app-server {Account}: account/rateLimits/read answered rate limits after {ElapsedMs} ms",
                         account,
                         stopwatch.ElapsedMilliseconds);
+                    if (refreshToken)
+                    {
+                        await RefreshSessionAsync(process, codexHome, account, stopwatch, timeout.Token);
+                    }
+
                     return rateLimitSnapshot with { Email = email };
                 }
             }
@@ -280,8 +277,94 @@ public sealed class CodexAppServerClient : ICodexAppServerClient, ICodexResetCre
         _ => "no account"
     };
 
-    internal static string CreateAccountReadRequest(bool refreshToken) =>
-        $"{{\"method\":\"account/read\",\"id\":3,\"params\":{{\"refreshToken\":{refreshToken.ToString().ToLowerInvariant()}}}}}";
+    internal static string CreateAccountReadRequest(bool refreshToken, int id = 3) =>
+        string.Create(
+            CultureInfo.InvariantCulture,
+            $"{{\"method\":\"account/read\",\"id\":{id},\"params\":{{\"refreshToken\":{refreshToken.ToString().ToLowerInvariant()}}}}}");
+
+    private static async Task<CodexAppServerAccountSnapshot?> ReadAccountAnswerAsync(
+        Process process,
+        int expectedId,
+        CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var line = await process.StandardOutput.ReadLineAsync(cancellationToken);
+            if (line is null)
+            {
+                return null;
+            }
+
+            if (CodexAppServerRateLimitParser.TryParseAccount(line, expectedId, out var snapshot))
+            {
+                return snapshot;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Asks Codex to refresh the account session. The answer is only logged:
+    /// it never changes the reading, which already came from a plain read.
+    /// </summary>
+    private async Task RefreshSessionAsync(
+        Process process,
+        string codexHome,
+        string account,
+        Stopwatch stopwatch,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await process.StandardInput.WriteLineAsync(CreateAccountReadRequest(refreshToken: true, id: 4));
+            await process.StandardInput.FlushAsync(cancellationToken);
+            var answer = await ReadAccountAnswerAsync(process, expectedId: 4, cancellationToken);
+            _logger.LogDebug(
+                "Codex app-server {Account}: session refresh answered {Result} after {ElapsedMs} ms",
+                account,
+                DescribeAccountRead(answer),
+                stopwatch.ElapsedMilliseconds);
+            if (answer is { HasAccount: true })
+            {
+                ReportSessionRefreshSuccess(codexHome, account);
+            }
+            else
+            {
+                ReportSessionRefreshFailure(codexHome, account, DescribeAccountRead(answer));
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or IOException)
+        {
+            // The usage reading is already complete; a refresh that times out
+            // or loses its pipe must not discard it.
+            _logger.LogDebug("Codex app-server {Account}: session refresh got no answer", account);
+            ReportSessionRefreshFailure(codexHome, account, "nothing");
+        }
+    }
+
+    /// <summary>
+    /// Warns once per account while session refreshes keep failing; the
+    /// account itself may still be signed in.
+    /// </summary>
+    private void ReportSessionRefreshFailure(string codexHome, string account, string answer)
+    {
+        if (_reportedRefreshFailures.TryAdd(Path.GetFullPath(codexHome), 0))
+        {
+            _logger.LogWarning(
+                "Codex session refresh for {Account} did not succeed (answered {Answer}); usage still comes from the plain read. Repeats are logged at Debug",
+                account,
+                answer);
+        }
+    }
+
+    private void ReportSessionRefreshSuccess(string codexHome, string account)
+    {
+        if (_reportedRefreshFailures.TryRemove(Path.GetFullPath(codexHome), out _))
+        {
+            _logger.LogInformation("Codex session refresh for {Account} works again", account);
+        }
+    }
 
     public async Task<ResetCreditOutcome> ConsumeResetCreditAsync(
         string codexHome, string creditId, string idempotencyKey, CancellationToken cancellationToken)
