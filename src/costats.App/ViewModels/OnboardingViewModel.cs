@@ -7,6 +7,7 @@ using costats.Application.Settings;
 using costats.Core.Pulse;
 using costats.Core.Shell;
 using costats.Infrastructure.Analytics;
+using costats.Infrastructure.Providers;
 using Serilog;
 
 namespace costats.App.ViewModels;
@@ -235,8 +236,7 @@ public sealed partial class OnboardingViewModel : ObservableObject, IObserver<Pu
     {
         var path = GetSelectedAccount(MonitoredAccountSettings.CodexType)?.ConfigDir
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
-        var literal = PowerShellLiteral.Quote(path);
-        var command = $"$env:CODEX_HOME={literal}; Write-Host 'Complete Codex sign-in, then return to AI Usage Tray and click Retry.' -ForegroundColor Cyan; codex login";
+        var command = CodexSignInCommand.Create(path, "Complete Codex sign-in, then return to AI Usage Tray and click Retry.");
         if (TryOpenPowerShell(command))
         {
             CodexStatusDetail = "Complete sign-in in PowerShell, then return here and click Retry.";
@@ -451,9 +451,8 @@ public sealed partial class OnboardingViewModel : ObservableObject, IObserver<Pu
                 UseShellExecute = true,
                 WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
             };
-            startInfo.ArgumentList.Add("-NoExit");
             startInfo.ArgumentList.Add("-Command");
-            startInfo.ArgumentList.Add(command);
+            startInfo.ArgumentList.Add(PowerShellSignInScript.PauseOnFailure(command));
             Process.Start(startInfo);
             return true;
         }
