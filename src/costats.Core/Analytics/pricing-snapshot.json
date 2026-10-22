@@ -799,6 +799,13 @@
     "output_cost_per_token": 0.000075,
     "cache_read_input_token_cost": 0.00000125
   },
+  "gpt-5.5-cyber-preview": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000125,
+    "output_cost_per_token": 0.000075,
+    "cache_read_input_token_cost": 0.00000125
+  },
   "gpt-5.5-pro": {
     "litellm_provider": "openai",
     "mode": "responses",
