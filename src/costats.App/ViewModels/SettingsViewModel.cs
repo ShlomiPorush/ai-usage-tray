@@ -725,8 +725,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         }
 
         var command = row.IsCodex
-            ? CodexSignInCommand.Create(row.Detail, "Complete Codex sign-in, then close this window.")
-            : $"$env:CLAUDE_CONFIG_DIR={PowerShellLiteral.Quote(row.Detail)}; Write-Host 'If needed, type /login in Claude Code, then close this window.' -ForegroundColor Cyan; claude";
+            ? CodexSignInCommand.Create(row.Detail, "Complete Codex sign-in. This window closes by itself when it is done.")
+            : $"$env:CLAUDE_CONFIG_DIR={PowerShellLiteral.Quote(row.Detail)}; Write-Host 'If needed, type /login in Claude Code, then /exit to finish.' -ForegroundColor Cyan; claude";
 
         if (!TryOpenPowerShell(command, out var process) || process is null)
         {
@@ -925,11 +925,10 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
                 UseShellExecute = true,
                 WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
             };
-            // Keep the window open so a failed sign-in stays readable. The
-            // refresh runs once the user closes it, as the prompt asks.
-            startInfo.ArgumentList.Add("-NoExit");
+            // The window closes by itself after a successful sign-in, which
+            // lets the refresh run right away; a failure stays readable.
             startInfo.ArgumentList.Add("-Command");
-            startInfo.ArgumentList.Add(command);
+            startInfo.ArgumentList.Add(PowerShellSignInScript.PauseOnFailure(command));
             process = Process.Start(startInfo);
             return process is not null;
         }

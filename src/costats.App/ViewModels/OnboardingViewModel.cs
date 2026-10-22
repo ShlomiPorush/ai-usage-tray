@@ -451,9 +451,8 @@ public sealed partial class OnboardingViewModel : ObservableObject, IObserver<Pu
                 UseShellExecute = true,
                 WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
             };
-            startInfo.ArgumentList.Add("-NoExit");
             startInfo.ArgumentList.Add("-Command");
-            startInfo.ArgumentList.Add(command);
+            startInfo.ArgumentList.Add(PowerShellSignInScript.PauseOnFailure(command));
             Process.Start(startInfo);
             return true;
         }
