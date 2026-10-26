@@ -163,7 +163,23 @@ class Program
         Check(((UniformGrid)invalid.FindName("StatusRowsPanel")).Columns == 2,
             "Invalid saved dimensions and an initial empty state must recover to the default layout");
         invalid.Close();
+        UsageWindowChecks.Run(OutputPath);
         Console.WriteLine("PASS: two-column default, narrow/wide reflow, refresh stability, native resize hit targets, close-button hit test, account-change auto-size, user-size latch and persistence, empty state, saved dimensions.");
+    }
+
+    /// <summary>
+    /// Where a PNG goes: SMOKE_OUTPUT_DIR when set, beside the executable otherwise.
+    /// </summary>
+    static string OutputPath(string name)
+    {
+        var directory = Environment.GetEnvironmentVariable("SMOKE_OUTPUT_DIR");
+        if (string.IsNullOrWhiteSpace(directory))
+        {
+            return Path.Combine(AppContext.BaseDirectory, name);
+        }
+
+        Directory.CreateDirectory(directory);
+        return Path.Combine(directory, name);
     }
 
     static void Pump(Window window)
@@ -185,7 +201,7 @@ class Program
         bitmap.Render(window);
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
-        using var file = File.Create(Path.Combine(AppContext.BaseDirectory, name));
+        using var file = File.Create(OutputPath(name));
         encoder.Save(file);
     }
 }

@@ -30,8 +30,144 @@ public sealed record UsageChartData
     /// <summary>One entry per provider that has data in the range.</summary>
     public IReadOnlyList<UsageChartSeries> Series { get; init; } = [];
 
+    /// <summary>
+    /// The comparison period, aligned point for point with
+    /// <see cref="Labels"/>, drawn as dashed lines. A NaN value is a point the
+    /// comparison period does not have, drawn as a gap rather than as zero.
+    /// </summary>
+    public IReadOnlyList<UsageChartSeries> ComparisonSeries { get; init; } = [];
+
+    /// <summary>
+    /// The comparison period's own label for every point, drawn as a second
+    /// axis row so the dashed line can be read against its real dates. Empty
+    /// entries are points the comparison does not have. Empty when the
+    /// comparison has no dates of its own (an average day).
+    /// </summary>
+    public IReadOnlyList<string> ComparisonLabels { get; init; } = [];
+
+    /// <summary>The current period's point that is still in progress, or null.</summary>
+    public int? PartialIndex { get; init; }
+
+    /// <summary>The comparison's point that is still in progress, or null.</summary>
+    public int? ComparisonPartialIndex { get; init; }
+
     /// <summary>Formats a Y axis tick, so the same control serves dollars and tokens.</summary>
     public Func<double, string> AxisLabel { get; init; } = value => value.ToString("0", CultureInfo.InvariantCulture);
+}
+
+/// <summary>
+/// Pure layout rules of <see cref="UsageChart"/>, kept apart from drawing so
+/// they can be checked without rendering.
+/// </summary>
+public static class UsageChartLayout
+{
+    /// <summary>Smallest gap kept between two labels in one row.</summary>
+    public const double LabelGap = 8d;
+
+    /// <summary>Space kept between the "so far" text and its ring.</summary>
+    public const double SoFarGap = 6d;
+
+    /// <summary>
+    /// Picks which labels of one axis row to draw and where. The first and
+    /// the last real label always come first, so a row never loses its end
+    /// date, even when a shorter comparison stops early; the middle one is
+    /// added only when it fits. A label that would touch an earlier one is
+    /// left out rather than drawn on top of it.
+    /// </summary>
+    /// <param name="labels">One label per point; empty where the row has none.</param>
+    /// <param name="measure">The drawn width of a label.</param>
+    /// <param name="left">X of the first point.</param>
+    /// <param name="right">X of the last point.</param>
+    /// <returns>Point index and left edge of every label to draw.</returns>
+    public static IReadOnlyList<(int Index, double X)> PlaceLabels(
+        IReadOnlyList<string> labels,
+        Func<string, double> measure,
+        double left,
+        double right)
+    {
+        ArgumentNullException.ThrowIfNull(labels);
+        ArgumentNullException.ThrowIfNull(measure);
+
+        var count = labels.Count;
+        if (count == 0)
+        {
+            return [];
+        }
+
+        var step = count > 1 ? (right - left) / (count - 1) : 0d;
+        var candidates = new List<int>(3);
+        var first = Enumerable.Range(0, count).FirstOrDefault(index => labels[index].Length > 0, -1);
+        var last = Enumerable.Range(0, count).LastOrDefault(index => labels[index].Length > 0, -1);
+        if (first < 0)
+        {
+            return [];
+        }
+
+        candidates.Add(first);
+        if (last != first)
+        {
+            candidates.Add(last);
+        }
+
+        var middle = count / 2;
+        if (count > 2 && middle != first && middle != last && labels[middle].Length > 0)
+        {
+            candidates.Add(middle);
+        }
+
+        var placed = new List<(int Index, double X, double Width)>(candidates.Count);
+        foreach (var index in candidates)
+        {
+            var width = measure(labels[index]);
+            // One point keeps its label at the left edge, as the chart always did.
+            var anchor = left + (step * index);
+            var x = index == 0
+                ? anchor
+                : index == count - 1
+                    ? anchor - width
+                    : anchor - (width / 2d);
+            x = Math.Clamp(x, left, Math.Max(left, right - width));
+
+            if (placed.Any(other => x < other.X + other.Width + LabelGap && other.X < x + width + LabelGap))
+            {
+                continue;
+            }
+
+            placed.Add((index, x, width));
+        }
+
+        return placed
+            .OrderBy(entry => entry.X)
+            .Select(entry => (entry.Index, entry.X))
+            .ToList();
+    }
+
+    /// <summary>
+    /// The top of the "so far" text for the rings stacked at one point:
+    /// above all of them when there is room under the plot's top, below all
+    /// of them otherwise, so it never sits on any ring.
+    /// </summary>
+    public static double SoFarTop(IReadOnlyList<double> ringYs, double textHeight, double plotTop)
+    {
+        ArgumentNullException.ThrowIfNull(ringYs);
+        if (ringYs.Count == 0)
+        {
+            return plotTop;
+        }
+
+        var above = ringYs.Min() - RingRadius - textHeight - SoFarGap;
+        return above >= plotTop ? above : ringYs.Max() + RingRadius + SoFarGap;
+    }
+
+    /// <summary>Radius of the ring that marks a point still in progress.</summary>
+    public const double RingRadius = 3.5d;
+
+    /// <summary>
+    /// The left edge of a text centred on <paramref name="x"/>, kept inside
+    /// the plot when it fits, and at the plot's left edge when it does not.
+    /// </summary>
+    public static double ClampedLeft(double x, double width, double left, double right) =>
+        Math.Clamp(x - (width / 2d), left, Math.Max(left, right - width));
 }
 
 /// <summary>
@@ -52,6 +188,9 @@ public sealed class UsageChart : FrameworkElement
 
     /// <summary>Height reserved at the bottom for the date labels.</summary>
     private const double DateGutter = 20d;
+
+    /// <summary>Extra height for the comparison's own row of dates.</summary>
+    private const double ComparisonRowHeight = 15d;
 
     private const double TopPadding = 10d;
     private const double LabelSize = 10d;
@@ -139,17 +278,19 @@ public sealed class UsageChart : FrameworkElement
             return;
         }
 
+        // A second label row carries the comparison's own dates.
+        var hasComparisonLabels = data.ComparisonLabels.Any(label => label.Length > 0);
         var left = AxisGutter;
         var right = width - 6d;
         var top = TopPadding;
-        var bottom = height - DateGutter;
+        var bottom = height - DateGutter - (hasComparisonLabels ? ComparisonRowHeight : 0d);
         if (right <= left || bottom <= top)
         {
             return;
         }
 
         var peak = 0d;
-        foreach (var series in data.Series)
+        foreach (var series in data.Series.Concat(data.ComparisonSeries))
         {
             foreach (var value in series.Values)
             {
@@ -181,28 +322,168 @@ public sealed class UsageChart : FrameworkElement
         }
 
         // Axis labels: first, middle, last. Anything denser is unreadable at
-        // 90 days and adds nothing at 7.
-        DrawDateLabel(drawingContext, data.Labels[0], left, bottom, typeface, dpi, HorizontalAlignment.Left);
-        if (data.Labels.Count > 2)
+        // 90 days and adds nothing at 7. With a comparison, its own dates sit
+        // in a second row, and the rows are marked A and B in the gutter.
+        DrawLabelRow(drawingContext, data.Labels, left, right, bottom, typeface, dpi);
+        if (hasComparisonLabels)
         {
-            DrawDateLabel(
-                drawingContext,
-                data.Labels[data.Labels.Count / 2],
-                (left + right) / 2d,
-                bottom,
-                typeface,
-                dpi,
-                HorizontalAlignment.Center);
+            DrawLabelRow(drawingContext, data.ComparisonLabels, left, right, bottom + ComparisonRowHeight, typeface, dpi);
+            DrawRowMarker(drawingContext, "A", left, bottom, typeface, dpi);
+            DrawRowMarker(drawingContext, "B", left, bottom + ComparisonRowHeight, typeface, dpi);
         }
 
-        if (data.Labels.Count > 1)
+        // The comparison goes underneath, so the current period's fill and
+        // stroke stay on top where the two cross.
+        foreach (var series in data.ComparisonSeries)
         {
-            DrawDateLabel(drawingContext, data.Labels[^1], right, bottom, typeface, dpi, HorizontalAlignment.Right);
+            DrawComparison(drawingContext, series, data.Labels.Count, left, right, top, bottom, axisMax);
         }
 
         foreach (var series in data.Series)
         {
             DrawSeries(drawingContext, series, data.Labels.Count, left, right, top, bottom, axisMax);
+        }
+
+        // A point still in progress is a hollow ring with "so far", so a low
+        // last value reads as unfinished rather than as a drop.
+        DrawPartial(drawingContext, data.ComparisonSeries, data.ComparisonPartialIndex, data.Labels.Count, left, right, top, bottom, axisMax, typeface, dpi);
+        DrawPartial(drawingContext, data.Series, data.PartialIndex, data.Labels.Count, left, right, top, bottom, axisMax, typeface, dpi);
+    }
+
+    private void DrawPartial(
+        DrawingContext drawingContext,
+        IReadOnlyList<UsageChartSeries> seriesList,
+        int? partialIndex,
+        int pointCount,
+        double left,
+        double right,
+        double top,
+        double bottom,
+        double axisMax,
+        Typeface typeface,
+        double dpi)
+    {
+        // -1 means everything is still to come: nothing to mark.
+        if (partialIndex is not { } index || index < 0 || index >= pointCount || axisMax <= 0d)
+        {
+            return;
+        }
+
+        var step = pointCount > 1 ? (right - left) / (pointCount - 1) : 0d;
+        var x = pointCount > 1 ? left + (step * index) : (left + right) / 2d;
+        var rings = new List<double>(seriesList.Count);
+        foreach (var series in seriesList)
+        {
+            if (index >= series.Values.Count || !double.IsFinite(series.Values[index]))
+            {
+                continue;
+            }
+
+            var y = bottom - ((bottom - top) * Math.Min(1d, Math.Max(0d, series.Values[index]) / axisMax));
+            var accent = series.Provider == UsageProviderKind.Claude ? ClaudeBrush : CodexBrush;
+            var ring = new Pen(accent, 1.6d);
+            ring.Freeze();
+            drawingContext.DrawEllipse(null, ring, new Point(x, y), UsageChartLayout.RingRadius, UsageChartLayout.RingRadius);
+            rings.Add(y);
+        }
+
+        if (rings.Count > 0)
+        {
+            var text = Text("so far", typeface, dpi, LabelBrush);
+            var textX = UsageChartLayout.ClampedLeft(x, text.Width, left, right);
+            drawingContext.DrawText(text, new Point(textX, UsageChartLayout.SoFarTop(rings, text.Height, top)));
+        }
+    }
+
+    private void DrawLabelRow(
+        DrawingContext drawingContext,
+        IReadOnlyList<string> labels,
+        double left,
+        double right,
+        double rowTop,
+        Typeface typeface,
+        double dpi)
+    {
+        var placed = UsageChartLayout.PlaceLabels(
+            labels,
+            label => Text(label, typeface, dpi, LabelBrush).Width,
+            left,
+            right);
+
+        foreach (var (index, x) in placed)
+        {
+            drawingContext.DrawText(Text(labels[index], typeface, dpi, LabelBrush), new Point(x, rowTop + 4d));
+        }
+    }
+
+    private void DrawRowMarker(DrawingContext drawingContext, string marker, double left, double rowTop, Typeface typeface, double dpi)
+    {
+        var text = Text(marker, typeface, dpi, LabelBrush);
+        drawingContext.DrawText(text, new Point(left - 8d - text.Width, rowTop + 4d));
+    }
+
+    /// <summary>
+    /// Draws one comparison series as a dashed, unfilled line. Each unbroken
+    /// run of real values is its own curve, so a missing point is a gap.
+    /// </summary>
+    private void DrawComparison(
+        DrawingContext drawingContext,
+        UsageChartSeries series,
+        int pointCount,
+        double left,
+        double right,
+        double top,
+        double bottom,
+        double axisMax)
+    {
+        if (axisMax <= 0d)
+        {
+            return;
+        }
+
+        var accent = series.Provider == UsageProviderKind.Claude ? ClaudeBrush : CodexBrush;
+        var stroke = accent.Clone();
+        stroke.Opacity = 0.8;
+        stroke.Freeze();
+        var pen = new Pen(stroke, 1.4d)
+        {
+            DashStyle = new DashStyle([4d, 3d], 0d),
+            LineJoin = PenLineJoin.Round
+        };
+        pen.Freeze();
+
+        var step = pointCount > 1 ? (right - left) / (pointCount - 1) : 0d;
+        var run = new List<Point>();
+        var count = Math.Min(series.Values.Count, pointCount);
+        for (var index = 0; index <= count; index++)
+        {
+            var value = index < count ? series.Values[index] : double.NaN;
+            if (double.IsFinite(value))
+            {
+                var x = pointCount > 1 ? left + (step * index) : (left + right) / 2d;
+                var y = bottom - ((bottom - top) * Math.Min(1d, Math.Max(0d, value) / axisMax));
+                run.Add(new Point(x, y));
+                continue;
+            }
+
+            if (run.Count == 1)
+            {
+                drawingContext.DrawEllipse(stroke, null, run[0], 1.6d, 1.6d);
+            }
+            else if (run.Count > 1)
+            {
+                var line = new StreamGeometry();
+                using (var context = line.Open())
+                {
+                    context.BeginFigure(run[0], isFilled: false, isClosed: false);
+                    AppendSmoothCurve(context, run, top, bottom);
+                }
+
+                line.Freeze();
+                drawingContext.DrawGeometry(null, pen, line);
+            }
+
+            run.Clear();
         }
     }
 
@@ -221,11 +502,30 @@ public sealed class UsageChart : FrameworkElement
             return;
         }
 
+        // Positions come from the label count, so a series is never drawn past
+        // the axis even if it carries more values than there are labels.
+        // The line stops at the first missing point: everything after it is
+        // still in the future.
         var step = pointCount > 1 ? (right - left) / (pointCount - 1) : 0d;
-        var points = new List<Point>(series.Values.Count);
-        for (var index = 0; index < series.Values.Count; index++)
+        var count = Math.Min(series.Values.Count, pointCount);
+        for (var index = 0; index < count; index++)
         {
-            var value = double.IsFinite(series.Values[index]) ? Math.Max(0d, series.Values[index]) : 0d;
+            if (!double.IsFinite(series.Values[index]))
+            {
+                count = index;
+                break;
+            }
+        }
+
+        if (count == 0)
+        {
+            return;
+        }
+
+        var points = new List<Point>(count);
+        for (var index = 0; index < count; index++)
+        {
+            var value = Math.Max(0d, series.Values[index]);
             var x = pointCount > 1 ? left + (step * index) : (left + right) / 2d;
             var y = bottom - ((bottom - top) * Math.Min(1d, value / axisMax));
             points.Add(new Point(x, y));
@@ -297,26 +597,6 @@ public sealed class UsageChart : FrameworkElement
 
             context.BezierTo(first, second, next, isStroked: true, isSmoothJoin: true);
         }
-    }
-
-    private void DrawDateLabel(
-        DrawingContext drawingContext,
-        string label,
-        double x,
-        double bottom,
-        Typeface typeface,
-        double dpi,
-        HorizontalAlignment alignment)
-    {
-        var text = Text(label, typeface, dpi, LabelBrush);
-        var offset = alignment switch
-        {
-            HorizontalAlignment.Right => x - text.Width,
-            HorizontalAlignment.Center => x - (text.Width / 2d),
-            _ => x
-        };
-
-        drawingContext.DrawText(text, new Point(offset, bottom + 4d));
     }
 
     private static FormattedText Text(string value, Typeface typeface, double dpi, Brush brush) =>

@@ -114,11 +114,114 @@ public static class UsageNumberFormat
         $"{DayLabel(from)} to {DayLabel(to)}";
 
     /// <summary>
+    /// A range caption that adds the year when it is needed: <c>Jul 25 to
+    /// Aug 23</c> inside <paramref name="today"/>'s year, <c>Dec 20, 2025 to
+    /// Jan 5, 2026</c> otherwise. A single day reads <c>Sat, Aug 23</c>.
+    /// </summary>
+    public static string RangeLabel(DateOnly from, DateOnly to, DateOnly today)
+    {
+        var withYear = from.Year != today.Year || to.Year != today.Year;
+        if (from == to)
+        {
+            return from.ToString(withYear ? "ddd, MMM d, yyyy" : "ddd, MMM d", Culture);
+        }
+
+        return withYear
+            ? $"{from.ToString("MMM d, yyyy", Culture)} to {to.ToString("MMM d, yyyy", Culture)}"
+            : RangeLabel(from, to);
+    }
+
+    /// <summary>
+    /// A change against a comparison period: <c>▲ 12.4%</c>, <c>▼ 3.0%</c>,
+    /// <c>0.0%</c>, with <c> tokens</c> appended when tokens were compared
+    /// instead of cost, and <c>no prior data</c> when the baseline is empty.
+    /// Empty when there is nothing to compare.
+    /// </summary>
+    /// <param name="delta">The change to describe.</param>
+    /// <param name="showBasis">
+    /// False where the figure is tokens anyway, so the suffix would only repeat it.
+    /// </param>
+    public static string Delta(UsageDelta delta, bool showBasis = true)
+    {
+        var suffix = showBasis && delta.Basis == UsageDeltaBasis.Tokens ? " tokens" : string.Empty;
+        switch (delta.Kind)
+        {
+            case UsageDeltaKind.NoPriorData:
+                return "no prior data";
+            case UsageDeltaKind.Change:
+                var percent = Math.Abs(delta.Fraction) * 100d;
+                var magnitude = percent.ToString(percent >= 100d ? "#,0" : "0.0", Culture) + "%";
+                if (magnitude is "0.0%" or "0%")
+                {
+                    return "0.0%" + suffix;
+                }
+
+                return (delta.Fraction > 0d ? "▲ " : "▼ ") + magnitude + suffix;
+            default:
+                return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// A breakdown row's day label, with the year when it is not
+    /// <paramref name="today"/>'s: <c>Sat, Aug 23</c> or <c>Wed, Oct 1, 2025</c>.
+    /// </summary>
+    public static string LongDayLabel(DateOnly day, DateOnly today) =>
+        day.Year == today.Year ? LongDayLabel(day) : day.ToString("ddd, MMM d, yyyy", Culture);
+
+    /// <summary>
+    /// A breakdown row's hour label in <paramref name="zone"/>, with the year
+    /// when it is not <paramref name="today"/>'s, and the UTC offset on an hour
+    /// a daylight-saving change repeats.
+    /// </summary>
+    public static string LongHourLabel(DateTimeOffset instant, TimeZoneInfo zone, DateOnly today)
+    {
+        var label = LongHourLabel(instant, zone);
+        var local = TimeZoneInfo.ConvertTime(instant, zone);
+        if (local.Year == today.Year)
+        {
+            return label;
+        }
+
+        // "Wed, Oct 1, 14:00" becomes "Wed, Oct 1, 2025, 14:00".
+        var date = local.ToString("ddd, MMM d", Culture);
+        return date + ", " + local.Year.ToString(Culture) + label[date.Length..];
+    }
+
+    /// <summary>
+    /// A breakdown row's hour label in <paramref name="zone"/>. An hour that a
+    /// daylight-saving change repeats carries its UTC offset, so the two
+    /// copies can be told apart: <c>Sun, Oct 25, 02:00 (UTC+3)</c>.
+    /// </summary>
+    public static string LongHourLabel(DateTimeOffset instant, TimeZoneInfo zone)
+    {
+        ArgumentNullException.ThrowIfNull(zone);
+        var local = TimeZoneInfo.ConvertTime(instant, zone);
+        var label = LongHourLabel(local);
+        if (!zone.IsAmbiguousTime(local))
+        {
+            return label;
+        }
+
+        var offset = local.Offset;
+        var sign = offset < TimeSpan.Zero ? "-" : "+";
+        var hours = Math.Abs(offset.Hours);
+        var minutes = Math.Abs(offset.Minutes);
+        return minutes == 0
+            ? $"{label} (UTC{sign}{hours})"
+            : $"{label} (UTC{sign}{hours}:{minutes:00})";
+    }
+
+    /// <summary>
     /// The header's caption for a rolling window, in local time:
     /// <c>Sep 22, 14:37 to Sep 23, 14:37</c>.
     /// </summary>
     public static string RangeLabel(DateTimeOffset localSince, DateTimeOffset localUntil) =>
         $"{localSince.ToString("MMM d, HH:mm", Culture)} to {localUntil.ToString("MMM d, HH:mm", Culture)}";
+
+    /// <summary>A chart axis label for an hour of a multi-day range: <c>OCT 18 14:00</c>.</summary>
+    public static string AxisDayHourLabel(DateTimeOffset local) =>
+        local.ToString("MMM d HH:mm", Culture).ToUpperInvariant();
 
     /// <summary>A chart axis hour label in local time: <c>14:37</c>.</summary>
     public static string AxisHourLabel(DateTimeOffset local) =>
