@@ -216,6 +216,218 @@
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="HorizontalAlignment" Value="Right" />
         </Style>
+
+        <!-- A change against the comparison period. Neutral on purpose: more
+             usage is not good or bad by itself. -->
+        <Style x:Key="DeltaText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Visibility" Value="{Binding Text, RelativeSource={RelativeSource Self}, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+        </Style>
+
+        <!-- A segment that opens a popup instead of switching a value. It looks
+             checked while what it opens is the state on screen. -->
+        <Style x:Key="SegmentButton" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FontSize" Value="10.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="MinWidth" Value="52" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="6" Padding="12,5">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="CustomRangeSegment" TargetType="Button" BasedOn="{StaticResource SegmentButton}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsCustomRange}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource InputBgBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="CompareSegment" TargetType="Button" BasedOn="{StaticResource SegmentButton}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsComparing}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource InputBgBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- One of the two periods in the comparison picker. The checked one is
+             the period the calendar is editing. -->
+        <Style x:Key="PeriodChip" TargetType="RadioButton">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Background" Value="{DynamicResource CardBgBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="ChipBorder" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1.5"
+                                CornerRadius="8" Padding="10,7">
+                            <ContentPresenter />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource CardHoverBgBrush}" />
+                </Trigger>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource KindBadgeBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                </Trigger>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="{DynamicResource TextSecondaryBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="PopupPanel" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource PanelBgBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource WindowBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="14" />
+        </Style>
+
+        <Style x:Key="PopupButton" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource ButtonBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
+            <Setter Property="Padding" Value="14,6" />
+            <Setter Property="Margin" Value="8,0,0,0" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="ButtonBorder" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                                CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{DynamicResource TextSecondaryBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryPopupButton" TargetType="Button" BasedOn="{StaticResource PopupButton}">
+            <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+
+        <!-- Small text link, for Back and for turning the comparison off. -->
+        <Style x:Key="LinkButton" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="Transparent" Padding="0,2">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- A clickable column header; the arrow beside the text shows the sort. -->
+        <Style x:Key="SortHeader" TargetType="Button">
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="HeaderBorder" Background="Transparent" BorderThickness="0,0,0,1"
+                                BorderBrush="Transparent" Padding="0,0,0,1">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="HeaderBorder" Property="BorderBrush" Value="{DynamicResource TextSecondaryBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- A breakdown row. Day rows open that day by hour; every other row is
+             inert and looks exactly the same as before. -->
+        <Style x:Key="BreakdownRow" TargetType="Button">
+            <Setter Property="Focusable" Value="{Binding CanDrill}" />
+            <Setter Property="IsEnabled" Value="{Binding CanDrill}" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding DrillName}" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="RowBorder" Background="Transparent" CornerRadius="4"
+                                BorderBrush="Transparent" BorderThickness="1">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="RowBorder" Property="Background" Value="{DynamicResource CardHoverBgBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="RowBorder" Property="BorderBrush" Value="{DynamicResource TextSecondaryBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding CanDrill}" Value="True">
+                    <Setter Property="Cursor" Value="Hand" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <!-- RootGrid's margin is swapped for the maximized state: a WindowChrome
@@ -311,7 +523,27 @@
                                      IsChecked="{Binding RangeDays, Mode=TwoWay, Converter={x:Static local:IndexToBoolConverter.Instance}, ConverterParameter=30}" />
                         <RadioButton Style="{StaticResource Segment}" GroupName="Range" Content="90 days"
                                      IsChecked="{Binding RangeDays, Mode=TwoWay, Converter={x:Static local:IndexToBoolConverter.Instance}, ConverterParameter=90}" />
+                        <Button x:Name="CustomRangeButton" Style="{StaticResource CustomRangeSegment}"
+                                Click="OnCustomRangeClick" ToolTip="Pick a day or a range of days"
+                                AutomationProperties.Name="Custom range">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Custom" />
+                                <Path Data="M0,0 L3.5,3.5 L7,0" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                      StrokeThickness="1.3" Margin="6,1,0,0" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
+                </Border>
+                <Border Style="{StaticResource SegmentGroup}" Margin="0,0,10,0">
+                    <Button x:Name="CompareButton" Style="{StaticResource CompareSegment}"
+                            Click="OnCompareClick" ToolTip="Compare with another period"
+                            AutomationProperties.Name="Compare">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Compare" />
+                            <Path Data="M0,0 L3.5,3.5 L7,0" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  StrokeThickness="1.3" Margin="6,1,0,0" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Button>
                 </Border>
                 <Button Style="{StaticResource IconButton}" Command="{Binding RefreshCommand}"
                         VerticalAlignment="Center" ToolTip="Re-read the local logs"
@@ -320,14 +552,109 @@
                           Stretch="Uniform" Width="14" Height="14" />
                 </Button>
             </StackPanel>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="{Binding RangeLabel}" FontSize="13" Foreground="{DynamicResource TextMutedBrush}"
-                           VerticalAlignment="Center" />
-                <TextBlock Text="refreshing" FontSize="11" Margin="12,0,0,0" VerticalAlignment="Center"
+            <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                <Button Style="{StaticResource LinkButton}" Command="{Binding BackCommand}" Margin="0,0,0,2"
+                        HorizontalAlignment="Left"
+                        Visibility="{Binding CanGoBack, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="M4,0 L0,4 L4,8" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                              StrokeThickness="1.4" Margin="0,0,6,0" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding BackLabel}" />
+                    </StackPanel>
+                </Button>
+                <WrapPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding RangeLabel}" FontSize="13" Foreground="{DynamicResource TextMutedBrush}"
+                               VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding ComparisonLabel}" FontSize="13" Margin="8,0,0,0"
+                               Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center"
+                               Visibility="{Binding ComparisonLabel, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                    <TextBlock Text="refreshing" FontSize="11" Margin="12,0,0,0" VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextFaintBrush}"
+                               Visibility="{Binding IsLoading, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
+                </WrapPanel>
+                <TextBlock Text="{Binding ComparisonNote}" FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap"
                            Foreground="{DynamicResource TextFaintBrush}"
-                           Visibility="{Binding IsLoading, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
+                           Visibility="{Binding ComparisonNote, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
             </StackPanel>
         </DockPanel>
+
+        <!-- Custom range picker. The pending selection lives in the picker until
+             Apply, so Cancel, Escape and a click outside change nothing. -->
+        <Popup x:Name="RangePopup" PlacementTarget="{Binding ElementName=CustomRangeButton}" Placement="Bottom"
+               StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade" VerticalOffset="6"
+               KeyDown="OnPopupKeyDown">
+            <Border Style="{StaticResource PopupPanel}">
+                <StackPanel>
+                    <TextBlock Text="Show a day or a range" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,2"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <TextBlock Text="Click the first day, then the last. A single day is shown by hour."
+                               FontSize="11" TextWrapping="Wrap" Width="266" Margin="0,0,0,10"
+                               Foreground="{DynamicResource TextFaintBrush}" />
+                    <controls:DateRangePicker x:Name="RangePicker" SelectionChanged="OnRangePickerChanged" />
+                    <TextBlock x:Name="RangeSelectionText" FontSize="12" Margin="0,10,0,0"
+                               Foreground="{DynamicResource TextSecondaryBrush}" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+                        <Button Style="{StaticResource PopupButton}" Content="Cancel" Click="OnRangeCancelClick" />
+                        <Button x:Name="RangeApplyButton" Style="{StaticResource PrimaryPopupButton}" Content="Apply"
+                                Click="OnRangeApplyClick" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Popup>
+
+        <!-- Comparison picker: two periods picked freely, A against B. One
+             calendar edits whichever period is active; the other one is
+             underlined so both stay visible. -->
+        <Popup x:Name="ComparePopup" PlacementTarget="{Binding ElementName=CompareButton}" Placement="Bottom"
+               StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade" VerticalOffset="6"
+               KeyDown="OnPopupKeyDown">
+            <Border Style="{StaticResource PopupPanel}">
+                <StackPanel Width="266">
+                    <TextBlock Text="Compare two periods" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,2"
+                               Foreground="{DynamicResource TextPrimaryBrush}" />
+                    <TextBlock Text="Pick a period, then click the first day and the last."
+                               FontSize="11" Margin="0,0,0,10" TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextFaintBrush}" />
+                    <UniformGrid Columns="2" Margin="0,0,0,10">
+                        <RadioButton x:Name="PeriodAOption" Style="{StaticResource PeriodChip}" GroupName="ComparePeriod"
+                                     Margin="0,0,4,0" Checked="OnComparePeriodChecked"
+                                     AutomationProperties.Name="Period A">
+                            <StackPanel>
+                                <TextBlock Text="PERIOD A" FontSize="10" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextMutedBrush}" />
+                                <TextBlock x:Name="PeriodAText" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton x:Name="PeriodBOption" Style="{StaticResource PeriodChip}" GroupName="ComparePeriod"
+                                     Margin="4,0,0,0" Checked="OnComparePeriodChecked"
+                                     AutomationProperties.Name="Period B">
+                            <StackPanel>
+                                <TextBlock Text="PERIOD B" FontSize="10" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextMutedBrush}" />
+                                <TextBlock x:Name="PeriodBText" FontSize="12" Margin="0,2,0,0" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" />
+                            </StackPanel>
+                        </RadioButton>
+                    </UniformGrid>
+                    <controls:DateRangePicker x:Name="ComparePicker" SelectionChanged="OnComparePickerChanged" />
+                    <TextBlock x:Name="CompareHintText" FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextFaintBrush}" />
+                    <TextBlock x:Name="CompareLengthNote" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"
+                               Foreground="{DynamicResource TextFaintBrush}"
+                               Text="Different lengths: changes compare the average per day." />
+                    <DockPanel Margin="0,12,0,0">
+                        <Button x:Name="CompareOffButton" Style="{StaticResource LinkButton}" Content="Turn off"
+                                Click="OnCompareOffClick" VerticalAlignment="Center" />
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Style="{StaticResource PopupButton}" Content="Cancel" Click="OnCompareCancelClick" />
+                            <Button x:Name="CompareApplyButton" Style="{StaticResource PrimaryPopupButton}" Content="Apply"
+                                    Click="OnCompareApplyClick" />
+                        </StackPanel>
+                    </DockPanel>
+                </StackPanel>
+            </Border>
+        </Popup>
 
         <!-- 2 + 3. Hero block and the daily chart -->
         <Grid Grid.Row="1" Margin="0,0,0,22">
@@ -344,6 +671,11 @@
                                Foreground="{DynamicResource TextPrimaryBrush}" />
                     <TextBlock Text="*" FontSize="38" FontWeight="Bold" Margin="1,0,0,0"
                                Foreground="{DynamicResource TextMutedBrush}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <TextBlock Text="{Binding TotalPreviousText}" Style="{StaticResource DeltaText}" FontSize="12.5"
+                               Margin="0,0,10,0" />
+                    <TextBlock Text="{Binding TotalDeltaText}" Style="{StaticResource DeltaText}" FontSize="12.5" />
                 </StackPanel>
                 <TextBlock Text="* API list-price estimate, not your subscription bill" FontSize="11" Margin="0,2,0,0"
                            Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" />
@@ -364,8 +696,12 @@
                                                Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
                                 </DockPanel>
                                 <ProgressBar Style="{StaticResource ShareBar}" Value="{Binding Share, Mode=OneWay}" />
-                                <TextBlock Text="{Binding Caption}" FontSize="11" Margin="0,7,0,0"
-                                           Foreground="{DynamicResource TextFaintBrush}" />
+                                <DockPanel Margin="0,7,0,0">
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding DeltaText}" Style="{StaticResource DeltaText}"
+                                               Margin="10,0,0,0" />
+                                    <TextBlock Text="{Binding Caption}" FontSize="11" TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource TextFaintBrush}" />
+                                </DockPanel>
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
@@ -404,8 +740,19 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <TextBlock Text="{Binding ChartTitle}" FontSize="14" FontWeight="SemiBold"
-                               Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding ChartTitle}" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" />
+                        <!-- What the dashed lines are, only while comparing. It sits
+                             under the title so it never squeezes it at narrow widths. -->
+                        <StackPanel Orientation="Horizontal" Margin="0,3,0,0"
+                                    Visibility="{Binding ComparisonLabel, Converter={x:Static local:StringToVisibilityConverter.Instance}}">
+                            <Line X1="0" X2="18" Y1="0" Y2="0" Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.4"
+                                  StrokeDashArray="3 2" VerticalAlignment="Center" Margin="0,1,6,0" />
+                            <TextBlock Text="{Binding ComparisonLabel}" FontSize="11.5" TextTrimming="CharacterEllipsis"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </StackPanel>
                 </DockPanel>
 
                 <controls:UsageChart Grid.Row="1" Height="260"
@@ -435,6 +782,8 @@
                             <TextBlock Text="{Binding Footnote}" FontSize="11" Margin="0,6,0,0"
                                        TextTrimming="CharacterEllipsis"
                                        Foreground="{DynamicResource TextFaintBrush}" />
+                            <TextBlock Text="{Binding DeltaText}" Style="{StaticResource DeltaText}" Margin="0,4,0,0"
+                                       HorizontalAlignment="Left" TextWrapping="Wrap" />
                         </StackPanel>
                     </Border>
                 </DataTemplate>
@@ -458,46 +807,126 @@
                                      IsChecked="{Binding BreakdownIndex, Mode=TwoWay, Converter={x:Static local:IndexToBoolConverter.Instance}, ConverterParameter=1}" />
                     </StackPanel>
                 </Border>
+                <TextBlock Text="{Binding BreakdownHint}" DockPanel.Dock="Right" FontSize="11" Margin="0,0,14,0"
+                           Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center"
+                           Visibility="{Binding BreakdownHint, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
                 <TextBlock Text="Breakdown" FontSize="14" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
             </DockPanel>
 
+            <!-- Column widths are shared with the rows below. While comparing, the
+                 model view shows both periods side by side (A, B) and the change;
+                 Share makes room for them. -->
             <Grid Grid.Row="1" Margin="0,0,14,0" Height="30">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="150" />
+                    <ColumnDefinition Width="130" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="110" />
-                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" Style="{StaticResource TableHeader}" Text="{Binding BreakdownColumnHeader}" />
-                <TextBlock Grid.Column="1" Style="{StaticResource TableHeader}" Text="{Binding BreakdownValueHeader}"
-                           HorizontalAlignment="Right" />
-                <TextBlock Grid.Column="2" Style="{StaticResource TableHeader}" Text="Share" HorizontalAlignment="Right" />
-                <TextBlock Grid.Column="3" Style="{StaticResource TableHeader}" Text="Tokens" HorizontalAlignment="Right" />
+                <Button Grid.Column="0" Style="{StaticResource SortHeader}" HorizontalAlignment="Left"
+                        Command="{Binding SortCommand}" CommandParameter="Label"
+                        AutomationProperties.Name="{Binding BreakdownColumnHeader, StringFormat='Sort by {0}'}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding BreakdownColumnHeader}" />
+                        <TextBlock Text="{Binding LabelSortGlyph}" FontSize="8" Margin="5,0,0,0" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="1" Style="{StaticResource SortHeader}"
+                        Command="{Binding SortCommand}" CommandParameter="Value"
+                        AutomationProperties.Name="{Binding BreakdownValueHeader, StringFormat='Sort by {0}'}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding ValueSortGlyph}" FontSize="8" Margin="0,0,5,0" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding BreakdownValueHeader}" />
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="2" Style="{StaticResource SortHeader}" Width="130"
+                        Command="{Binding SortCommand}" CommandParameter="PreviousValue" AutomationProperties.Name="Sort by API value B"
+                        Visibility="{Binding ShowComparisonColumns, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock Text="{Binding PreviousValueSortGlyph}" FontSize="8" Margin="0,0,5,0" VerticalAlignment="Center" />
+                        <TextBlock Text="API value B" />
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="3" Style="{StaticResource SortHeader}" Width="110"
+                        Command="{Binding SortCommand}" CommandParameter="Share" AutomationProperties.Name="Sort by share"
+                        Visibility="{Binding ShowComparisonColumns, Converter={x:Static local:BoolToVisibilityConverter.Instance}, ConverterParameter=Invert}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock Text="{Binding ShareSortGlyph}" FontSize="8" Margin="0,0,5,0" VerticalAlignment="Center" />
+                        <TextBlock Text="Share" />
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="4" Style="{StaticResource SortHeader}"
+                        Command="{Binding SortCommand}" CommandParameter="Tokens"
+                        AutomationProperties.Name="{Binding BreakdownTokensHeader, StringFormat='Sort by {0}'}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding TokensSortGlyph}" FontSize="8" Margin="0,0,5,0" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding BreakdownTokensHeader}" />
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="5" Style="{StaticResource SortHeader}" Width="110"
+                        Command="{Binding SortCommand}" CommandParameter="PreviousTokens" AutomationProperties.Name="Sort by tokens B"
+                        Visibility="{Binding ShowComparisonColumns, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock Text="{Binding PreviousTokensSortGlyph}" FontSize="8" Margin="0,0,5,0" VerticalAlignment="Center" />
+                        <TextBlock Text="Tokens B" />
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="6" Style="{StaticResource SortHeader}" Width="120"
+                        Command="{Binding SortCommand}" CommandParameter="Change" AutomationProperties.Name="Sort by change"
+                        ToolTip="Change in API value from the earlier period to the later one, as an average per day when the periods differ in length. Models without a price, or periods with unpriced usage, compare tokens instead."
+                        Visibility="{Binding ShowComparisonColumns, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <TextBlock Text="{Binding ChangeSortGlyph}" FontSize="8" Margin="0,0,5,0" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding ChangeHeader}" />
+                    </StackPanel>
+                </Button>
             </Grid>
 
             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="0,0,4,0">
                 <ItemsControl ItemsSource="{Binding BreakdownRows}" Focusable="False">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Border BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,1,0,0" Padding="0,9">
-                                <Grid Margin="0,0,10,0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="150" />
-                                        <ColumnDefinition Width="110" />
-                                        <ColumnDefinition Width="110" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Orientation="Horizontal">
-                                        <Path Style="{StaticResource RowGlyph}" />
-                                        <TextBlock Text="{Binding Label}" FontSize="12.5"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}"
-                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
-                                    </StackPanel>
-                                    <TextBlock Grid.Column="1" Style="{StaticResource TableCell}" Text="{Binding ValueText}" />
-                                    <TextBlock Grid.Column="2" Style="{StaticResource TableCell}" Text="{Binding ShareText}" />
-                                    <TextBlock Grid.Column="3" Style="{StaticResource TableCell}" Text="{Binding TokensText}" />
-                                </Grid>
+                            <Border BorderBrush="{DynamicResource DividerBrush}" BorderThickness="0,1,0,0">
+                                <Button Style="{StaticResource BreakdownRow}"
+                                        Command="{Binding DataContext.OpenRowCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                        CommandParameter="{Binding}">
+                                    <Grid Margin="0,9,10,9">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="130" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="110" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                            <Path Style="{StaticResource RowGlyph}" />
+                                            <TextBlock Text="{Binding Label}" FontSize="12.5"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="1" Style="{StaticResource TableCell}" Text="{Binding ValueText}" />
+                                        <TextBlock Grid.Column="2" Style="{StaticResource TableCell}" Width="130" TextAlignment="Right"
+                                                   Text="{Binding PreviousValueText}" Foreground="{DynamicResource TextMutedBrush}"
+                                                   Visibility="{Binding DataContext.ShowComparisonColumns, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
+                                        <TextBlock Grid.Column="3" Style="{StaticResource TableCell}" Width="110" TextAlignment="Right"
+                                                   Text="{Binding ShareText}"
+                                                   Visibility="{Binding DataContext.ShowComparisonColumns, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={x:Static local:BoolToVisibilityConverter.Instance}, ConverterParameter=Invert}" />
+                                        <TextBlock Grid.Column="4" Style="{StaticResource TableCell}" Text="{Binding TokensText}" />
+                                        <TextBlock Grid.Column="5" Style="{StaticResource TableCell}" Width="110" TextAlignment="Right"
+                                                   Text="{Binding PreviousTokensText}" Foreground="{DynamicResource TextMutedBrush}"
+                                                   Visibility="{Binding DataContext.ShowComparisonColumns, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
+                                        <TextBlock Grid.Column="6" Style="{StaticResource TableCell}" Width="120"
+                                                   TextAlignment="Right" Foreground="{DynamicResource TextMutedBrush}"
+                                                   Text="{Binding ChangeText}"
+                                                   Visibility="{Binding DataContext.ShowComparisonColumns, RelativeSource={RelativeSource AncestorType=ItemsControl}, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
+                                    </Grid>
+                                </Button>
                             </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

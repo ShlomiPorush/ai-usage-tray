@@ -1,0 +1,124 @@
+<UserControl x:Class="costats.App.Controls.DateRangePicker"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="266"
+             FontFamily="Segoe UI">
+
+    <!-- A month grid themed entirely through DynamicResource brushes. The WPF
+         Calendar's own templates ignore the app themes and do not support a
+         two-click range, so the grid is drawn here instead. -->
+    <UserControl.Resources>
+        <Style x:Key="MonthNavButton" TargetType="Button" BasedOn="{StaticResource IconButton}">
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+
+        <Style x:Key="DayButton" TargetType="Button">
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Margin" Value="1" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding AutomationName}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="DayBorder" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="6">
+                            <Grid>
+                                <TextBlock Text="{Binding Text}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Foreground="{TemplateBinding Foreground}" />
+                                <!-- Marks the range already on screen when picking a comparison. -->
+                                <Rectangle x:Name="ReferenceMark" Height="2" Width="14" RadiusX="1" RadiusY="1"
+                                           VerticalAlignment="Bottom" Margin="0,0,0,3"
+                                           Fill="{TemplateBinding Foreground}" Visibility="Collapsed" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <DataTrigger Binding="{Binding IsReference}" Value="True">
+                                <Setter TargetName="ReferenceMark" Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource ButtonHoverBrush}" />
+                </Trigger>
+                <DataTrigger Binding="{Binding IsOutsideMonth}" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource TextFaintBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsToday}" Value="True">
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsInRange}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource KindBadgeBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsEndpoint}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource AccentTextBrush}" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                </DataTrigger>
+                <Trigger Property="IsKeyboardFocused" Value="True">
+                    <Setter Property="BorderBrush" Value="{DynamicResource TextSecondaryBrush}" />
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.3" />
+                    <Setter Property="Cursor" Value="Arrow" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <StackPanel>
+        <DockPanel Margin="0,0,0,6">
+            <Button x:Name="PreviousMonthButton" DockPanel.Dock="Left" Style="{StaticResource MonthNavButton}"
+                    Click="OnPreviousMonthClick" ToolTip="Previous month" AutomationProperties.Name="Previous month">
+                <Path Data="M5,0 L0,5 L5,10" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.5"
+                      Width="6" Height="10" Stretch="None" />
+            </Button>
+            <Button x:Name="NextMonthButton" DockPanel.Dock="Right" Style="{StaticResource MonthNavButton}"
+                    Click="OnNextMonthClick" ToolTip="Next month" AutomationProperties.Name="Next month">
+                <Path Data="M0,0 L5,5 L0,10" Stroke="{DynamicResource TextSecondaryBrush}" StrokeThickness="1.5"
+                      Width="6" Height="10" Stretch="None" />
+            </Button>
+            <TextBlock x:Name="MonthTitle" FontSize="13" FontWeight="SemiBold" HorizontalAlignment="Center"
+                       VerticalAlignment="Center" Foreground="{DynamicResource TextPrimaryBrush}" />
+        </DockPanel>
+
+        <ItemsControl x:Name="WeekdayHeader" Focusable="False" Margin="0,0,0,2">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <UniformGrid Columns="7" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}" FontSize="10.5" HorizontalAlignment="Center"
+                               Foreground="{DynamicResource TextFaintBrush}" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <ItemsControl x:Name="DayGrid" Focusable="False"
+                      KeyboardNavigation.DirectionalNavigation="Contained"
+                      KeyboardNavigation.TabNavigation="Once">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <UniformGrid Columns="7" Rows="6" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Button Style="{StaticResource DayButton}" IsEnabled="{Binding IsSelectable}"
+                            Click="OnDayClick" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
+</UserControl>

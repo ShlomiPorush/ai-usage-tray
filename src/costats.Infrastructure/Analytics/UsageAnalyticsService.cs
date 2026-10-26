@@ -54,6 +54,20 @@ public interface IUsageAnalyticsService
     /// </summary>
     Task<IReadOnlyList<UsageAccountInfo>> GetAccountsAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The earliest local day any matching account has usage on, or null when
+    /// there is none. A comparison that starts before it may be missing data
+    /// whose logs were already deleted.
+    /// </summary>
+    /// <param name="accountIds">As for <see cref="GetReportAsync"/>.</param>
+    /// <param name="cancellationToken">Cancels an in-flight scan.</param>
+    Task<DateOnly?> GetEarliestActivityDayAsync(
+        IReadOnlyCollection<string>? accountIds = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>The time zone whose calendar days the reports bucket by.</summary>
+    TimeZoneInfo TimeZone { get; }
+
     /// <summary>Returns the current on-disk parse cache size.</summary>
     UsageCacheInfo GetCacheInfo();
 
@@ -172,6 +186,35 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
     {
         var scan = await GetScanAsync(cancellationToken).ConfigureAwait(false);
         return scan.Accounts;
+    }
+
+    /// <inheritdoc />
+    public async Task<DateOnly?> GetEarliestActivityDayAsync(
+        IReadOnlyCollection<string>? accountIds = null,
+        CancellationToken cancellationToken = default)
+    {
+        var scan = await GetScanAsync(cancellationToken).ConfigureAwait(false);
+        var filter = accountIds is { Count: > 0 }
+            ? new HashSet<string>(accountIds, StringComparer.OrdinalIgnoreCase)
+            : null;
+
+        DateTimeOffset? earliest = null;
+        foreach (var sample in scan.Samples)
+        {
+            if (filter is not null && !filter.Contains(sample.AccountId))
+            {
+                continue;
+            }
+
+            if (earliest is null || sample.Timestamp < earliest)
+            {
+                earliest = sample.Timestamp;
+            }
+        }
+
+        return earliest is { } instant
+            ? DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(instant, TimeZone).DateTime)
+            : null;
     }
 
     /// <inheritdoc />

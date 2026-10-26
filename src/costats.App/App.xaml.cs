@@ -350,8 +350,12 @@ namespace costats.App
         /// <summary>
         /// Dev/docs helpers render the normal widget, settings, the usage window,
         /// guided onboarding, or its compact widget fallback to a PNG and exit.
-        /// The usage window takes <c>--usage-range 1|7|30|90</c> and
-        /// <c>--usage-breakdown model|time</c>. Preview state is
+        /// The usage window takes <c>--usage-range 1|7|30|90</c>,
+        /// <c>--usage-from yyyy-MM-dd</c> with an optional <c>--usage-to</c>,
+        /// <c>--usage-breakdown model|time</c>,
+        /// <c>--usage-compare previous|yyyy-MM-dd</c> with an optional
+        /// <c>--usage-compare-to yyyy-MM-dd</c>, and
+        /// <c>--usage-sort Column[,Column]</c>. Preview state is
         /// in-memory only and never touches settings.json.
         /// </summary>
         private bool MaybeCaptureScreenshot(TrayHost tray)
@@ -391,9 +395,38 @@ namespace costats.App
                         usageViewModel.RangeDays = rangeDays;
                     }
 
+                    if (TryReadDate(args, "--usage-from", out var customFrom))
+                    {
+                        usageViewModel.ApplyCustomRange(
+                            customFrom,
+                            TryReadDate(args, "--usage-to", out var customTo) ? customTo : customFrom);
+                    }
+
                     if (string.Equals(ReadOptionalArgument(args, "--usage-breakdown"), "time", StringComparison.OrdinalIgnoreCase))
                     {
                         usageViewModel.BreakdownIndex = 1;
+                    }
+
+                    // "previous" compares with the period before; dates compare
+                    // with the picked days, of any length.
+                    var compare = ReadOptionalArgument(args, "--usage-compare");
+                    if (string.Equals(compare, "previous", StringComparison.OrdinalIgnoreCase))
+                    {
+                        usageViewModel.ApplyComparison(enabled: true);
+                    }
+                    else if (TryReadDate(args, "--usage-compare", out var compareFrom))
+                    {
+                        usageViewModel.ApplyComparison(
+                            enabled: true,
+                            compareFrom,
+                            TryReadDate(args, "--usage-compare-to", out var compareTo) ? compareTo : compareFrom);
+                    }
+
+                    // A column name, optionally twice to reverse it: "Tokens" or "Tokens,Tokens".
+                    foreach (var column in (ReadOptionalArgument(args, "--usage-sort") ?? string.Empty)
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    {
+                        usageViewModel.SortCommand.Execute(column);
                     }
 
                     var usageWindow = _host.Services.GetRequiredService<UsageWindow>();
@@ -524,6 +557,15 @@ namespace costats.App
             var value = args[index + 1].Trim();
             return value.Length == 0 ? null : value;
         }
+
+        /// <summary>Reads a <c>yyyy-MM-dd</c> argument value.</summary>
+        private static bool TryReadDate(string[] args, string flag, out DateOnly date) =>
+            DateOnly.TryParseExact(
+                ReadOptionalArgument(args, flag),
+                "yyyy-MM-dd",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None,
+                out date);
 
         /// <summary>
         /// The configured minimum level (<c>Serilog:MinimumLevel</c>, either a
