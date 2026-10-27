@@ -39,6 +39,57 @@ namespace costats.App
             _viewModel = viewModel;
             DataContext = viewModel;
             StateChanged += (_, _) => ApplyMaximizedPadding();
+            viewModel.PropertyChanged += OnViewModelPropertyChanged;
+            PreviewKeyDown += OnWindowPreviewKeyDown;
+        }
+
+        private IInputElement? _focusBeforeDetail;
+        private bool _detailShown;
+
+        /// <summary>
+        /// Moves focus into the model details when they open, and back to the
+        /// row that opened them when they close, so the keyboard never ends up
+        /// behind the dimmed area. A reload or a metric switch replaces the
+        /// details while they stay open; that is not an opening.
+        /// </summary>
+        private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(UsageWindowViewModel.IsModelDetailOpen) ||
+                _viewModel.IsModelDetailOpen == _detailShown)
+            {
+                return;
+            }
+
+            _detailShown = _viewModel.IsModelDetailOpen;
+            if (_detailShown)
+            {
+                _focusBeforeDetail = Keyboard.FocusedElement;
+                Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => ModelDetailCloseButton.Focus()));
+                return;
+            }
+
+            ModelChart.ShowHover(null);
+            if (_focusBeforeDetail is UIElement { IsVisible: true } previous)
+            {
+                previous.Focus();
+            }
+
+            _focusBeforeDetail = null;
+        }
+
+        private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape && _viewModel.IsModelDetailOpen)
+            {
+                _viewModel.CloseModelDetailCommand.Execute(null);
+                e.Handled = true;
+            }
+        }
+
+        private void OnModelScrimMouseDown(object sender, MouseButtonEventArgs e)
+        {
+            _viewModel.CloseModelDetailCommand.Execute(null);
+            e.Handled = true;
         }
 
         private void ApplyMaximizedPadding() =>

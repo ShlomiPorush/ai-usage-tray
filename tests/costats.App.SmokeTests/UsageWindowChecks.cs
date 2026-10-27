@@ -178,8 +178,118 @@ static class UsageWindowChecks
         ChartLabelsKeepTheirEndsAndNeverOverlap();
         EmptyStateSaysWhy();
         ClearFiltersRestoresTheDefaultView();
+        ModelDetailsShowOnlyThatModel();
+        UnpricedModelOnlyInBShowsZeroInA();
+        ChartTooltipAndSplitBarLayout();
         RenderWindow(outputPath);
-        Console.WriteLine("PASS: usage load races, empty current period with comparison, empty-state reasons, clear filters, usage window and popups rendered.");
+        Console.WriteLine("PASS: usage load races, empty current period with comparison, empty-state reasons, clear filters, model details, chart tooltip, usage window and popups rendered.");
+    }
+
+    private static void ModelDetailsShowOnlyThatModel()
+    {
+        var viewModel = new UsageWindowViewModel(new SyntheticAnalytics(DateTimeOffset.Now));
+        _ = viewModel.InitializeAsync();
+        PumpUntil(() => viewModel.HasData && !viewModel.IsLoading, "synthetic report");
+
+        Check(viewModel.BreakdownHint == "Select a model for its details", $"Model view hint, got '{viewModel.BreakdownHint}'");
+        var row = viewModel.BreakdownRows.First(candidate => candidate.Label == "claude-sonnet-5-5");
+        Check(row.CanOpen && row.IsModel && !row.CanDrill, "A model row must open its details, not a day");
+        Check(row.DrillName == "Show details for claude-sonnet-5-5", $"Model row name, got '{row.DrillName}'");
+
+        viewModel.OpenRowCommand.Execute(row);
+        Check(viewModel.IsModelDetailOpen && viewModel.ModelDetail is { Model: "claude-sonnet-5-5", ProviderKey: "claude" },
+            "Opening a model row must show that model");
+        var detail = viewModel.ModelDetail!;
+        Check(detail.Subtitle.StartsWith("Claude Code · ", StringComparison.Ordinal) && detail.Subtitle.EndsWith("% of cost", StringComparison.Ordinal),
+            $"Subtitle, got '{detail.Subtitle}'");
+        Check(detail.CostText == row.ValueText && detail.TokensText == row.TokensText,
+            $"The details must match the row: {detail.CostText} / {row.ValueText}, {detail.TokensText} / {row.TokensText}");
+        Check(detail.IsPriced && detail.CostDeltaText.Length == 0, "Without a comparison there is no B figure");
+
+        // One line, the model's own: its points add up to the model's cost,
+        // and the split by type adds up to the same figure.
+        var series = detail.Chart.Series.Single();
+        Check(series.Provider == UsageProviderKind.Claude, "The model's line is in its provider's colour");
+        var charted = series.Values.Where(double.IsFinite).Sum();
+        var mainClaude = viewModel.Chart.Series.Single(line => line.Provider == UsageProviderKind.Claude).Values.Where(double.IsFinite).Sum();
+        var parsed = decimal.Parse(detail.CostText, System.Globalization.NumberStyles.Currency, System.Globalization.CultureInfo.GetCultureInfo("en-US"));
+        Check(Math.Abs(charted - (double)parsed) < 0.01, $"The model chart must sum to its cost: {charted} vs {parsed}");
+        Check(charted < mainClaude - 0.01, "The model chart must not be the whole provider's line");
+        Check(Math.Abs(detail.CostSplit.Sum() - (double)parsed) < 0.01, $"Cost by type must add up to the cost: {detail.CostSplit.Sum()}");
+        Check(detail.CostLegend.Select(item => item.Label).SequenceEqual(["Input", "Cache read", "Cache write", "Output"]),
+            "The legend names the four types in bar order");
+
+        viewModel.MetricIndex = 1;
+        Check(viewModel.ModelDetail is { ChartTitle: "Daily tokens" }, "The metric toggle must switch the model chart too");
+        viewModel.MetricIndex = 0;
+
+        // A comparison keeps the panel open, on the same model, with its B line.
+        viewModel.ApplyComparison(enabled: true);
+        PumpUntil(() => !viewModel.IsLoading && viewModel.ModelDetail is { CostDeltaText.Length: > 0 }, "comparison under the panel");
+        var compared = viewModel.ModelDetail!;
+        Check(compared is { Model: "claude-sonnet-5-5" } && compared.Chart.ComparisonSeries.Count == 1,
+            "The panel must follow the new report and show the model's comparison line");
+        Check(compared.CostDeltaText.StartsWith("B: $", StringComparison.Ordinal), $"B figure, got '{compared.CostDeltaText}'");
+
+        // A model only period B used still opens, with nothing in A.
+        var dropped = viewModel.BreakdownRows.First(candidate => candidate.Label == "gpt-5-mini");
+        viewModel.OpenRowCommand.Execute(dropped);
+        Check(viewModel.ModelDetail is { Model: "gpt-5-mini", CostText: "$0.00", ProviderKey: "codex" },
+            $"A model only B used must open with zero in A, got {viewModel.ModelDetail?.CostText}");
+
+        viewModel.CloseModelDetailCommand.Execute(null);
+        Check(!viewModel.IsModelDetailOpen && viewModel.ModelDetail is null, "Close must close the panel");
+        viewModel.ApplyComparison(enabled: false);
+        PumpUntil(() => !viewModel.IsLoading && !viewModel.IsComparing, "comparison off");
+        Check(!viewModel.IsModelDetailOpen, "A closed panel must stay closed across loads");
+    }
+
+    private static void ChartTooltipAndSplitBarLayout()
+    {
+        Check(costats.App.Controls.UsageChartLayout.HoverIndex(100, 100, 400, 4) == 0, "The first point is under the plot's left edge");
+        Check(costats.App.Controls.UsageChartLayout.HoverIndex(260, 100, 400, 4) == 2, "The nearest point wins");
+        Check(costats.App.Controls.UsageChartLayout.HoverIndex(40, 100, 400, 4) is null, "Far left of the plot is no point");
+        Check(costats.App.Controls.UsageChartLayout.HoverIndex(460, 100, 400, 4) is null, "Far right of the plot is no point");
+        Check(costats.App.Controls.UsageChartLayout.TooltipLeft(100, 120, 600) == 114, "The tooltip sits right of the point");
+        Check(costats.App.Controls.UsageChartLayout.TooltipLeft(550, 120, 600) == 416, "Near the edge it flips to the left");
+
+        var data = new costats.App.Controls.UsageChartData
+        {
+            Labels = ["OCT 21", "OCT 22", "OCT 23"],
+            TooltipLabels = ["Tue, Oct 21", "Wed, Oct 22", "Thu, Oct 23"],
+            Series =
+            [
+                new costats.App.Controls.UsageChartSeries(UsageProviderKind.Claude, [1.5, 2.25, double.NaN]),
+                new costats.App.Controls.UsageChartSeries(UsageProviderKind.Codex, [0.5, 1, double.NaN])
+            ],
+            ComparisonSeries =
+            [
+                new costats.App.Controls.UsageChartSeries(UsageProviderKind.Claude, [3, double.NaN, double.NaN]),
+                new costats.App.Controls.UsageChartSeries(UsageProviderKind.Codex, [0.25, double.NaN, double.NaN])
+            ],
+            ComparisonTooltipLabels = ["Sun, Oct 12", string.Empty, string.Empty],
+            PartialIndex = 1,
+            ValueLabel = value => UsageNumberFormat.Money((decimal)value)
+        };
+
+        var first = costats.App.Controls.UsageChartTooltip.For(data, 0)!;
+        Check(first.Title == "Tue, Oct 21" && first.Rows.Count == 3 && first.Rows[2] == new costats.App.Controls.UsageChartTooltipRow(null, "Total", "$2.00"),
+            "Two lines get a total");
+        Check(first.Rows[0] == new costats.App.Controls.UsageChartTooltipRow(UsageProviderKind.Claude, "Claude Code", "$1.50"), "Rows are named by provider");
+        Check(first.ComparisonTitle == "B: Sun, Oct 12" && first.ComparisonRows.Count == 3 && first.ComparisonRows[0].Value == "$3.00" &&
+                first.ComparisonRows[2] == new costats.App.Controls.UsageChartTooltipRow(null, "Total", "$3.25"),
+            "The comparison has its own date and its own total");
+        var second = costats.App.Controls.UsageChartTooltip.For(data, 1)!;
+        Check(second.Title == "Wed, Oct 22 so far" && second.ComparisonRows.Count == 0 && second.ComparisonTitle.Length == 0,
+            "A point in progress says so; a comparison gap has no rows");
+        Check(costats.App.Controls.UsageChartTooltip.For(data, 2) is null, "A future point has no tooltip");
+
+        var segments = costats.App.Controls.UsageSplitBar.Layout([0.31, 1486.42, 457.66, 506.06], 360);
+        Check(segments.Count == 4 && segments[0].Width >= 3, "A tiny share stays visible");
+        Check(Math.Abs(segments[^1].Left + segments[^1].Width - 360) < 0.001, "The segments fill the bar exactly");
+        Check(costats.App.Controls.UsageSplitBar.Layout([0, 5, 0, 5], 100).Select(segment => segment.Index).SequenceEqual([1, 3]),
+            "Zero shares get no segment");
+        Check(costats.App.Controls.UsageSplitBar.Layout([0, 0, 0, 0], 100).Count == 0, "All zero is the empty track");
     }
 
     private static void EmptyStateSaysWhy()
@@ -339,6 +449,42 @@ static class UsageWindowChecks
                 row.Label == "gpt-5-mini" && row.ChangeText == "▼ 100%" &&
                 row.ValueText == "$0.00" && row.PreviousValueText == "$12.00"),
             "A model only the comparison used must stay in the table with both periods' values");
+    }
+
+    private static void UnpricedModelOnlyInBShowsZeroInA()
+    {
+        var analytics = new ScriptedAnalytics();
+        var viewModel = new UsageWindowViewModel(analytics);
+        viewModel.ApplyComparison(enabled: true);
+        PumpUntil(() => analytics.Count == 2, "primary and comparison requests");
+
+        var unpricedTotals = new UsageTotals
+        {
+            RequestCount = 1,
+            UnpricedTokens = 1_000,
+            Tokens = new UsageTokens { UncachedInputTokens = 1_000 }
+        };
+        var comparison = new UsageReport
+        {
+            Totals = unpricedTotals,
+            ByModel = [new ModelUsage("mystery-model", UsageProviderKind.Claude, false, unpricedTotals)],
+            ByProvider = [new ProviderUsage(UsageProviderKind.Claude, unpricedTotals)]
+        };
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        for (var index = 0; index < 2; index++)
+        {
+            var request = analytics[index];
+            request.Result.SetResult(request.Range.To == today ? Report(5m) : comparison);
+        }
+
+        PumpUntil(() => !viewModel.IsLoading, "comparison load");
+        var row = viewModel.BreakdownRows.Single(candidate => candidate.Label == "mystery-model");
+        viewModel.OpenRowCommand.Execute(row);
+        var detail = viewModel.ModelDetail;
+        Check(detail is { CostText: "$0.00", PerMillionText: "$0.00", IsPriced: false } && row.ValueText == "$0.00",
+            $"An unpriced model A never used must read like its row, got {detail?.CostText} / {detail?.PerMillionText}");
+        Check(detail!.CostDeltaText == "B: unpriced · ▼ 100% tokens", $"B figure, got '{detail.CostDeltaText}'");
     }
 
     private static void DrillDuringLoadUsesTheReportOnScreen()
@@ -590,6 +736,23 @@ static class UsageWindowChecks
         throw new Exception($"No {typeof(T).Name} under {root}");
     }
 
+    private static IEnumerable<T> FindAll<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var nested in FindAll<T>(child))
+            {
+                yield return nested;
+            }
+        }
+    }
+
     private static T? FindChildOrNull<T>(DependencyObject root) where T : DependencyObject
     {
         try
@@ -636,6 +799,51 @@ static class UsageWindowChecks
             Capture(window, outputPath($"usage-compare-900-{theme.ToLowerInvariant()}.png"));
             window.Width = 1180;
             Pump();
+
+            // The main chart's tooltip, with both providers and period B.
+            var mainChart = (costats.App.Controls.UsageChart)window.FindName("MainChart");
+            mainChart.ShowHover(mainChart.ActualWidth * 0.6, 90);
+            Capture(window, outputPath($"usage-chart-hover-{theme.ToLowerInvariant()}.png"));
+            mainChart.ShowHover(null);
+
+            // Model details over the window, opened from the real row button.
+            var sonnet = viewModel.BreakdownRows.First(candidate => candidate.Label == "claude-sonnet-5-5");
+            viewModel.OpenRowCommand.Execute(sonnet);
+            Pump();
+            var overlay = (Grid)window.FindName("ModelDetailOverlay");
+            Check(overlay.IsVisible, "The model details must show over the window");
+            // The window is never activated here, so logical focus stands in
+            // for keyboard focus.
+            Check(ReferenceEquals(System.Windows.Input.FocusManager.GetFocusedElement(window), window.FindName("ModelDetailCloseButton")),
+                $"Focus must move into the panel, got {System.Windows.Input.FocusManager.GetFocusedElement(window)}");
+            var card = (FrameworkElement)window.FindName("ModelDetailCard");
+            var tokensToggle = FindAll<RadioButton>(card).Single(radio => Equals(radio.Content, "TOKENS"));
+            System.Windows.Input.FocusManager.SetFocusedElement(window, tokensToggle);
+            viewModel.MetricIndex = 1;
+            Pump();
+            Check(ReferenceEquals(System.Windows.Input.FocusManager.GetFocusedElement(window), tokensToggle),
+                "Switching the metric inside the panel must leave focus where it is");
+            viewModel.MetricIndex = 0;
+            Pump();
+            var modelChart = (costats.App.Controls.UsageChart)window.FindName("ModelChart");
+            modelChart.ShowHover(modelChart.ActualWidth * 0.55, 80);
+            Capture(window, outputPath($"usage-model-{theme.ToLowerInvariant()}.png"));
+            window.Width = 900;
+            window.Height = 620;
+            Pump();
+            Capture(window, outputPath($"usage-model-900-{theme.ToLowerInvariant()}.png"));
+            window.Width = 1180;
+            window.Height = 900;
+            Pump();
+
+            var escape = new System.Windows.Input.KeyEventArgs(
+                System.Windows.Input.Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), 0, System.Windows.Input.Key.Escape)
+            {
+                RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent
+            };
+            window.RaiseEvent(escape);
+            Pump();
+            Check(!viewModel.IsModelDetailOpen && !overlay.IsVisible, "Escape must close the model details");
 
             viewModel.SortCommand.Execute("Tokens");
             viewModel.SortCommand.Execute("Tokens");

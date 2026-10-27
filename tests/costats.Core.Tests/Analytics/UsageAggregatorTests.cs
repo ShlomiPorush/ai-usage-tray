@@ -388,4 +388,30 @@ public sealed class UsageAggregatorTests
 
         Assert.Equal(7, Assert.Single(report.Hourly).Totals.Tokens.OutputTokens);
     }
+
+    [Fact]
+    public void A_model_carries_the_price_it_was_costed_with()
+    {
+        var report = UsageAggregator.Aggregate(
+            [
+                Sample("2026-08-01T10:00:00Z", uncached: 1_000, cacheRead: 9_000, write5m: 300, output: 700),
+                Sample("2026-08-02T10:00:00Z", uncached: 2_000, write1h: 400, output: 100),
+                Sample("2026-08-02T11:00:00Z", model: "other", output: 5)
+            ],
+            Options());
+
+        var priced = Assert.Single(report.ByModel, entry => entry.Model == "test-priced");
+        Assert.True(priced.Price.IsPriced);
+        Assert.Equal(10m, priced.Price.InputPerMTok);
+
+        // Split by type, the model's cost is the same figure its days add up to.
+        var split = UsageCostCalculator.ComputeByType(priced.Totals.Tokens, priced.Price);
+        Assert.Equal(priced.Totals.CostUsd, split!.Value.TotalUsd);
+        Assert.Equal(
+            report.DailyByModel.Where(entry => entry.Model == "test-priced").Sum(entry => entry.Totals.CostUsd),
+            split.Value.TotalUsd);
+
+        var unpriced = Assert.Single(report.ByModel, entry => entry.Model == "other");
+        Assert.False(unpriced.Price.IsPriced);
+    }
 }

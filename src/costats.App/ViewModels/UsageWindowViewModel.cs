@@ -35,6 +35,7 @@ public sealed record UsageStatTile(string Caption, string Value, string Footnote
 /// <param name="PreviousValueText">The row's value in comparison period B, or empty.</param>
 /// <param name="PreviousTokensText">The row's tokens in comparison period B, or empty.</param>
 /// <param name="DrillDay">The day a day row opens by hour, or null when the row cannot be opened.</param>
+/// <param name="ModelProvider">The agent of a model row, which opens that model's details; null otherwise.</param>
 public sealed record UsageBreakdownRow(
     string Label,
     string ProviderKey,
@@ -44,13 +45,81 @@ public sealed record UsageBreakdownRow(
     string ChangeText = "",
     DateOnly? DrillDay = null,
     string PreviousValueText = "",
-    string PreviousTokensText = "")
+    string PreviousTokensText = "",
+    UsageProviderKind? ModelProvider = null)
 {
     /// <summary>True when clicking the row opens its day by hour.</summary>
     public bool CanDrill => DrillDay is not null;
 
+    /// <summary>True when clicking the row opens the model's details.</summary>
+    public bool IsModel => ModelProvider is not null;
+
+    /// <summary>True when the row opens anything at all.</summary>
+    public bool CanOpen => CanDrill || IsModel;
+
     /// <summary>What a screen reader announces for an openable row.</summary>
-    public string DrillName => CanDrill ? $"Show {Label} by hour" : Label;
+    public string DrillName => CanDrill
+        ? $"Show {Label} by hour"
+        : IsModel ? $"Show details for {Label}" : Label;
+}
+
+/// <summary>One entry of a by-type legend: "Cache read  $1,486.42".</summary>
+/// <param name="Opacity">The shade of its bar segment, from <see cref="UsageSplitBar.SegmentOpacities"/>.</param>
+public sealed record UsageSplitLegendItem(string Label, string ValueText, double Opacity);
+
+/// <summary>Everything the model details panel shows for one model.</summary>
+public sealed record UsageModelDetail
+{
+    /// <summary>Model id as the log reported it.</summary>
+    public required string Model { get; init; }
+
+    /// <summary>The agent that used it.</summary>
+    public required UsageProviderKind Provider { get; init; }
+
+    /// <summary>"claude" or "codex", the key the XAML colours by.</summary>
+    public required string ProviderKey { get; init; }
+
+    /// <summary>"Claude Code · 90.3% of cost".</summary>
+    public required string Subtitle { get; init; }
+
+    /// <summary>The model's API value, or "unpriced".</summary>
+    public required string CostText { get; init; }
+
+    /// <summary>Processed tokens.</summary>
+    public required string TokensText { get; init; }
+
+    /// <summary>API value per million processed tokens, or "unpriced".</summary>
+    public required string PerMillionText { get; init; }
+
+    /// <summary>Share of input read from the prompt cache.</summary>
+    public required string CacheHitText { get; init; }
+
+    /// <summary>Period B's API value and the change, or empty when not comparing.</summary>
+    public string CostDeltaText { get; init; } = string.Empty;
+
+    /// <summary>Period B's tokens and the change, or empty when not comparing.</summary>
+    public string TokensDeltaText { get; init; } = string.Empty;
+
+    /// <summary>True when the model has a price, so its cost can be split.</summary>
+    public bool IsPriced { get; init; }
+
+    /// <summary>"Daily API value", "Hourly tokens" and so on.</summary>
+    public required string ChartTitle { get; init; }
+
+    /// <summary>The model's own line, and its comparison when comparing.</summary>
+    public required UsageChartData Chart { get; init; }
+
+    /// <summary>Cost by token type, in segment order.</summary>
+    public IReadOnlyList<double> CostSplit { get; init; } = [];
+
+    /// <summary>Legend of <see cref="CostSplit"/>.</summary>
+    public IReadOnlyList<UsageSplitLegendItem> CostLegend { get; init; } = [];
+
+    /// <summary>Tokens by type, in segment order.</summary>
+    public IReadOnlyList<double> TokenSplit { get; init; } = [];
+
+    /// <summary>Legend of <see cref="TokenSplit"/>.</summary>
+    public IReadOnlyList<UsageSplitLegendItem> TokenLegend { get; init; } = [];
 }
 
 /// <summary>
@@ -95,6 +164,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     private UsageSortState _modelSort = UsageSortState.ModelDefault;
     private UsageSortState _timeSort = UsageSortState.TimeDefault;
     private ViewState? _backState;
+    private (UsageProviderKind Provider, string Model)? _openModel;
 
     /// <summary>Creates the view model over the app's analytics service.</summary>
     public UsageWindowViewModel(IUsageAnalyticsService analytics)
@@ -271,6 +341,14 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     /// <summary>True once a report, or its comparison, has at least one request.</summary>
     [ObservableProperty]
     private bool hasData;
+
+    /// <summary>The open model details panel, or null when it is closed.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsModelDetailOpen))]
+    private UsageModelDetail? modelDetail;
+
+    /// <summary>True while the model details panel is open.</summary>
+    public bool IsModelDetailOpen => ModelDetail is not null;
 
     /// <summary>True when the custom range is the one on screen.</summary>
     public bool IsCustomRange => RangeDays == CustomRange;
@@ -528,10 +606,19 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         }
     }
 
-    /// <summary>Opens a day row by hour, keeping the comparison on its parallel day.</summary>
+    /// <summary>
+    /// Opens a row: a model row shows that model's details, a day row opens
+    /// the day by hour, keeping the comparison on its parallel day.
+    /// </summary>
     [RelayCommand]
     private void OpenRow(UsageBreakdownRow? row)
     {
+        if (row is { ModelProvider: { } provider })
+        {
+            OpenModel(provider, row.Label);
+            return;
+        }
+
         if (row?.DrillDay is not { } day || _view is not { } view || view.Primary.IsHourly)
         {
             return;
@@ -575,6 +662,43 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
         UpdateBack();
         Reload();
+    }
+
+    /// <summary>
+    /// Shows one model's details over the report on screen. The panel stays
+    /// open across refreshes and follows the new report.
+    /// </summary>
+    private void OpenModel(UsageProviderKind provider, string model)
+    {
+        if (_view is not { } view || BuildModelDetail(view, provider, model) is not { } detail)
+        {
+            return;
+        }
+
+        _openModel = (provider, model);
+        ModelDetail = detail;
+    }
+
+    /// <summary>Closes the model details panel.</summary>
+    [RelayCommand]
+    private void CloseModelDetail()
+    {
+        _openModel = null;
+        ModelDetail = null;
+    }
+
+    /// <summary>Rebuilds the open model details from the report on screen, or closes them.</summary>
+    private void RefreshModelDetail()
+    {
+        var detail = _view is { } view && _openModel is { } open
+            ? BuildModelDetail(view, open.Provider, open.Model)
+            : null;
+        if (detail is null)
+        {
+            _openModel = null;
+        }
+
+        ModelDetail = detail;
     }
 
     /// <summary>Returns from an opened day to the range it was opened from.</summary>
@@ -670,9 +794,12 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         UpdateHeaders();
         if (_view is not null)
         {
-            Chart = BuildChart(_view);
+            Chart = BuildChart(_view, SelectedMetric);
+            RefreshModelDetail();
         }
     }
+
+    private UsageMetric SelectedMetric => MetricIndex == 1 ? UsageMetric.Tokens : UsageMetric.Cost;
 
     partial void OnBreakdownIndexChanged(int value)
     {
@@ -699,9 +826,11 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         BreakdownValueHeader = ShowComparisonColumns ? "API value A" : "API value";
         BreakdownTokensHeader = ShowComparisonColumns ? "Tokens A" : "Tokens";
         ChangeHeader = _view is { Comparison: not null } shown ? $"Change {shown.Direction.Label}" : "Change";
-        BreakdownHint = BreakdownIndex == 1 && _view is { Primary.IsHourly: false } && BreakdownRows.Count > 0
-            ? "Select a day to see it by hour"
-            : string.Empty;
+        BreakdownHint = BreakdownRows.Count == 0
+            ? string.Empty
+            : BreakdownIndex == 0
+                ? "Select a model for its details"
+                : _view is { Primary.IsHourly: false } ? "Select a day to see it by hour" : string.Empty;
     }
 
     private void UpdateSortGlyphs()
@@ -856,6 +985,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             {
                 Log.Warning(exception, "Usage report failed");
                 _view = null;
+                RefreshModelDetail();
                 HasData = false;
                 StatusText = "Could not read the local agent logs. See the log file for details.";
             }
@@ -965,8 +1095,9 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         ComparisonNote = BuildComparisonNote(view);
         ProviderRows = BuildProviderRows(report, comparison, view.Direction);
         Tiles = BuildTiles(report, comparison, view.Direction);
-        Chart = BuildChart(view);
+        Chart = BuildChart(view, SelectedMetric);
         BreakdownRows = BuildBreakdown(view);
+        RefreshModelDetail();
         UpdateHeaders();
         UpdateSortGlyphs();
     }
@@ -1172,7 +1303,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         new UsageStatTile("Cache savings", "$0.00", string.Empty)
     ];
 
-    private UsageChartData BuildChart(LoadedView view)
+    private static UsageChartData BuildChart(LoadedView view, UsageMetric metric)
     {
         var primary = view.Primary;
         var count = primary.PointCount;
@@ -1181,7 +1312,6 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             return UsageChartData.Empty;
         }
 
-        var metric = MetricIndex == 1 ? UsageMetric.Tokens : UsageMetric.Cost;
         var report = view.Report;
         var comparison = view.Comparison;
         var providers = report.ByProvider
@@ -1243,6 +1373,13 @@ public sealed partial class UsageWindowViewModel : ObservableObject
                 .Select(index => UsageNumberFormat.AxisDayLabel(primary.FirstDay.AddDays(index)))
                 .ToList();
 
+        // The tooltip names every point in full, the way the breakdown rows do.
+        IReadOnlyList<string> tooltipLabels = slots is not null
+            ? slots.Select(hour => UsageNumberFormat.LongHourLabel(hour, view.Zone, view.Today)).ToList()
+            : Enumerable.Range(0, count)
+                .Select(index => UsageNumberFormat.LongDayLabel(primary.FirstDay.AddDays(index), view.Today))
+                .ToList();
+
         var useTokens = metric == UsageMetric.Tokens;
         return new UsageChartData
         {
@@ -1256,8 +1393,49 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             ComparisonPartialIndex = comparisonInProgress,
             AxisLabel = useTokens
                 ? value => UsageNumberFormat.AxisTokens((long)Math.Round(value))
-                : value => UsageNumberFormat.AxisCost((decimal)value)
+                : value => UsageNumberFormat.AxisCost((decimal)value),
+            ValueLabel = useTokens
+                ? value => UsageNumberFormat.Tokens((long)Math.Round(value))
+                : value => UsageNumberFormat.Money((decimal)value),
+            TooltipLabels = tooltipLabels,
+            ComparisonTooltipLabels = clock is not null
+                ? ClockTooltipLabels(clock)
+                : ComparisonTooltipLabels(view, count, averageDay),
+            ComparisonTooltipTitle = averageDay ? "B: average day" : "B"
         };
+    }
+
+    /// <summary>B's own day and hour, in full, for every point of a clock-matched chart.</summary>
+    private static IReadOnlyList<string> ClockTooltipLabels(UsageClockSlot?[] clock) =>
+        clock
+            .Select(slot => slot is { } match
+                ? UsageNumberFormat.LongHourLabel(new DateTimeOffset(match.Day.ToDateTime(new TimeOnly(match.Hour, 0)), TimeSpan.Zero))
+                : string.Empty)
+            .ToList();
+
+    /// <summary>The comparison's own date or hour, in full, for every point; empty where it has none.</summary>
+    private static IReadOnlyList<string> ComparisonTooltipLabels(LoadedView view, int count, bool averageDay)
+    {
+        if (view.ComparisonPeriod is not { } compared || averageDay)
+        {
+            return [];
+        }
+
+        if (compared.Window is { } window)
+        {
+            var hours = window.HourStarts();
+            return Enumerable.Range(0, count)
+                .Select(index => index < hours.Count
+                    ? UsageNumberFormat.LongHourLabel(hours[index], view.Zone, view.Today)
+                    : string.Empty)
+                .ToList();
+        }
+
+        return Enumerable.Range(0, count)
+            .Select(index => index < compared.DayCount
+                ? UsageNumberFormat.LongDayLabel(compared.FirstDay.AddDays(index), view.Today)
+                : string.Empty)
+            .ToList();
     }
 
     /// <summary>B's own day and hour under every point of a clock-matched hourly chart.</summary>
@@ -1389,9 +1567,114 @@ public sealed partial class UsageWindowViewModel : ObservableObject
                     : string.Empty,
                 item.PreviousTotals is { } previousTokens
                     ? UsageNumberFormat.Tokens(previousTokens.Tokens.ProcessedTokens)
-                    : string.Empty))
+                    : string.Empty,
+                byTime ? null : item.Provider))
             .ToList();
     }
+
+    /// <summary>
+    /// One model's details over the report on screen, or null when neither
+    /// period used it. Its chart is the main chart's, cut to that model, so it
+    /// follows the same alignment, comparison and "so far" rules.
+    /// </summary>
+    private UsageModelDetail? BuildModelDetail(LoadedView view, UsageProviderKind provider, string model)
+    {
+        var current = FindModel(view.Report, provider, model);
+        var previous = view.Comparison is { } comparison ? FindModel(comparison, provider, model) : null;
+        if ((current ?? previous) is not { } reference)
+        {
+            return null;
+        }
+
+        var totals = current?.Totals ?? UsageTotals.Empty;
+        var tokens = totals.Tokens;
+        var priced = reference.Price.IsPriced;
+
+        // Like the table row: a model A never used has $0.00 in A, even when
+        // it has no price; "unpriced" is only for usage that could not be costed.
+        var unpricedNow = current is { IsPriced: false };
+        var report = view.Report.Totals;
+
+        // A model with no price is described by tokens throughout, so its
+        // chart never shows a flat line at zero dollars.
+        var share = priced && report.CostUsd > 0m
+            ? $"{UsageNumberFormat.Percent(totals.CostUsd, report.CostUsd)} of cost"
+            : $"{UsageNumberFormat.Percent(tokens.ProcessedTokens, report.Tokens.ProcessedTokens)} of tokens";
+        var metric = priced ? SelectedMetric : UsageMetric.Tokens;
+        var period = view.Primary.IsHourly ? "Hourly" : "Daily";
+
+        var costDelta = string.Empty;
+        var tokensDelta = string.Empty;
+        if (view.Comparison is not null)
+        {
+            var before = previous?.Totals ?? UsageTotals.Empty;
+            costDelta = WithPrevious(Cost(before), UsageNumberFormat.Delta(view.Direction.Between(totals, before)));
+            tokensDelta = WithPrevious(
+                UsageNumberFormat.Tokens(before.Tokens.ProcessedTokens),
+                UsageNumberFormat.Delta(view.Direction.OfTokens(tokens.ProcessedTokens, before.Tokens.ProcessedTokens), showBasis: false));
+        }
+
+        var opacities = UsageSplitBar.SegmentOpacities;
+        var costSplit = UsageCostCalculator.ComputeByType(tokens, reference.Price);
+        decimal[] costParts = costSplit is { } parts
+            ? [parts.InputUsd, parts.CacheReadUsd, parts.CacheWriteUsd, parts.OutputUsd]
+            : [];
+        long[] tokenParts = [tokens.UncachedInputTokens, tokens.CacheReadInputTokens, tokens.CacheWriteInputTokens, tokens.OutputTokens];
+
+        return new UsageModelDetail
+        {
+            Model = reference.Model,
+            Provider = provider,
+            ProviderKey = Key(provider),
+            Subtitle = $"{DisplayName(provider)} · {share}",
+            CostText = unpricedNow ? "unpriced" : UsageNumberFormat.Money(totals.CostUsd),
+            TokensText = UsageNumberFormat.Tokens(tokens.ProcessedTokens),
+            PerMillionText = unpricedNow
+                ? "unpriced"
+                : tokens.ProcessedTokens > 0
+                    ? UsageNumberFormat.Money(totals.CostUsd * UsageCostCalculator.TokensPerMillion / tokens.ProcessedTokens)
+                    : UsageNumberFormat.Money(0m),
+            CacheHitText = UsageNumberFormat.Percent(tokens.CacheReadInputTokens, tokens.InputTokens),
+            CostDeltaText = costDelta,
+            TokensDeltaText = tokensDelta,
+            IsPriced = priced,
+            ChartTitle = metric == UsageMetric.Tokens ? $"{period} tokens" : $"{period} API value",
+            Chart = BuildChart(OnlyModel(view, provider, model), metric),
+            CostSplit = costParts.Select(part => (double)part).ToList(),
+            CostLegend = costParts
+                .Select((part, index) => new UsageSplitLegendItem(SplitLabels[index], UsageNumberFormat.Money(part), opacities[index]))
+                .ToList(),
+            TokenSplit = tokenParts.Select(part => (double)part).ToList(),
+            TokenLegend = tokenParts
+                .Select((part, index) => new UsageSplitLegendItem(SplitLabels[index], UsageNumberFormat.Tokens(part), opacities[index]))
+                .ToList()
+        };
+    }
+
+    /// <summary>The by-type segments, in the order both bars and legends use.</summary>
+    private static readonly string[] SplitLabels = ["Input", "Cache read", "Cache write", "Output"];
+
+    private static ModelUsage? FindModel(UsageReport report, UsageProviderKind provider, string model) =>
+        report.ByModel.FirstOrDefault(entry => entry.Provider == provider && string.Equals(entry.Model, model, StringComparison.Ordinal));
+
+    /// <summary>The view with both reports cut to one model, for that model's chart.</summary>
+    private static LoadedView OnlyModel(LoadedView view, UsageProviderKind provider, string model) => view with
+    {
+        Report = OnlyModel(view.Report, provider, model),
+        Comparison = view.Comparison is { } comparison ? OnlyModel(comparison, provider, model) : null
+    };
+
+    private static UsageReport OnlyModel(UsageReport report, UsageProviderKind provider, string model) => report with
+    {
+        DailyByModel = report.DailyByModel
+            .Where(bucket => bucket.Provider == provider && string.Equals(bucket.Model, model, StringComparison.Ordinal))
+            .ToList(),
+        HourlyByModel = report.HourlyByModel
+            .Where(bucket => bucket.Provider == provider && string.Equals(bucket.Model, model, StringComparison.Ordinal))
+            .ToList(),
+        // The chart draws one line per provider it finds here.
+        ByProvider = [new ProviderUsage(provider, FindModel(report, provider, model)?.Totals ?? UsageTotals.Empty)]
+    };
 
     /// <summary>
     /// A bucket's cost, or "unpriced" when it consumed tokens no price covers.

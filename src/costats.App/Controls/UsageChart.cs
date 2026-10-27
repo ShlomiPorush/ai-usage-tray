@@ -10,7 +10,11 @@ namespace costats.App.Controls;
 /// <param name="Values">
 /// One value per point of <see cref="UsageChartData.Labels"/>, same order and length.
 /// </param>
-public sealed record UsageChartSeries(UsageProviderKind Provider, IReadOnlyList<double> Values);
+public sealed record UsageChartSeries(UsageProviderKind Provider, IReadOnlyList<double> Values)
+{
+    /// <summary>The tooltip's name for the line.</summary>
+    public string DisplayName => Provider == UsageProviderKind.Claude ? "Claude Code" : "Codex";
+}
 
 /// <summary>
 /// Everything <see cref="UsageChart"/> needs for one render pass. The view model
@@ -53,6 +57,115 @@ public sealed record UsageChartData
 
     /// <summary>Formats a Y axis tick, so the same control serves dollars and tokens.</summary>
     public Func<double, string> AxisLabel { get; init; } = value => value.ToString("0", CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// Formats a value in the hover tooltip, exactly rather than rounded to
+    /// an axis step. Falls back to <see cref="AxisLabel"/>.
+    /// </summary>
+    public Func<double, string>? ValueLabel { get; init; }
+
+    /// <summary>
+    /// The hover tooltip's heading for every point, such as <c>Sat, Oct 25</c>.
+    /// Falls back to <see cref="Labels"/> when empty.
+    /// </summary>
+    public IReadOnlyList<string> TooltipLabels { get; init; } = [];
+
+    /// <summary>
+    /// The comparison's own heading for every point in the tooltip. Empty
+    /// entries fall back to <see cref="ComparisonTooltipTitle"/>.
+    /// </summary>
+    public IReadOnlyList<string> ComparisonTooltipLabels { get; init; } = [];
+
+    /// <summary>The comparison's heading where it has no date of its own, such as an average day.</summary>
+    public string ComparisonTooltipTitle { get; init; } = "B";
+}
+
+/// <summary>One line of the hover tooltip.</summary>
+/// <param name="Provider">Picks the dot colour; null for the total.</param>
+/// <param name="Name">Series name, or "Total".</param>
+/// <param name="Value">Formatted value.</param>
+public readonly record struct UsageChartTooltipRow(UsageProviderKind? Provider, string Name, string Value);
+
+/// <summary>What the hover tooltip shows for one point.</summary>
+/// <param name="Title">The point's heading, "so far" added while it is in progress.</param>
+/// <param name="Rows">The current period's lines, then a total when there are several.</param>
+/// <param name="ComparisonTitle">The comparison's heading, or empty when it has no value here.</param>
+/// <param name="ComparisonRows">The comparison's lines at the same point, with a total the same way.</param>
+public sealed record UsageChartTooltip(
+    string Title,
+    IReadOnlyList<UsageChartTooltipRow> Rows,
+    string ComparisonTitle,
+    IReadOnlyList<UsageChartTooltipRow> ComparisonRows)
+{
+    /// <summary>
+    /// The tooltip for point <paramref name="index"/>, or null when nothing
+    /// there has a value yet (a point still in the future).
+    /// </summary>
+    public static UsageChartTooltip? For(UsageChartData data, int index)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        if (index < 0 || index >= data.Labels.Count)
+        {
+            return null;
+        }
+
+        var format = data.ValueLabel ?? data.AxisLabel;
+        var rows = Lines(data.Series, index, format);
+        var comparisonRows = Lines(data.ComparisonSeries, index, format);
+        if (rows.Count == 0 && comparisonRows.Count == 0)
+        {
+            return null;
+        }
+
+        var title = index < data.TooltipLabels.Count && data.TooltipLabels[index].Length > 0
+            ? data.TooltipLabels[index]
+            : data.Labels[index];
+        if (data.PartialIndex == index)
+        {
+            title += " so far";
+        }
+
+        var comparisonTitle = string.Empty;
+        if (comparisonRows.Count > 0)
+        {
+            comparisonTitle = index < data.ComparisonTooltipLabels.Count && data.ComparisonTooltipLabels[index].Length > 0
+                ? $"B: {data.ComparisonTooltipLabels[index]}"
+                : data.ComparisonTooltipTitle;
+            if (data.ComparisonPartialIndex == index)
+            {
+                comparisonTitle += " so far";
+            }
+        }
+
+        return new UsageChartTooltip(title, rows, comparisonTitle, comparisonRows);
+    }
+
+    private static List<UsageChartTooltipRow> Lines(
+        IReadOnlyList<UsageChartSeries> series,
+        int index,
+        Func<double, string> format)
+    {
+        var rows = new List<UsageChartTooltipRow>(series.Count + 1);
+        var total = 0d;
+        foreach (var line in series)
+        {
+            if (index >= line.Values.Count || !double.IsFinite(line.Values[index]))
+            {
+                continue;
+            }
+
+            var value = Math.Max(0d, line.Values[index]);
+            total += value;
+            rows.Add(new UsageChartTooltipRow(line.Provider, line.DisplayName, format(value)));
+        }
+
+        if (rows.Count > 1)
+        {
+            rows.Add(new UsageChartTooltipRow(null, "Total", format(total)));
+        }
+
+        return rows;
+    }
 }
 
 /// <summary>
@@ -168,6 +281,43 @@ public static class UsageChartLayout
     /// </summary>
     public static double ClampedLeft(double x, double width, double left, double right) =>
         Math.Clamp(x - (width / 2d), left, Math.Max(left, right - width));
+
+    /// <summary>
+    /// The point nearest to <paramref name="x"/>, or null when the pointer is
+    /// more than half a step outside the plot.
+    /// </summary>
+    public static int? HoverIndex(double x, double left, double right, int count)
+    {
+        if (count <= 0 || right <= left)
+        {
+            return null;
+        }
+
+        if (count == 1)
+        {
+            return x >= left && x <= right ? 0 : null;
+        }
+
+        var step = (right - left) / (count - 1);
+        var index = (int)Math.Round((x - left) / step, MidpointRounding.AwayFromZero);
+        return index >= 0 && index < count ? index : null;
+    }
+
+    /// <summary>
+    /// The tooltip's left edge: beside the hovered point on the right, or on
+    /// its left when it would run past the control's edge.
+    /// </summary>
+    public static double TooltipLeft(double x, double width, double controlWidth)
+    {
+        const double Offset = 14d;
+        var rightSide = x + Offset;
+        if (rightSide + width <= controlWidth)
+        {
+            return rightSide;
+        }
+
+        return Math.Max(0d, x - Offset - width);
+    }
 }
 
 /// <summary>
@@ -230,6 +380,98 @@ public sealed class UsageChart : FrameworkElement
         typeof(UsageChart),
         new FrameworkPropertyMetadata(Brushes.Gray, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>Background of the hover tooltip.</summary>
+    public static readonly DependencyProperty TooltipBackgroundProperty = DependencyProperty.Register(
+        nameof(TooltipBackground),
+        typeof(Brush),
+        typeof(UsageChart),
+        new FrameworkPropertyMetadata(Brushes.Black, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>Outline of the hover tooltip.</summary>
+    public static readonly DependencyProperty TooltipBorderBrushProperty = DependencyProperty.Register(
+        nameof(TooltipBorderBrush),
+        typeof(Brush),
+        typeof(UsageChart),
+        new FrameworkPropertyMetadata(Brushes.Gray, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>Values and headings in the hover tooltip.</summary>
+    public static readonly DependencyProperty TextBrushProperty = DependencyProperty.Register(
+        nameof(TextBrush),
+        typeof(Brush),
+        typeof(UsageChart),
+        new FrameworkPropertyMetadata(Brushes.White, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    /// <summary>Series names in the hover tooltip.</summary>
+    public static readonly DependencyProperty SecondaryTextBrushProperty = DependencyProperty.Register(
+        nameof(SecondaryTextBrush),
+        typeof(Brush),
+        typeof(UsageChart),
+        new FrameworkPropertyMetadata(Brushes.LightGray, FrameworkPropertyMetadataOptions.AffectsRender));
+
+    private int? _hoverIndex;
+    private double _hoverY;
+
+    /// <inheritdoc cref="TooltipBackgroundProperty"/>
+    public Brush TooltipBackground
+    {
+        get => (Brush)GetValue(TooltipBackgroundProperty);
+        set => SetValue(TooltipBackgroundProperty, value);
+    }
+
+    /// <inheritdoc cref="TooltipBorderBrushProperty"/>
+    public Brush TooltipBorderBrush
+    {
+        get => (Brush)GetValue(TooltipBorderBrushProperty);
+        set => SetValue(TooltipBorderBrushProperty, value);
+    }
+
+    /// <inheritdoc cref="TextBrushProperty"/>
+    public Brush TextBrush
+    {
+        get => (Brush)GetValue(TextBrushProperty);
+        set => SetValue(TextBrushProperty, value);
+    }
+
+    /// <inheritdoc cref="SecondaryTextBrushProperty"/>
+    public Brush SecondaryTextBrush
+    {
+        get => (Brush)GetValue(SecondaryTextBrushProperty);
+        set => SetValue(SecondaryTextBrushProperty, value);
+    }
+
+    /// <summary>
+    /// Shows the tooltip for the point nearest to <paramref name="x"/>, as the
+    /// pointer does; null hides it. For checks that cannot move a real mouse.
+    /// </summary>
+    public void ShowHover(double? x, double y = 0d)
+    {
+        var (left, right) = PlotEdges();
+        var index = x is { } position ? UsageChartLayout.HoverIndex(position, left, right, Data?.Labels.Count ?? 0) : null;
+        if (index != _hoverIndex || (index is not null && y != _hoverY))
+        {
+            _hoverIndex = index;
+            _hoverY = y;
+            InvalidateVisual();
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnMouseMove(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        var position = e.GetPosition(this);
+        ShowHover(position.X, position.Y);
+    }
+
+    /// <inheritdoc />
+    protected override void OnMouseLeave(System.Windows.Input.MouseEventArgs e)
+    {
+        base.OnMouseLeave(e);
+        ShowHover(null);
+    }
+
+    private (double Left, double Right) PlotEdges() => (AxisGutter, ActualWidth - 6d);
+
     /// <inheritdoc cref="DataProperty"/>
     public UsageChartData? Data
     {
@@ -269,6 +511,10 @@ public sealed class UsageChart : FrameworkElement
     protected override void OnRender(DrawingContext drawingContext)
     {
         base.OnRender(drawingContext);
+
+        // An invisible floor, so the pointer is tracked over empty plot area
+        // too and not only over the drawn curves.
+        drawingContext.DrawRectangle(Brushes.Transparent, null, new Rect(RenderSize));
 
         var width = ActualWidth;
         var height = ActualHeight;
@@ -348,7 +594,146 @@ public sealed class UsageChart : FrameworkElement
         // last value reads as unfinished rather than as a drop.
         DrawPartial(drawingContext, data.ComparisonSeries, data.ComparisonPartialIndex, data.Labels.Count, left, right, top, bottom, axisMax, typeface, dpi);
         DrawPartial(drawingContext, data.Series, data.PartialIndex, data.Labels.Count, left, right, top, bottom, axisMax, typeface, dpi);
+
+        if (_hoverIndex is { } hovered && UsageChartTooltip.For(data, hovered) is { } tooltip)
+        {
+            DrawHover(drawingContext, data, tooltip, hovered, left, right, top, bottom, axisMax, typeface, dpi);
+        }
     }
+
+    /// <summary>
+    /// The hovered point: a guide line, a dot on every line that has a value
+    /// there, and a tooltip beside it with the exact figures.
+    /// </summary>
+    private void DrawHover(
+        DrawingContext drawingContext,
+        UsageChartData data,
+        UsageChartTooltip tooltip,
+        int index,
+        double left,
+        double right,
+        double top,
+        double bottom,
+        double axisMax,
+        Typeface typeface,
+        double dpi)
+    {
+        var pointCount = data.Labels.Count;
+        var step = pointCount > 1 ? (right - left) / (pointCount - 1) : 0d;
+        var x = pointCount > 1 ? left + (step * index) : (left + right) / 2d;
+
+        var guide = new Pen(LabelBrush, 1d);
+        guide.Freeze();
+        drawingContext.DrawLine(guide, new Point(Snap(x), top), new Point(Snap(x), bottom));
+
+        if (axisMax > 0d)
+        {
+            var halo = new Pen(TooltipBackground, 1.5d);
+            halo.Freeze();
+            foreach (var series in data.ComparisonSeries.Concat(data.Series))
+            {
+                if (index >= series.Values.Count || !double.IsFinite(series.Values[index]))
+                {
+                    continue;
+                }
+
+                var y = bottom - ((bottom - top) * Math.Min(1d, Math.Max(0d, series.Values[index]) / axisMax));
+                drawingContext.DrawEllipse(Accent(series.Provider), halo, new Point(x, y), 3.5d, 3.5d);
+            }
+        }
+
+        const double Padding = 10d;
+        const double RowHeight = 19d;
+        const double DotSize = 7d;
+        const double DotGap = 7d;
+        const double ValueGap = 20d;
+        var bold = new Typeface(typeface.FontFamily, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal);
+
+        // Every row is measured first, so names line up on the left and
+        // values on the right whatever their lengths.
+        var blocks = new List<(FormattedText Title, IReadOnlyList<UsageChartTooltipRow> Rows)>(2);
+        if (tooltip.Rows.Count > 0)
+        {
+            blocks.Add((TooltipText(tooltip.Title, typeface, dpi, TextBrush), tooltip.Rows));
+        }
+
+        if (tooltip.ComparisonRows.Count > 0)
+        {
+            blocks.Add((TooltipText(tooltip.ComparisonTitle, typeface, dpi, SecondaryTextBrush), tooltip.ComparisonRows));
+        }
+
+        var contentWidth = 0d;
+        var height = Padding;
+        foreach (var (title, rows) in blocks)
+        {
+            contentWidth = Math.Max(contentWidth, title.Width);
+            height += RowHeight;
+            foreach (var row in rows)
+            {
+                var name = TooltipText(row.Name, typeface, dpi, SecondaryTextBrush).Width;
+                var value = TooltipText(row.Value, bold, dpi, TextBrush).Width;
+                contentWidth = Math.Max(contentWidth, (row.Provider is null ? 0d : DotSize + DotGap) + name + ValueGap + value);
+                height += RowHeight;
+            }
+        }
+
+        height += Padding - 2d;
+        var width = contentWidth + (Padding * 2d) + 4d;
+        var boxLeft = UsageChartLayout.TooltipLeft(x, width, ActualWidth);
+        var boxTop = Math.Clamp(_hoverY - (height / 2d), 0d, Math.Max(0d, ActualHeight - height));
+
+        var outline = new Pen(TooltipBorderBrush, 1d);
+        outline.Freeze();
+        drawingContext.DrawRoundedRectangle(TooltipBackground, outline, new Rect(boxLeft, boxTop, width, height), 8d, 8d);
+
+        var divider = new Pen(TooltipBorderBrush, 1d);
+        divider.Freeze();
+        var cursor = boxTop + Padding;
+        var textLeft = boxLeft + Padding + 2d;
+        var textRight = boxLeft + width - Padding - 2d;
+        for (var block = 0; block < blocks.Count; block++)
+        {
+            var (title, rows) = blocks[block];
+            if (block > 0)
+            {
+                drawingContext.DrawLine(divider, new Point(textLeft, Snap(cursor - 2d)), new Point(textRight, Snap(cursor - 2d)));
+            }
+
+            drawingContext.DrawText(title, new Point(textLeft, cursor + ((RowHeight - title.Height) / 2d) - 2d));
+            cursor += RowHeight;
+            foreach (var row in rows)
+            {
+                var nameLeft = textLeft;
+                if (row.Provider is { } provider)
+                {
+                    drawingContext.DrawRoundedRectangle(
+                        Accent(provider),
+                        null,
+                        new Rect(textLeft, cursor + ((RowHeight - DotSize) / 2d) - 2d, DotSize, DotSize),
+                        2d,
+                        2d);
+                    nameLeft += DotSize + DotGap;
+                }
+                else
+                {
+                    // The total sits under a hairline, like a sum on paper.
+                    drawingContext.DrawLine(divider, new Point(textLeft, Snap(cursor - 2d)), new Point(textRight, Snap(cursor - 2d)));
+                }
+
+                var name = TooltipText(row.Name, typeface, dpi, row.Provider is null ? TextBrush : SecondaryTextBrush);
+                var value = TooltipText(row.Value, bold, dpi, TextBrush);
+                drawingContext.DrawText(name, new Point(nameLeft, cursor + ((RowHeight - name.Height) / 2d) - 2d));
+                drawingContext.DrawText(value, new Point(textRight - value.Width, cursor + ((RowHeight - value.Height) / 2d) - 2d));
+                cursor += RowHeight;
+            }
+        }
+    }
+
+    private Brush Accent(UsageProviderKind provider) =>
+        provider == UsageProviderKind.Claude ? ClaudeBrush : CodexBrush;
+
+    private static FormattedText TooltipText(string value, Typeface typeface, double dpi, Brush brush) =>
+        new(value, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 12d, brush, dpi);
 
     private void DrawPartial(
         DrawingContext drawingContext,

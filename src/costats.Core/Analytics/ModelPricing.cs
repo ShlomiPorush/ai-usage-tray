@@ -102,6 +102,42 @@ public static class UsageCostCalculator
 
         return new UsageCost(cost / TokensPerMillion, savings / TokensPerMillion, true);
     }
+
+    /// <summary>
+    /// Splits the cost of <see cref="Compute(UsageTokens, ModelPrice)"/> by
+    /// token type, with the same rates, so the four parts add up to its
+    /// <see cref="UsageCost.CostUsd"/> exactly. Null for an unpriced model:
+    /// it has no cost to split.
+    /// </summary>
+    public static UsageCostByType? ComputeByType(UsageTokens tokens, ModelPrice? price)
+    {
+        if (price is null || !price.IsPriced)
+        {
+            return null;
+        }
+
+        return new UsageCostByType(
+            tokens.UncachedInputTokens * (price.InputPerMTok ?? 0m) / TokensPerMillion,
+            tokens.CacheReadInputTokens * (price.CachedInputPerMTok ?? 0m) / TokensPerMillion,
+            ((tokens.CacheWrite5mInputTokens * (price.CacheWrite5mPerMTok ?? 0m)) +
+                (tokens.CacheWrite1hInputTokens * (price.CacheWrite1hPerMTok ?? 0m))) / TokensPerMillion,
+            tokens.OutputTokens * (price.OutputPerMTok ?? 0m) / TokensPerMillion);
+    }
+}
+
+/// <summary>A bucket's API list-price cost, split by token type, in USD.</summary>
+/// <param name="InputUsd">Uncached input.</param>
+/// <param name="CacheReadUsd">Input read from the prompt cache.</param>
+/// <param name="CacheWriteUsd">Input written to the prompt cache, both lifetimes.</param>
+/// <param name="OutputUsd">Output, reasoning included.</param>
+public readonly record struct UsageCostByType(
+    decimal InputUsd,
+    decimal CacheReadUsd,
+    decimal CacheWriteUsd,
+    decimal OutputUsd)
+{
+    /// <summary>The four parts summed.</summary>
+    public decimal TotalUsd => InputUsd + CacheReadUsd + CacheWriteUsd + OutputUsd;
 }
 
 /// <summary>
