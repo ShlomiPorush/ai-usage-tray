@@ -141,7 +141,14 @@ public sealed record ModelUsage(
     string Model,
     UsageProviderKind Provider,
     bool IsPriced,
-    UsageTotals Totals);
+    UsageTotals Totals)
+{
+    /// <summary>
+    /// The rates every bucket of this model was costed with, so its cost can
+    /// be split by token type. <see cref="ModelPrice.Unpriced"/> when unknown.
+    /// </summary>
+    public ModelPrice Price { get; init; } = ModelPrice.Unpriced;
+}
 
 /// <summary>All usage of one provider over the whole range.</summary>
 public sealed record ProviderUsage(UsageProviderKind Provider, UsageTotals Totals);

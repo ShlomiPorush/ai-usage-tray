@@ -402,11 +402,11 @@
             </Style.Triggers>
         </Style>
 
-        <!-- A breakdown row. Day rows open that day by hour; every other row is
-             inert and looks exactly the same as before. -->
+        <!-- A breakdown row. Day rows open that day by hour and model rows open
+             the model's details; hour rows are inert. -->
         <Style x:Key="BreakdownRow" TargetType="Button">
-            <Setter Property="Focusable" Value="{Binding CanDrill}" />
-            <Setter Property="IsEnabled" Value="{Binding CanDrill}" />
+            <Setter Property="Focusable" Value="{Binding CanOpen}" />
+            <Setter Property="IsEnabled" Value="{Binding CanOpen}" />
             <Setter Property="AutomationProperties.Name" Value="{Binding DrillName}" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="Template">
@@ -428,11 +428,86 @@
                 </Setter.Value>
             </Setter>
             <Style.Triggers>
-                <DataTrigger Binding="{Binding CanDrill}" Value="True">
+                <DataTrigger Binding="{Binding CanOpen}" Value="True">
                     <Setter Property="Cursor" Value="Hand" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+
+        <!-- Both charts share their theme brushes, tooltip included. -->
+        <Style x:Key="ThemedUsageChart" TargetType="controls:UsageChart">
+            <Setter Property="ClaudeBrush" Value="{DynamicResource ClaudeAccent}" />
+            <Setter Property="CodexBrush" Value="{DynamicResource CodexAccent}" />
+            <Setter Property="GridBrush" Value="{DynamicResource DividerBrush}" />
+            <Setter Property="LabelBrush" Value="{DynamicResource TextFaintBrush}" />
+            <Setter Property="TooltipBackground" Value="{DynamicResource InputBgBrush}" />
+            <Setter Property="TooltipBorderBrush" Value="{DynamicResource WindowBorderBrush}" />
+            <Setter Property="TextBrush" Value="{DynamicResource TextPrimaryBrush}" />
+            <Setter Property="SecondaryTextBrush" Value="{DynamicResource TextSecondaryBrush}" />
+        </Style>
+
+        <!-- A by-type bar in the model's accent. -->
+        <Style x:Key="ModelSplitBar" TargetType="controls:UsageSplitBar">
+            <Setter Property="Height" Value="6" />
+            <Setter Property="Margin" Value="0,10,0,10" />
+            <Setter Property="TrackBrush" Value="{DynamicResource TrackBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ProviderKey}" Value="claude">
+                    <Setter Property="Brush" Value="{DynamicResource ClaudeAccent}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ProviderKey}" Value="codex">
+                    <Setter Property="Brush" Value="{DynamicResource CodexAccent}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="DetailCaption" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource TextMutedBrush}" />
+        </Style>
+
+        <Style x:Key="DetailFigure" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="26" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Margin" Value="0,4,0,0" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        </Style>
+
+        <Style x:Key="DetailSectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+        </Style>
+
+        <!-- The legend under a by-type bar: a swatch in its segment's shade,
+             the type and the figure. -->
+        <DataTemplate x:Key="SplitLegendItem">
+            <StackPanel Orientation="Horizontal" Margin="0,0,18,6">
+                <Border Width="8" Height="8" CornerRadius="2" Margin="0,1,7,0" VerticalAlignment="Center"
+                        Opacity="{Binding Opacity}">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding DataContext.ProviderKey, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="claude">
+                                    <Setter Property="Background" Value="{DynamicResource ClaudeAccent}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding DataContext.ProviderKey, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="codex">
+                                    <Setter Property="Background" Value="{DynamicResource CodexAccent}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                </Border>
+                <TextBlock Text="{Binding Label}" FontSize="12" Foreground="{DynamicResource TextMutedBrush}"
+                           VerticalAlignment="Center" />
+                <TextBlock Text="{Binding ValueText}" FontSize="12" FontWeight="SemiBold" Margin="7,0,0,0"
+                           Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+            </StackPanel>
+        </DataTemplate>
+
+        <ItemsPanelTemplate x:Key="WrapItems">
+            <WrapPanel Orientation="Horizontal" />
+        </ItemsPanelTemplate>
     </Window.Resources>
 
     <!-- RootGrid's margin is swapped for the maximized state: a WindowChrome
@@ -783,12 +858,8 @@
                     </StackPanel>
                 </DockPanel>
 
-                <controls:UsageChart Grid.Row="1" Height="260"
-                                     Data="{Binding Chart}"
-                                     ClaudeBrush="{DynamicResource ClaudeAccent}"
-                                     CodexBrush="{DynamicResource CodexAccent}"
-                                     GridBrush="{DynamicResource DividerBrush}"
-                                     LabelBrush="{DynamicResource TextFaintBrush}" />
+                <controls:UsageChart x:Name="MainChart" Grid.Row="1" Height="260" Style="{StaticResource ThemedUsageChart}"
+                                     Data="{Binding Chart}" />
             </Grid>
         </Grid>
 
@@ -969,6 +1040,131 @@
                        VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}"
                        TextWrapping="Wrap" TextAlignment="Center" MaxWidth="480" LineHeight="20" />
         </Border>
+        </Grid>
+
+        <!-- 6. Model details, over the body. The title bar stays live, so the
+             window can still be moved and closed; Escape, the close button and
+             a click on the dimmed area dismiss the panel. -->
+        <Grid x:Name="ModelDetailOverlay" Grid.Row="1"
+              Visibility="{Binding IsModelDetailOpen, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+            <Border Background="{DynamicResource ScrimBrush}" MouseLeftButtonDown="OnModelScrimMouseDown" />
+            <Border x:Name="ModelDetailCard" DataContext="{Binding ModelDetail}"
+                    Width="840" Margin="24" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Background="{DynamicResource PanelBgBrush}" BorderBrush="{DynamicResource WindowBorderBrush}"
+                    BorderThickness="1" CornerRadius="14"
+                    KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.ControlTabNavigation="Cycle"
+                    KeyboardNavigation.DirectionalNavigation="Contained"
+                    AutomationProperties.Name="{Binding Model, StringFormat='Details for {0}'}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+                    <StackPanel Margin="26,22,26,24">
+                        <DockPanel>
+                            <Button x:Name="ModelDetailCloseButton" DockPanel.Dock="Right" VerticalAlignment="Top"
+                                    Style="{StaticResource IconButton}" BorderThickness="0"
+                                    Command="{Binding DataContext.CloseModelDetailCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                    ToolTip="Close" AutomationProperties.Name="Close details">
+                                <Path Data="M0,0 L10,10 M10,0 L0,10" Stroke="{DynamicResource TextSecondaryBrush}"
+                                      StrokeThickness="1.3" Width="10" Height="10" />
+                            </Button>
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Style="{StaticResource ProviderGlyph}" Width="20" Height="20" Margin="0,2,10,0" />
+                                    <TextBlock Text="{Binding Model}" FontSize="22" FontWeight="Bold" TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding Subtitle}" FontSize="13" Margin="0,4,0,0"
+                                           Foreground="{DynamicResource TextMutedBrush}" />
+                            </StackPanel>
+                        </DockPanel>
+
+                        <UniformGrid Columns="4" Margin="0,22,0,0">
+                            <StackPanel Margin="0,0,16,0">
+                                <TextBlock Style="{StaticResource DetailCaption}" Text="API value" />
+                                <TextBlock Style="{StaticResource DetailFigure}" Text="{Binding CostText}" />
+                                <TextBlock Style="{StaticResource DeltaText}" Text="{Binding CostDeltaText}" Margin="0,3,0,0"
+                                           HorizontalAlignment="Left" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,16,0">
+                                <TextBlock Style="{StaticResource DetailCaption}" Text="Tokens" />
+                                <TextBlock Style="{StaticResource DetailFigure}" Text="{Binding TokensText}" />
+                                <TextBlock Style="{StaticResource DeltaText}" Text="{Binding TokensDeltaText}" Margin="0,3,0,0"
+                                           HorizontalAlignment="Left" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <StackPanel Margin="0,0,16,0">
+                                <TextBlock Style="{StaticResource DetailCaption}" Text="Per 1M tokens" />
+                                <TextBlock Style="{StaticResource DetailFigure}" Text="{Binding PerMillionText}" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource DetailCaption}" Text="Cache hit" />
+                                <TextBlock Style="{StaticResource DetailFigure}" Text="{Binding CacheHitText}" />
+                            </StackPanel>
+                        </UniformGrid>
+
+                        <DockPanel Margin="0,22,0,8">
+                            <Border DockPanel.Dock="Right" Style="{StaticResource SegmentGroup}"
+                                    Visibility="{Binding IsPriced, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <RadioButton Style="{StaticResource Segment}" GroupName="DetailMetric" Content="API VALUE"
+                                                 IsChecked="{Binding DataContext.MetricIndex, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay, Converter={x:Static local:IndexToBoolConverter.Instance}, ConverterParameter=0}" />
+                                    <RadioButton Style="{StaticResource Segment}" GroupName="DetailMetric" Content="TOKENS"
+                                                 IsChecked="{Binding DataContext.MetricIndex, RelativeSource={RelativeSource AncestorType=Window}, Mode=TwoWay, Converter={x:Static local:IndexToBoolConverter.Instance}, ConverterParameter=1}" />
+                                </StackPanel>
+                            </Border>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Style="{StaticResource DetailSectionTitle}" Text="{Binding ChartTitle}" />
+                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0"
+                                            Visibility="{Binding DataContext.ComparisonLabel, RelativeSource={RelativeSource AncestorType=Window}, Converter={x:Static local:StringToVisibilityConverter.Instance}}">
+                                    <Line X1="0" X2="18" Y1="0" Y2="0" Stroke="{DynamicResource TextMutedBrush}" StrokeThickness="1.4"
+                                          StrokeDashArray="3 2" VerticalAlignment="Center" Margin="0,1,6,0" />
+                                    <TextBlock Text="{Binding DataContext.ComparisonLabel, RelativeSource={RelativeSource AncestorType=Window}}"
+                                               FontSize="11.5" TextTrimming="CharacterEllipsis"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" />
+                                    <!-- Which way the B figures above change, as in the table. -->
+                                    <TextBlock Text="{Binding DataContext.ChangeHeader, RelativeSource={RelativeSource AncestorType=Window}, StringFormat='· {0}'}"
+                                               FontSize="11.5" Margin="6,0,0,0"
+                                               Foreground="{DynamicResource TextFaintBrush}" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <!-- Average per day, partial today, missing history: the
+                                     same caveats the header gives, where the figures are. -->
+                                <TextBlock Text="{Binding DataContext.ComparisonNote, RelativeSource={RelativeSource AncestorType=Window}}"
+                                           FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap" MaxWidth="560" HorizontalAlignment="Left"
+                                           Foreground="{DynamicResource TextFaintBrush}"
+                                           Visibility="{Binding DataContext.ComparisonNote, RelativeSource={RelativeSource AncestorType=Window}, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                            </StackPanel>
+                        </DockPanel>
+
+                        <controls:UsageChart x:Name="ModelChart" Height="220" Style="{StaticResource ThemedUsageChart}"
+                                             Data="{Binding Chart}" />
+
+                        <Grid Margin="0,22,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="40" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Style="{StaticResource DetailSectionTitle}" Text="API value by type" />
+                                <StackPanel Visibility="{Binding IsPriced, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                                    <controls:UsageSplitBar Style="{StaticResource ModelSplitBar}" Values="{Binding CostSplit}" />
+                                    <ItemsControl ItemsSource="{Binding CostLegend}" Focusable="False"
+                                                  ItemsPanel="{StaticResource WrapItems}"
+                                                  ItemTemplate="{StaticResource SplitLegendItem}" />
+                                </StackPanel>
+                                <TextBlock Text="This model has no known price, so its value cannot be split."
+                                           FontSize="12" Margin="0,10,0,0" TextWrapping="Wrap"
+                                           Foreground="{DynamicResource TextFaintBrush}"
+                                           Visibility="{Binding IsPriced, Converter={x:Static local:BoolToVisibilityConverter.Instance}, ConverterParameter=Invert}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Style="{StaticResource DetailSectionTitle}" Text="Tokens by type" />
+                                <controls:UsageSplitBar Style="{StaticResource ModelSplitBar}" Values="{Binding TokenSplit}" />
+                                <ItemsControl ItemsSource="{Binding TokenLegend}" Focusable="False"
+                                              ItemsPanel="{StaticResource WrapItems}"
+                                              ItemTemplate="{StaticResource SplitLegendItem}" />
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
         </Grid>
     </Grid>
 </Window>

@@ -198,11 +198,11 @@ public static class UsageAggregator
                 .ToList(),
             HourlyByModel = hourlyByModel,
             ByModel = perModel
-                .Select(entry => new ModelUsage(
-                    entry.Key.Model,
-                    entry.Key.Provider,
-                    pricing.Find(entry.Key.Model).IsPriced,
-                    entry.Value))
+                .Select(entry =>
+                {
+                    var price = pricing.Find(entry.Key.Model);
+                    return new ModelUsage(entry.Key.Model, entry.Key.Provider, price.IsPriced, entry.Value) { Price = price };
+                })
                 .OrderByDescending(model => model.Totals.CostUsd)
                 .ThenByDescending(model => model.Totals.Tokens.ProcessedTokens)
                 .ThenBy(model => model.Model, StringComparer.OrdinalIgnoreCase)

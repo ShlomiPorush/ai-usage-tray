@@ -87,6 +87,43 @@ public sealed class ModelPricingTests
     }
 
     [Fact]
+    public void Cost_by_type_charges_each_type_at_its_own_rate()
+    {
+        // 1 MTok in each bucket at $10 input: input 10, cache read 1,
+        // cache write 12.50 + 20, output 50.
+        var split = UsageCostCalculator.ComputeByType(
+            Tokens(uncached: 1_000_000, cacheRead: 1_000_000, write5m: 1_000_000, write1h: 1_000_000, output: 1_000_000),
+            Anthropic(10m, 50m));
+
+        Assert.NotNull(split);
+        Assert.Equal(10m, split.Value.InputUsd);
+        Assert.Equal(1m, split.Value.CacheReadUsd);
+        Assert.Equal(32.5m, split.Value.CacheWriteUsd);
+        Assert.Equal(50m, split.Value.OutputUsd);
+    }
+
+    [Theory]
+    [InlineData(78_213L, 7_430_118_457L, 61_204_113L, 30_315_902L, 25_301_778L)]
+    [InlineData(1L, 3L, 0L, 7L, 11L)]
+    [InlineData(0L, 0L, 0L, 0L, 0L)]
+    public void Cost_by_type_adds_up_to_the_cost_exactly(long uncached, long cacheRead, long write5m, long write1h, long output)
+    {
+        var tokens = Tokens(uncached, cacheRead, write5m, write1h, output, reasoning: output / 2);
+        var price = Anthropic(15m, 75m);
+
+        var split = UsageCostCalculator.ComputeByType(tokens, price);
+
+        Assert.Equal(UsageCostCalculator.Compute(tokens, price).CostUsd, split!.Value.TotalUsd);
+    }
+
+    [Fact]
+    public void An_unpriced_model_has_no_cost_to_split()
+    {
+        Assert.Null(UsageCostCalculator.ComputeByType(Tokens(uncached: 5_000_000), ModelPrice.Unpriced));
+        Assert.Null(UsageCostCalculator.ComputeByType(Tokens(uncached: 5_000_000), null));
+    }
+
+    [Fact]
     public void A_null_price_is_treated_as_unpriced_rather_than_free()
     {
         var cost = UsageCostCalculator.Compute(Tokens(output: 1_000_000), null);

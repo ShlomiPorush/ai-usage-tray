@@ -14,6 +14,7 @@
     <SolidColorBrush x:Key="ButtonHoverBrush" Color="#14000000" />
     <SolidColorBrush x:Key="ButtonPressedBrush" Color="#22000000" />
     <SolidColorBrush x:Key="KindBadgeBrush" Color="#1FB45309" />
+    <SolidColorBrush x:Key="ScrimBrush" Color="#73362C1E" />
 
     <!-- Text -->
     <SolidColorBrush x:Key="TextPrimaryBrush" Color="#2A2318" />
