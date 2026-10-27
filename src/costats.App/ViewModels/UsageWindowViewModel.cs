@@ -181,7 +181,22 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         selectedAccount = AllAccountsOption;
         tiles = EmptyTiles();
         UpdateSortGlyphs();
+
+        _analytics.HistoryChanged += OnHistoryChanged;
     }
+
+    /// <summary>
+    /// Reloads after the usage history was deleted, so a window that already
+    /// shows numbers never keeps showing usage that is gone.
+    /// </summary>
+    private void OnHistoryChanged(object? sender, EventArgs e) =>
+        System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+        {
+            if (HasData || IsLoading)
+            {
+                _ = LoadAsync(invalidate: false);
+            }
+        });
 
     private static UsageAccountOption AllAccountsOption => new(null, "All accounts");
 

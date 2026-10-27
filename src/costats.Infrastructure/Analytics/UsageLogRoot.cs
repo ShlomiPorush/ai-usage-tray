@@ -96,6 +96,36 @@ public static class UsageLogRootResolver
     }
 
     /// <summary>
+    /// The usage-history key of an account. Claude keys come from the
+    /// account's config folder rather than its settings id, because settings
+    /// ids are reused after an account is removed and a new account must not
+    /// inherit someone else's history. Every Codex profile shares one key, as
+    /// its usage is merged everywhere else too.
+    /// </summary>
+    public static string HistoryKeyFor(MonitoredAccountSettings account)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        if (!account.IsClaude)
+        {
+            return UsageHistory.CodexAccountKey;
+        }
+
+        string normalized;
+        try
+        {
+            normalized = Path.TrimEndingDirectorySeparator(Path.GetFullPath(account.ConfigDir));
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            normalized = account.ConfigDir.Trim();
+        }
+
+        var hash = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(normalized.ToLowerInvariant()));
+        return "claude:" + Convert.ToHexStringLower(hash)[..16];
+    }
+
+    /// <summary>
     /// Resolves <paramref name="path"/> to its final real directory, following a
     /// symlink or junction chain. Returns the input unchanged when it is not a
     /// link or cannot be resolved.

@@ -47,6 +47,8 @@ namespace costats.App
             {
                 nameof(SettingsViewModel.IsImportConfirmationVisible) when viewModel.IsImportConfirmationVisible =>
                     ImportConfirmationPanel,
+                nameof(SettingsViewModel.IsHistoryDeleteConfirmationVisible) when viewModel.IsHistoryDeleteConfirmationVisible =>
+                    HistoryDeleteConfirmationPanel,
                 nameof(SettingsViewModel.SettingsTransferMessage) when !string.IsNullOrEmpty(viewModel.SettingsTransferMessage) =>
                     SettingsTransferResult,
                 _ => null

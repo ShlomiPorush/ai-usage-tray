@@ -41,6 +41,27 @@ public sealed class AppSettings
     /// <summary>Whether update checks run automatically in the background.</summary>
     public bool AutomaticUpdateChecksEnabled { get; set; } = true;
 
+    /// <summary>Retention choices offered in Settings, in days; 0 keeps everything.</summary>
+    public static readonly IReadOnlyList<int> UsageHistoryRetentionChoices = [365, 730, 0];
+
+    /// <summary>The default usage-history retention: two years.</summary>
+    public const int DefaultUsageHistoryRetentionDays = 730;
+
+    private int usageHistoryRetentionDays = DefaultUsageHistoryRetentionDays;
+
+    /// <summary>
+    /// How many days of local usage history to keep after the agents delete
+    /// their logs: one of <see cref="UsageHistoryRetentionChoices"/>, where 0
+    /// keeps everything. Any other value falls back to the default.
+    /// </summary>
+    public int UsageHistoryRetentionDays
+    {
+        get => usageHistoryRetentionDays;
+        set => usageHistoryRetentionDays = UsageHistoryRetentionChoices.Contains(value)
+            ? value
+            : DefaultUsageHistoryRetentionDays;
+    }
+
     /// <summary>
     /// Writes a detailed diagnostic log to <c>logs\debug</c> next to the normal
     /// log. Off by default; it turns itself off after

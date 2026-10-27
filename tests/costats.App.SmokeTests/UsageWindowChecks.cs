@@ -52,6 +52,14 @@ sealed class ScriptedAnalytics : IUsageAnalyticsService
 
     public Task<UsageCacheInfo> ClearCacheAsync(CancellationToken cancellationToken = default) => Task.FromResult(GetCacheInfo());
 
+    public event EventHandler? HistoryChanged { add { } remove { } }
+
+    public Task SyncHistoryAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<bool> DeleteHistoryAsync(CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+    public UsageHistoryInfo GetHistoryInfo() => UsageHistoryInfo.Empty;
+
     public void Invalidate()
     {
     }
@@ -152,6 +160,14 @@ sealed class SyntheticAnalytics : IUsageAnalyticsService
     public UsageCacheInfo GetCacheInfo() => new(0, 0);
 
     public Task<UsageCacheInfo> ClearCacheAsync(CancellationToken cancellationToken = default) => Task.FromResult(GetCacheInfo());
+
+    public event EventHandler? HistoryChanged { add { } remove { } }
+
+    public Task SyncHistoryAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<bool> DeleteHistoryAsync(CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+    public UsageHistoryInfo GetHistoryInfo() => UsageHistoryInfo.Empty;
 
     public void Invalidate()
     {

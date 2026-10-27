@@ -18,6 +18,18 @@ public sealed record UsageScanResult(
 {
     /// <summary>A scan that found nothing.</summary>
     public static readonly UsageScanResult Empty = new([], [], UsageScanDiagnostics.Empty);
+
+    /// <summary>Request identities counted by this scan, for usage-history recovery.</summary>
+    public IReadOnlySet<long> DedupKeys { get; init; } = new HashSet<long>();
+
+    /// <summary>Parse-cache entry names of every log file this scan listed.</summary>
+    public IReadOnlySet<string> CacheEntryNames { get; init; } = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// True when every root listed completely and every file was read. Only a
+    /// complete scan may be used to decide that a log file is gone.
+    /// </summary>
+    public bool IsComplete { get; init; } = true;
 }
 
 /// <summary>
@@ -79,10 +91,20 @@ public sealed class UsageLogCollector
     /// <see cref="UsageScanDiagnostics.FilesFailed"/>. Neither is fatal.
     /// </para>
     /// </summary>
-    public async Task<UsageScanResult> CollectAsync(CancellationToken cancellationToken = default)
+    public Task<UsageScanResult> CollectAsync(CancellationToken cancellationToken = default) =>
+        CollectAsync(_accountsProvider(), cancellationToken);
+
+    /// <summary>
+    /// Scans the roots of <paramref name="monitored"/> rather than the current
+    /// settings, so a caller can use one account list for the scan and for
+    /// whatever it does with the result.
+    /// </summary>
+    public async Task<UsageScanResult> CollectAsync(
+        IReadOnlyList<MonitoredAccountSettings> monitored,
+        CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
-        var roots = UsageLogRootResolver.Resolve(_accountsProvider());
+        var roots = UsageLogRootResolver.Resolve(monitored);
         if (roots.Count == 0)
         {
             return UsageScanResult.Empty with
@@ -98,7 +120,7 @@ public sealed class UsageLogCollector
             .ThenBy(account => account.AccountId, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var jobs = EnumerateFiles(roots).ToList();
+        var jobs = EnumerateFiles(roots, out var rootsIncomplete);
         var results = new ConcurrentDictionary<int, (UsageLogRoot Root, ParsedUsageFile Parsed)>();
 
         var filesParsed = 0;
@@ -179,6 +201,12 @@ public sealed class UsageLogCollector
 
         samples.Sort(static (left, right) => left.Timestamp.CompareTo(right.Timestamp));
 
+        var entryNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var job in jobs)
+        {
+            entryNames.Add(UsageFileCache.EntryFileName(job.File.FullName, job.Root.Provider));
+        }
+
         return new UsageScanResult(
             samples,
             accounts,
@@ -193,15 +221,35 @@ public sealed class UsageLogCollector
                 SkippedLines = skippedLines,
                 DuplicatesDropped = duplicates,
                 Duration = stopwatch.Elapsed
-            });
+            })
+        {
+            DedupKeys = seen,
+            CacheEntryNames = entryNames,
+            IsComplete = rootsIncomplete == 0 && filesFailed == 0
+        };
+    }
+
+    /// <summary>
+    /// Claude requests recovered from parse-cache entries whose log file this
+    /// scan no longer lists. See <see cref="UsageFileCache.ReadOrphanedClaudeEntries"/>.
+    /// </summary>
+    public IReadOnlyList<RawUsageEntry> RecoverOrphanedClaudeEntries(
+        UsageScanResult scan,
+        DateTimeOffset before,
+        out bool complete)
+    {
+        ArgumentNullException.ThrowIfNull(scan);
+        return _cache.ReadOrphanedClaudeEntries(scan.CacheEntryNames, scan.DedupKeys, before, out complete);
     }
 
     /// <summary>
     /// Lists the log files under every root, in a stable order so that
     /// "first occurrence wins" deduplication is reproducible.
     /// </summary>
-    private static IEnumerable<ScanJob> EnumerateFiles(IReadOnlyList<UsageLogRoot> roots)
+    private static List<ScanJob> EnumerateFiles(IReadOnlyList<UsageLogRoot> roots, out int rootsIncomplete)
     {
+        var jobs = new List<ScanJob>();
+        rootsIncomplete = 0;
         foreach (var root in roots.OrderBy(root => root.Provider).ThenBy(root => root.Path, StringComparer.OrdinalIgnoreCase))
         {
             var pattern = root.Provider == UsageProviderKind.Codex ? "rollout-*.jsonl" : "*.jsonl";
@@ -222,6 +270,7 @@ public sealed class UsageLogCollector
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 // Keep what was listed before the failure.
+                rootsIncomplete++;
             }
 
             files.Sort(StringComparer.OrdinalIgnoreCase);
@@ -238,12 +287,17 @@ public sealed class UsageLogCollector
                 }
                 catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
                 {
+                    // A file that could not even be inspected leaves the scan
+                    // incomplete, the same as one that could not be read.
+                    rootsIncomplete++;
                     continue;
                 }
 
-                yield return new ScanJob(root, info);
+                jobs.Add(new ScanJob(root, info));
             }
         }
+
+        return jobs;
     }
 
     private readonly record struct ScanJob(UsageLogRoot Root, FileInfo File);

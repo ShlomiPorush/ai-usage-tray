@@ -218,8 +218,16 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
             // One report answers both rows: the 30-day totals are the window and
             // today is its last daily bucket, so the engine aggregates once.
             var report = await Task.Run(() => _analytics.GetReportAsync(range, filter, token), token).ConfigureAwait(true);
-            if (token.IsCancellationRequested || report.IsEmpty)
+            if (token.IsCancellationRequested)
             {
+                return;
+            }
+
+            if (report.IsEmpty)
+            {
+                // Usage that was shown before (and carried over on refresh) may
+                // have been deleted since; an empty report clears it.
+                account.ClearUsageCost();
                 return;
             }
 

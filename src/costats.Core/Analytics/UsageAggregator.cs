@@ -103,13 +103,13 @@ public static class UsageAggregator
 
             var model = string.IsNullOrWhiteSpace(sample.Model) ? "unknown" : sample.Model;
 
-            Add(byDayModel, new DayModelKey(day, sample.Provider, model), sample.Tokens);
+            Add(byDayModel, new DayModelKey(day, sample.Provider, model), sample.Tokens, sample.Requests);
             if (window is { } hourly)
             {
-                Add(byHourModel, new HourModelKey(hourly.HourStartOf(sample.Timestamp), sample.Provider, model), sample.Tokens);
+                Add(byHourModel, new HourModelKey(hourly.HourStartOf(sample.Timestamp), sample.Provider, model), sample.Tokens, sample.Requests);
             }
 
-            Add(byAccountTokens, new AccountKey(sample.AccountId, sample.Provider, model), sample.Tokens);
+            Add(byAccountTokens, new AccountKey(sample.AccountId, sample.Provider, model), sample.Tokens, sample.Requests);
         }
 
         var dailyByModel = new List<DailyModelUsage>(byDayModel.Count);
@@ -222,16 +222,16 @@ public static class UsageAggregator
         };
     }
 
-    private static void Add<TKey>(Dictionary<TKey, Accumulator> map, TKey key, UsageTokens tokens)
+    private static void Add<TKey>(Dictionary<TKey, Accumulator> map, TKey key, UsageTokens tokens, long requests)
         where TKey : notnull
     {
         if (map.TryGetValue(key, out var existing))
         {
-            map[key] = new Accumulator(existing.Tokens + tokens, existing.Requests + 1);
+            map[key] = new Accumulator(existing.Tokens + tokens, existing.Requests + requests);
         }
         else
         {
-            map[key] = new Accumulator(tokens, 1);
+            map[key] = new Accumulator(tokens, requests);
         }
     }
 
