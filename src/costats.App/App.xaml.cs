@@ -352,7 +352,7 @@ namespace costats.App
         /// guided onboarding, or its compact widget fallback to a PNG and exit.
         /// The usage window takes <c>--usage-range 1|7|30|90</c>,
         /// <c>--usage-from yyyy-MM-dd</c> with an optional <c>--usage-to</c>,
-        /// <c>--usage-breakdown model|time</c>,
+        /// <c>--usage-breakdown model|time</c>, <c>--usage-metric cost|tokens</c>,
         /// <c>--usage-compare previous|yyyy-MM-dd</c> with an optional
         /// <c>--usage-compare-to yyyy-MM-dd</c>, and
         /// <c>--usage-sort Column[,Column]</c>. Preview state is
@@ -405,6 +405,11 @@ namespace costats.App
                     if (string.Equals(ReadOptionalArgument(args, "--usage-breakdown"), "time", StringComparison.OrdinalIgnoreCase))
                     {
                         usageViewModel.BreakdownIndex = 1;
+                    }
+
+                    if (string.Equals(ReadOptionalArgument(args, "--usage-metric"), "tokens", StringComparison.OrdinalIgnoreCase))
+                    {
+                        usageViewModel.MetricIndex = 1;
                     }
 
                     // "previous" compares with the period before; dates compare
