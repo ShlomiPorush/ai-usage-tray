@@ -261,10 +261,15 @@
         </Style>
 
         <Style x:Key="CompareSegment" TargetType="Button" BasedOn="{StaticResource SegmentButton}">
+            <Setter Property="AutomationProperties.Name" Value="Compare" />
             <Style.Triggers>
+                <!-- Alone in its group, a plain checked look is easy to miss,
+                     so an active comparison also takes the accent colour, and
+                     a screen reader hears the same state the label shows. -->
                 <DataTrigger Binding="{Binding IsComparing}" Value="True">
                     <Setter Property="Background" Value="{DynamicResource InputBgBrush}" />
-                    <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                    <Setter Property="AutomationProperties.Name" Value="Comparing" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -536,10 +541,20 @@
                 </Border>
                 <Border Style="{StaticResource SegmentGroup}" Margin="0,0,10,0">
                     <Button x:Name="CompareButton" Style="{StaticResource CompareSegment}"
-                            Click="OnCompareClick" ToolTip="Compare with another period"
-                            AutomationProperties.Name="Compare">
+                            Click="OnCompareClick" ToolTip="Compare with another period">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="Compare" />
+                            <TextBlock>
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="Compare" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsComparing}" Value="True">
+                                                <Setter Property="Text" Value="Comparing" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                             <Path Data="M0,0 L3.5,3.5 L7,0" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
                                   StrokeThickness="1.3" Margin="6,1,0,0" VerticalAlignment="Center" />
                         </StackPanel>
@@ -553,15 +568,28 @@
                 </Button>
             </StackPanel>
             <StackPanel VerticalAlignment="Center" Margin="0,0,16,0">
-                <Button Style="{StaticResource LinkButton}" Command="{Binding BackCommand}" Margin="0,0,0,2"
-                        HorizontalAlignment="Left"
-                        Visibility="{Binding CanGoBack, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
-                    <StackPanel Orientation="Horizontal">
-                        <Path Data="M4,0 L0,4 L4,8" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
-                              StrokeThickness="1.4" Margin="0,0,6,0" VerticalAlignment="Center" />
-                        <TextBlock Text="{Binding BackLabel}" />
-                    </StackPanel>
-                </Button>
+                <!-- Links that undo a view sit above the caption, so they never
+                     take width from the controls on the right. -->
+                <WrapPanel Orientation="Horizontal">
+                    <Button Style="{StaticResource LinkButton}" Command="{Binding BackCommand}" Margin="0,0,16,2"
+                            Visibility="{Binding CanGoBack, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="M4,0 L0,4 L4,8" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  StrokeThickness="1.4" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock Text="{Binding BackLabel}" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="ClearFiltersButton" Style="{StaticResource LinkButton}"
+                            Command="{Binding ClearFiltersCommand}" Margin="0,0,0,2"
+                            ToolTip="Show every account for 30 days, without a comparison"
+                            Visibility="{Binding HasFilters, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                        <StackPanel Orientation="Horizontal">
+                            <Path Data="M0,0 L7,7 M7,0 L0,7" Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                  StrokeThickness="1.4" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock Text="Clear filters" />
+                        </StackPanel>
+                    </Button>
+                </WrapPanel>
                 <WrapPanel Orientation="Horizontal">
                     <TextBlock Text="{Binding RangeLabel}" FontSize="13" Foreground="{DynamicResource TextMutedBrush}"
                                VerticalAlignment="Center" />
@@ -938,7 +966,8 @@
         <Border Grid.Row="1" Grid.RowSpan="3" Background="{DynamicResource WidgetBgBrush}"
                 Visibility="{Binding HasData, Converter={x:Static local:BoolToVisibilityConverter.Instance}, ConverterParameter=Invert}">
             <TextBlock Text="{Binding StatusText}" FontSize="13" HorizontalAlignment="Center"
-                       VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}" />
+                       VerticalAlignment="Center" Foreground="{DynamicResource TextMutedBrush}"
+                       TextWrapping="Wrap" TextAlignment="Center" MaxWidth="480" LineHeight="20" />
         </Border>
         </Grid>
     </Grid>

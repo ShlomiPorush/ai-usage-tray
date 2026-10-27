@@ -22,8 +22,11 @@ success never replaces a newer view), a comparison that stays visible when the
 current period is empty, opening a day while another load is still running,
 comparisons of different lengths, the two-period comparison popup driven
 through its real day buttons, the change direction from the earlier period to
-the later one, and the chart's label placement. They also render the window and
-both popups in the light and dark themes and at the minimum width.
+the later one, the chart's label placement, the reason the empty state gives
+(no log folders, logs without usage, or usage outside the range), and Clear
+filters returning to the default view in a single load. They also render the
+window, both popups and the empty state in the light and dark themes and at the
+minimum width.
 
 PNGs are saved beside the smoke-check executable for visual inspection. Set
 `SMOKE_OUTPUT_DIR` to write them to another folder instead.
