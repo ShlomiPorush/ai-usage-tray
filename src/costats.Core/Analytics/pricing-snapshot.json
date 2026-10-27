@@ -890,6 +890,14 @@
     "cache_read_input_token_cost": 1e-7,
     "cache_creation_input_token_cost": 0.0000025
   },
+  "gpt-6.1-terra": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000001,
+    "output_cost_per_token": 0.000005,
+    "cache_read_input_token_cost": 5e-8,
+    "cache_creation_input_token_cost": 0.00000125
+  },
   "gpt-audio": {
     "litellm_provider": "openai",
     "mode": "chat",
