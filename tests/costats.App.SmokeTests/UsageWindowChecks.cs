@@ -28,13 +28,25 @@ sealed class ScriptedAnalytics : IUsageAnalyticsService
     public Task<UsageReport> GetWindowReportAsync(UsageTimeWindow window, IReadOnlyCollection<string>? accountIds = null, CancellationToken cancellationToken = default) =>
         Next(UsageDateRange.All, window);
 
-    public Task<IReadOnlyList<UsageAccountInfo>> GetAccountsAsync(CancellationToken cancellationToken = default) =>
-        Task.FromResult<IReadOnlyList<UsageAccountInfo>>([]);
+    public IReadOnlyList<UsageAccountInfo> AccountList { get; set; } = [];
 
-    public DateOnly? EarliestActivity { get; set; }
+    /// <summary>When set, account discovery waits for it, as a slow first scan does.</summary>
+    public TaskCompletionSource? AccountGate { get; set; }
 
-    public Task<DateOnly?> GetEarliestActivityDayAsync(IReadOnlyCollection<string>? accountIds = null, CancellationToken cancellationToken = default) =>
-        Task.FromResult(EarliestActivity);
+    public async Task<IReadOnlyList<UsageAccountInfo>> GetAccountsAsync(CancellationToken cancellationToken = default)
+    {
+        if (AccountGate is { } gate)
+        {
+            await gate.Task.ConfigureAwait(false);
+        }
+
+        return AccountList;
+    }
+
+    public UsageActivityDays? Activity { get; set; }
+
+    public Task<UsageActivityDays?> GetActivityDaysAsync(IReadOnlyCollection<string>? accountIds = null, CancellationToken cancellationToken = default) =>
+        Task.FromResult(Activity);
 
     public UsageCacheInfo GetCacheInfo() => new(0, 0);
 
@@ -120,16 +132,22 @@ sealed class SyntheticAnalytics : IUsageAnalyticsService
     public TimeZoneInfo TimeZone => TimeZoneInfo.Local;
 
     public Task<UsageReport> GetReportAsync(UsageDateRange range, IReadOnlyCollection<string>? accountIds = null, CancellationToken cancellationToken = default) =>
-        Task.FromResult(UsageAggregator.Aggregate(_samples, new UsageAggregationOptions { Range = range, TimeZone = TimeZone }));
+        Task.FromResult(Scanned(UsageAggregator.Aggregate(_samples, new UsageAggregationOptions { Range = range, TimeZone = TimeZone })));
 
     public Task<UsageReport> GetWindowReportAsync(UsageTimeWindow window, IReadOnlyCollection<string>? accountIds = null, CancellationToken cancellationToken = default) =>
-        Task.FromResult(UsageAggregator.Aggregate(_samples, new UsageAggregationOptions { Window = window, TimeZone = TimeZone }));
+        Task.FromResult(Scanned(UsageAggregator.Aggregate(_samples, new UsageAggregationOptions { Window = window, TimeZone = TimeZone })));
+
+    // As if two log folders had been read, like the real service.
+    private static UsageReport Scanned(UsageReport report) =>
+        report with { Diagnostics = new UsageScanDiagnostics { RootsScanned = 2 } };
 
     public Task<IReadOnlyList<UsageAccountInfo>> GetAccountsAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<IReadOnlyList<UsageAccountInfo>>([new UsageAccountInfo("claude-1", "Claude", UsageProviderKind.Claude)]);
 
-    public Task<DateOnly?> GetEarliestActivityDayAsync(IReadOnlyCollection<string>? accountIds = null, CancellationToken cancellationToken = default) =>
-        Task.FromResult<DateOnly?>(DateOnly.FromDateTime(_samples.Min(sample => sample.Timestamp).LocalDateTime));
+    public Task<UsageActivityDays?> GetActivityDaysAsync(IReadOnlyCollection<string>? accountIds = null, CancellationToken cancellationToken = default) =>
+        Task.FromResult<UsageActivityDays?>(new UsageActivityDays(
+            DateOnly.FromDateTime(_samples.Min(sample => sample.Timestamp).LocalDateTime),
+            DateOnly.FromDateTime(_samples.Max(sample => sample.Timestamp).LocalDateTime)));
 
     public UsageCacheInfo GetCacheInfo() => new(0, 0);
 
@@ -158,8 +176,109 @@ static class UsageWindowChecks
         ComparePopupPicksTwoPeriods();
         EarlierPeriodAMeasuresTheChangeForward();
         ChartLabelsKeepTheirEndsAndNeverOverlap();
+        EmptyStateSaysWhy();
+        ClearFiltersRestoresTheDefaultView();
         RenderWindow(outputPath);
-        Console.WriteLine("PASS: usage load races, empty current period with comparison, usage window and popups rendered.");
+        Console.WriteLine("PASS: usage load races, empty current period with comparison, empty-state reasons, clear filters, usage window and popups rendered.");
+    }
+
+    private static void EmptyStateSaysWhy()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var scanned = UsageReport.Empty with { Diagnostics = new UsageScanDiagnostics { RootsScanned = 2 } };
+
+        // No log folder exists at all, as when every account is only used in a chat app.
+        var viewModel = LoadEmpty(new ScriptedAnalytics(), UsageReport.Empty);
+        Check(viewModel.StatusText.StartsWith("No Claude Code or Codex logs were found", StringComparison.Ordinal) &&
+                viewModel.StatusText.Contains("claude.ai", StringComparison.Ordinal),
+            $"Missing log folders must be named as the reason, got '{viewModel.StatusText}'");
+
+        // Folders exist but hold no usage.
+        viewModel = LoadEmpty(new ScriptedAnalytics(), scanned);
+        Check(viewModel.StatusText.StartsWith("The local Claude Code and Codex logs hold no usage yet.", StringComparison.Ordinal),
+            $"Logs without usage must say so, got '{viewModel.StatusText}'");
+
+        // Usage exists, just not in the 30 days on screen.
+        var first = today.AddDays(-80);
+        var last = today.AddDays(-45);
+        var recorded = $"Recorded usage: {UsageNumberFormat.RangeLabel(first, last, today)}.";
+        viewModel = LoadEmpty(new ScriptedAnalytics { Activity = new UsageActivityDays(first, last) }, scanned);
+        Check(viewModel.StatusText == $"No local agent usage in this range. {recorded}",
+            $"An empty range must name the days that hold usage, got '{viewModel.StatusText}'");
+
+        // A range that ends before the first recorded day may have lost its logs.
+        var analytics = new ScriptedAnalytics { Activity = new UsageActivityDays(first, last) };
+        viewModel = new UsageWindowViewModel(analytics);
+        Check(viewModel.ApplyCustomRange(today.AddDays(-120), today.AddDays(-100)), "An old custom range must be accepted");
+        PumpUntil(() => analytics.Count == 1, "old range request");
+        analytics[0].Result.SetResult(scanned);
+        PumpUntil(() => !viewModel.IsLoading, "old range load");
+        Check(viewModel.StatusText == $"No local agent usage in this range. {recorded} Older logs may have been deleted.",
+            $"A range before the first recorded day must warn about deleted logs, got '{viewModel.StatusText}'");
+
+        static UsageWindowViewModel LoadEmpty(ScriptedAnalytics analytics, UsageReport report)
+        {
+            var viewModel = new UsageWindowViewModel(analytics);
+            _ = viewModel.InitializeAsync();
+            PumpUntil(() => analytics.Count == 1, "empty request");
+            analytics[0].Result.SetResult(report);
+            PumpUntil(() => !viewModel.IsLoading, "empty load");
+            Check(!viewModel.HasData, "An empty report must show the empty state");
+            return viewModel;
+        }
+    }
+
+    private static void ClearFiltersRestoresTheDefaultView()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var analytics = new ScriptedAnalytics
+        {
+            AccountList = [new UsageAccountInfo("claude-1", "Claude", UsageProviderKind.Claude)]
+        };
+        var viewModel = new UsageWindowViewModel(analytics);
+        _ = viewModel.InitializeAsync();
+        PumpUntil(() => analytics.Count == 1 && viewModel.Accounts.Count == 2, "first request");
+        Check(!viewModel.HasFilters, "The opening view has nothing to clear");
+
+        // Each step waits for its request: a load replaced before it fetches never asks.
+        viewModel.SelectedAccount = viewModel.Accounts[1];
+        PumpUntil(() => analytics.Count == 2, "account request");
+        Check(viewModel.HasFilters, "One account is a filter to clear");
+        viewModel.RangeDays = 7;
+        PumpUntil(() => analytics.Count == 3, "range request");
+        Check(viewModel.ApplyComparison(enabled: true, today.AddDays(-60), today.AddDays(-50)), "The comparison must be accepted");
+        PumpUntil(() => analytics.Count == 5, "comparison requests");
+        Check(viewModel.HasFilters, "An account, a range and a comparison are filters to clear");
+
+        viewModel.ClearFiltersCommand.Execute(null);
+        PumpUntil(() => analytics.Count == 6, "request after clearing");
+        for (var settle = 0; settle < 20; settle++)
+        {
+            Pump();
+            Thread.Sleep(5);
+        }
+
+        Check(analytics.Count == 6, "Clearing must load exactly once");
+        Check(!viewModel.HasFilters && !viewModel.IsComparing && viewModel.ComparisonRange is null &&
+                viewModel.RangeDays == UsageWindowViewModel.DefaultRangeDays && viewModel.SelectedAccount?.AccountId is null,
+            "Clearing must return to every account, the default range and no comparison");
+        Check(analytics[5].Range.To == today && analytics[5].Range.From == today.AddDays(-29),
+            "The load after clearing must be the default 30 days");
+
+        // Opened from one account's panel while the first scan is still running:
+        // clearing must also drop that pending account request.
+        var gated = new ScriptedAnalytics
+        {
+            AccountList = [new UsageAccountInfo("claude-1", "Claude", UsageProviderKind.Claude)],
+            AccountGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        viewModel = new UsageWindowViewModel(gated) { RangeDays = 7 };
+        _ = viewModel.InitializeForAccountAsync("claude-1");
+        viewModel.ClearFiltersCommand.Execute(null);
+        gated.AccountGate.SetResult();
+        PumpUntil(() => gated.Count == 1 && viewModel.Accounts.Count == 2, "request after the slow scan");
+        Check(viewModel.SelectedAccount?.AccountId is null && !viewModel.HasFilters,
+            $"Clearing during the first scan must not bring the account back, got '{viewModel.SelectedAccount?.DisplayName}'");
     }
 
     private static void StaleFailureDoesNotWipeNewerView()
@@ -332,7 +451,7 @@ static class UsageWindowChecks
         var aTo = aFrom.AddDays(29);
         var bFrom = aTo.AddDays(1);
         var bTo = bFrom.AddDays(29);
-        var analytics = new ScriptedAnalytics { EarliestActivity = aFrom.AddDays(5) };
+        var analytics = new ScriptedAnalytics { Activity = new UsageActivityDays(aFrom.AddDays(5), today) };
         var viewModel = new UsageWindowViewModel(analytics) { BreakdownIndex = 0 };
         Check(viewModel.ApplyComparisonPeriods((aFrom, aTo), (bFrom, bTo)), "Both periods must be accepted");
         PumpUntil(() => analytics.Count == 2, "both requests");
@@ -507,6 +626,8 @@ static class UsageWindowChecks
                 ShowActivated = false
             };
             window.Show();
+            Check(System.Windows.Automation.AutomationProperties.GetName((Button)window.FindName("CompareButton")) == "Compare",
+                "Without a comparison the button is announced as Compare");
             viewModel.ApplyComparison(enabled: true);
             PumpUntil(() => viewModel.HasData && !viewModel.IsLoading, "synthetic report");
             Capture(window, outputPath($"usage-compare-{theme.ToLowerInvariant()}.png"));
@@ -545,6 +666,16 @@ static class UsageWindowChecks
             PumpUntil(() => !viewModel.IsLoading && viewModel.ComparisonLabel.Length > 0 && viewModel.ComparisonNote.Contains("average per day", StringComparison.Ordinal), "picked comparison");
             Capture(window, outputPath($"usage-compare-picked-{theme.ToLowerInvariant()}.png"));
             OpenPopup(window, "CompareButton", "ComparePopup", outputPath($"usage-compare-pick-{theme.ToLowerInvariant()}.png"));
+
+            // Two periods older than any synthetic usage: the empty state names the recorded days.
+            Check(viewModel.ApplyComparisonPeriods((today.AddDays(-200), today.AddDays(-190)), (today.AddDays(-180), today.AddDays(-170))),
+                "Old periods must be accepted");
+            PumpUntil(() => !viewModel.IsLoading && !viewModel.HasData && viewModel.StatusText.Contains("Recorded usage", StringComparison.Ordinal), "empty periods");
+            Check(((Button)window.FindName("ClearFiltersButton")).IsVisible, "Clear filters must show while a comparison is on");
+            var compareButton = (Button)window.FindName("CompareButton");
+            Check(System.Windows.Automation.AutomationProperties.GetName(compareButton) == "Comparing",
+                "A screen reader must hear that a comparison is on");
+            Capture(window, outputPath($"usage-empty-{theme.ToLowerInvariant()}.png"));
 
             window.ForceClose();
             resources.Remove(themeDictionary);

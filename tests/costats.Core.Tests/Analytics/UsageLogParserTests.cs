@@ -602,6 +602,35 @@ public sealed class UsageLogParserTests : IDisposable
         Assert.Equal(0, claudeOnly.Totals.UnpricedTokens);
     }
 
+    [Fact]
+    public async Task Activity_days_span_the_first_and_last_usage_of_the_matching_accounts()
+    {
+        WriteFile(Path.Combine("c1", "projects", "p", "s.jsonl"),
+            ClaudeLine("msg_1", "req_1", "2026-08-02T23:30:00Z", input: 10, cacheCreate: 0, cacheRead: 0, output: 5, thinking: 0, ephemeral1h: 0),
+            ClaudeLine("msg_2", "req_2", "2026-08-21T13:00:00Z", input: 10, cacheCreate: 0, cacheRead: 0, output: 5, thinking: 0, ephemeral1h: 0));
+        WriteFile(Path.Combine("cx", "sessions", "rollout-1.jsonl"),
+            CodexTurnContext("gpt-5.6-sol"),
+            CodexTokenCount("2026-09-10T08:00:00Z", input: 1_000, cached: 0, output: 100));
+
+        var service = new UsageAnalyticsService(
+            new UsageLogCollector(
+                () => [Claude("claude-1", Path.Combine(_root, "c1")), Codex("codex-1", Path.Combine(_root, "cx"))],
+                UsageFileCache.Disabled),
+            ModelPricingTable.Default)
+        {
+            // 23:30 UTC on Aug 2 is already Aug 3 two hours east.
+            TimeZone = TimeZoneInfo.CreateCustomTimeZone("UTC+2", TimeSpan.FromHours(2), "UTC+2", "UTC+2")
+        };
+
+        Assert.Equal(
+            new UsageActivityDays(new DateOnly(2026, 8, 3), new DateOnly(2026, 9, 10)),
+            await service.GetActivityDaysAsync());
+        Assert.Equal(
+            new UsageActivityDays(new DateOnly(2026, 8, 3), new DateOnly(2026, 8, 21)),
+            await service.GetActivityDaysAsync(["claude-1"]));
+        Assert.Null(await service.GetActivityDaysAsync(["nobody"]));
+    }
+
     private Task<UsageScanResult> Collect(params MonitoredAccountSettings[] accounts) =>
         new UsageLogCollector(() => accounts, UsageFileCache.Disabled).CollectAsync();
 

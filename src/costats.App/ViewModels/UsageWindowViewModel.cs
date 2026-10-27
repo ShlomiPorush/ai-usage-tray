@@ -79,6 +79,9 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     /// <summary>The <see cref="RangeDays"/> value that means a custom range.</summary>
     public const int CustomRange = 0;
 
+    /// <summary>The range the window opens on, and the one Clear filters returns to.</summary>
+    public const int DefaultRangeDays = 30;
+
     private readonly IUsageAnalyticsService _analytics;
     private CancellationTokenSource? _inFlight;
     private LoadedView? _view;
@@ -118,6 +121,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
     /// <summary>The picked filter entry.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFilters))]
     private UsageAccountOption? selectedAccount;
 
     /// <summary>
@@ -125,7 +129,8 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     /// <see cref="CustomRange"/> for the picked dates.
     /// </summary>
     [ObservableProperty]
-    private int rangeDays = 30;
+    [NotifyPropertyChangedFor(nameof(HasFilters))]
+    private int rangeDays = DefaultRangeDays;
 
     /// <summary>Chart metric: 0 is cost, 1 is processed tokens.</summary>
     [ObservableProperty]
@@ -149,6 +154,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
     /// <summary>True when the current report has a comparison report beside it.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasFilters))]
     private bool isComparing;
 
     /// <summary>Caveats about the comparison, or empty.</summary>
@@ -268,6 +274,13 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
     /// <summary>True when the custom range is the one on screen.</summary>
     public bool IsCustomRange => RangeDays == CustomRange;
+
+    /// <summary>
+    /// True when the account, the range or the comparison differs from what
+    /// the window opens on, so Clear filters has something to undo.
+    /// </summary>
+    public bool HasFilters =>
+        SelectedAccount?.AccountId is not null || RangeDays != DefaultRangeDays || IsComparing;
 
     /// <summary>Today in the analytics time zone.</summary>
     public DateOnly Today => UsagePeriods.Today(DateTimeOffset.Now, _analytics.TimeZone);
@@ -459,6 +472,36 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     /// <summary>Drops the cached scan and reads the logs again.</summary>
     [RelayCommand]
     private Task RefreshAsync() => LoadAsync(invalidate: true);
+
+    /// <summary>
+    /// Returns to the view the window opens on: every account, the default
+    /// range and no comparison, in one load. Sort and breakdown mode stay.
+    /// </summary>
+    [RelayCommand]
+    private void ClearFilters()
+    {
+        // A one-shot account request still waiting for the account list
+        // would otherwise bring the filter straight back.
+        _pendingAccountId = null;
+        _backState = null;
+        _applyingState = true;
+        _suppressReload = true;
+        try
+        {
+            _comparisonRange = null;
+            IsComparing = false;
+            RangeDays = DefaultRangeDays;
+            SelectedAccount = Accounts.Count > 0 ? Accounts[0] : AllAccountsOption;
+        }
+        finally
+        {
+            _suppressReload = false;
+            _applyingState = false;
+        }
+
+        UpdateBack();
+        Reload();
+    }
 
     /// <summary>Sorts the breakdown by a column, or reverses it when it already is.</summary>
     [RelayCommand]
@@ -778,11 +821,9 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             var comparisonTask = comparison is null
                 ? Task.FromResult<UsageReport?>(null)
                 : Task.Run<UsageReport?>(async () => await Fetch(comparison, filter, token).ConfigureAwait(false), token);
-            var earliestTask = comparison is null
-                ? Task.FromResult<DateOnly?>(null)
-                : Task.Run(() => _analytics.GetEarliestActivityDayAsync(filter, token), token);
+            var activityTask = Task.Run(() => _analytics.GetActivityDaysAsync(filter, token), token);
 
-            await Task.WhenAll(primaryTask, comparisonTask, earliestTask).ConfigureAwait(true);
+            await Task.WhenAll(primaryTask, comparisonTask, activityTask).ConfigureAwait(true);
             if (!IsCurrent(cts))
             {
                 return;
@@ -796,7 +837,8 @@ public sealed partial class UsageWindowViewModel : ObservableObject
                 primaryTask.Result,
                 comparison,
                 comparisonTask.Result,
-                earliestTask.Result,
+                activityTask.Result,
+                accountId,
                 today,
                 zone,
                 state,
@@ -897,11 +939,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             : string.Empty;
 
         HasData = !report.IsEmpty || comparison is { IsEmpty: false };
-        StatusText = HasData
-            ? string.Empty
-            : comparison is null
-                ? "No local agent usage in this range."
-                : "No local agent usage in either range.";
+        StatusText = HasData ? string.Empty : BuildEmptyStatus(view);
 
         var totals = report.Totals;
         TotalCostText = UsageNumberFormat.Money(totals.CostUsd);
@@ -931,6 +969,39 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         BreakdownRows = BuildBreakdown(view);
         UpdateHeaders();
         UpdateSortGlyphs();
+    }
+
+    /// <summary>
+    /// Why a report is empty, in the order the user can act on it: no log
+    /// folders at all, logs with no usage, or usage outside the days on screen.
+    /// </summary>
+    private static string BuildEmptyStatus(LoadedView view)
+    {
+        const string NotCounted = "Usage on claude.ai, ChatGPT or the desktop chat apps is not counted here.";
+
+        if (view.Report.Diagnostics.RootsScanned == 0)
+        {
+            return "No Claude Code or Codex logs were found in your accounts' folders. " +
+                "This window reads only those local logs. " + NotCounted;
+        }
+
+        if (view.Activity is not { } activity)
+        {
+            return view.AccountId is null
+                ? "The local Claude Code and Codex logs hold no usage yet. " + NotCounted
+                : "This account's local logs hold no usage yet.";
+        }
+
+        var empty = view.ComparisonPeriod is null
+            ? "No local agent usage in this range."
+            : "No local agent usage in either range.";
+        var recorded = $"Recorded usage: {UsageNumberFormat.RangeLabel(activity.First, activity.Last, view.Today)}.";
+
+        // Days before the first recorded one may be gone rather than unused.
+        // While comparing, the comparison note above already says so.
+        return view.ComparisonPeriod is null && view.Primary.LastDay < activity.First
+            ? $"{empty} {recorded} Older logs may have been deleted."
+            : $"{empty} {recorded}";
     }
 
     private static string BuildComparisonNote(LoadedView view)
@@ -963,7 +1034,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
         // Missing history matters for whichever period comes first, A or B.
         var earlierFirstDay = view.Primary.FirstDay < compared.FirstDay ? view.Primary.FirstDay : compared.FirstDay;
-        if (view.EarliestActivity is { } earliest && earlierFirstDay < earliest)
+        if (view.Activity?.First is { } earliest && earlierFirstDay < earliest)
         {
             notes.Add(
                 $"The earlier period starts before the earliest recorded usage ({UsageNumberFormat.DayLabel(earliest)}); " +
@@ -1343,7 +1414,8 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         UsageReport Report,
         UsageResolvedPeriod? ComparisonPeriod,
         UsageReport? Comparison,
-        DateOnly? EarliestActivity,
+        UsageActivityDays? Activity,
+        string? AccountId,
         DateOnly Today,
         TimeZoneInfo Zone,
         ViewState State,
