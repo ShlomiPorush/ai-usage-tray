@@ -186,6 +186,7 @@ static class UsageWindowChecks
         SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(Dispatcher.CurrentDispatcher));
         StaleFailureDoesNotWipeNewerView();
         StaleSuccessDoesNotReplaceNewerView();
+        HeroFollowsTheMetric();
         EmptyCurrentPeriodStillShowsComparison();
         DrillDuringLoadUsesTheReportOnScreen();
         PickedComparisonOfAnotherLength();
@@ -440,6 +441,31 @@ static class UsageWindowChecks
         analytics[0].Result.SetResult(Report(30m));
         PumpUntil(() => first.IsCompleted, "first load to finish");
         Check(viewModel.TotalCostText == "$90.00", $"A stale success must not replace the newer view, got {viewModel.TotalCostText}");
+    }
+
+    private static void HeroFollowsTheMetric()
+    {
+        var analytics = new ScriptedAnalytics();
+        var viewModel = new UsageWindowViewModel(analytics);
+        _ = viewModel.InitializeAsync();
+        PumpUntil(() => analytics.Count == 1, "first request");
+        analytics[0].Result.SetResult(Report(12m));
+        PumpUntil(() => !viewModel.IsLoading && viewModel.HasData, "report");
+        Check(viewModel.TotalCostText == "$12.00" && viewModel.IsCostMetric, $"Cost hero, got {viewModel.TotalCostText}");
+
+        var tokens = UsageNumberFormat.Tokens(1_000);
+        viewModel.MetricIndex = 1;
+        Check(viewModel.HeroLabel == "PROCESSED TOKENS" && viewModel.TotalCostText == tokens && !viewModel.IsCostMetric,
+            $"The tokens switch must change the hero, got {viewModel.HeroLabel} {viewModel.TotalCostText}");
+        Check(viewModel.HeroNote == "$12.00 estimated API value", $"The estimate moves under the hero, got '{viewModel.HeroNote}'");
+        var row = viewModel.ProviderRows.Single();
+        Check(row.ValueText == tokens && row.Caption.Contains("$12.00", StringComparison.Ordinal),
+            $"Provider rows must follow tokens, got {row.ValueText} '{row.Caption}'");
+
+        viewModel.MetricIndex = 0;
+        Check(viewModel.HeroLabel == "ESTIMATED API VALUE" && viewModel.TotalCostText == "$12.00" &&
+              viewModel.ProviderRows.Single().ValueText == "$12.00",
+            $"Switching back must restore cost, got {viewModel.TotalCostText}");
     }
 
     private static void EmptyCurrentPeriodStillShowsComparison()

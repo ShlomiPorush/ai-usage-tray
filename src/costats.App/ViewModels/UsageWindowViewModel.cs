@@ -10,12 +10,12 @@ namespace costats.App.ViewModels;
 /// <summary>One entry of the account filter. A null id means "every account".</summary>
 public sealed record UsageAccountOption(string? AccountId, string DisplayName);
 
-/// <summary>A provider's line in the hero block: cost, share bar and caption.</summary>
+/// <summary>A provider's line in the hero block, in the selected metric: value, share bar and caption.</summary>
 /// <param name="Name">User-facing provider name.</param>
 /// <param name="ProviderKey">"claude" or "codex", the key the XAML colours by.</param>
-/// <param name="ValueText">Formatted cost, or "unpriced".</param>
-/// <param name="Share">0..1 share of the total, for the bar width.</param>
-/// <param name="Caption">"88.9% of cost | 11.2B tokens".</param>
+/// <param name="ValueText">Formatted cost or "unpriced", or processed tokens in the tokens metric.</param>
+/// <param name="Share">0..1 share of the total in the selected metric, for the bar width.</param>
+/// <param name="Caption">"88.9% of estimate · 11.2B tokens", or "88.9% of tokens · $12.00".</param>
 /// <param name="DeltaText">Change against the comparison period, or empty.</param>
 public sealed record UsageProviderRow(
     string Name,
@@ -246,7 +246,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     [ObservableProperty]
     private string comparisonNote = string.Empty;
 
-    /// <summary>The hero figure, always exact to the cent.</summary>
+    /// <summary>The hero figure: the estimate exact to the cent, or processed tokens in the tokens metric.</summary>
     [ObservableProperty]
     private string totalCostText = "$0.00";
 
@@ -258,7 +258,19 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     [ObservableProperty]
     private string unpricedNote = string.Empty;
 
-    /// <summary>Per-provider hero rows, most expensive first.</summary>
+    /// <summary>The hero caption: "ESTIMATED API VALUE" or "PROCESSED TOKENS".</summary>
+    [ObservableProperty]
+    private string heroLabel = "ESTIMATED API VALUE";
+
+    /// <summary>The line under the hero figure: the estimate disclaimer, or the estimate itself in tokens.</summary>
+    [ObservableProperty]
+    private string heroNote = "* API list-price estimate, not your subscription bill";
+
+    /// <summary>True while the hero shows money, which carries the estimate asterisk.</summary>
+    [ObservableProperty]
+    private bool isCostMetric = true;
+
+    /// <summary>Per-provider hero rows, largest first in the selected metric.</summary>
     [ObservableProperty]
     private IReadOnlyList<UsageProviderRow> providerRows = [];
 
@@ -809,6 +821,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         UpdateHeaders();
         if (_view is not null)
         {
+            ApplyHero(_view);
             Chart = BuildChart(_view, SelectedMetric);
             RefreshModelDetail();
         }
@@ -1086,16 +1099,46 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         HasData = !report.IsEmpty || comparison is { IsEmpty: false };
         StatusText = HasData ? string.Empty : BuildEmptyStatus(view);
 
+        ApplyHero(view);
+        ComparisonNote = BuildComparisonNote(view);
+        Tiles = BuildTiles(report, comparison, view.Direction);
+        Chart = BuildChart(view, SelectedMetric);
+        BreakdownRows = BuildBreakdown(view);
+        RefreshModelDetail();
+        UpdateHeaders();
+        UpdateSortGlyphs();
+    }
+
+    /// <summary>
+    /// Fills the hero block and its provider rows in the selected metric, so
+    /// the API VALUE / TOKENS switch changes the headline numbers along with
+    /// the chart. In tokens the estimate stays visible as a secondary line.
+    /// </summary>
+    private void ApplyHero(LoadedView view)
+    {
+        var report = view.Report;
+        var comparison = view.Comparison;
         var totals = report.Totals;
-        TotalCostText = UsageNumberFormat.Money(totals.CostUsd);
+        var tokens = SelectedMetric == UsageMetric.Tokens;
+
+        HeroLabel = tokens ? "PROCESSED TOKENS" : "ESTIMATED API VALUE";
+        IsCostMetric = !tokens;
+        TotalCostText = tokens
+            ? UsageNumberFormat.Tokens(totals.Tokens.ProcessedTokens)
+            : UsageNumberFormat.Money(totals.CostUsd);
         TotalDeltaText = comparison is null
             ? string.Empty
-            : $"{view.Direction.Label} {UsageNumberFormat.Delta(view.Direction.Between(totals, comparison.Totals))}";
+            : $"{view.Direction.Label} {UsageNumberFormat.Delta(tokens
+                ? view.Direction.OfTokens(totals.Tokens.ProcessedTokens, comparison.Totals.Tokens.ProcessedTokens)
+                : view.Direction.Between(totals, comparison.Totals))}";
         TotalPreviousText = comparison is null
             ? string.Empty
-            : $"B: {Cost(comparison.Totals)}";
+            : $"B: {(tokens ? UsageNumberFormat.Tokens(comparison.Totals.Tokens.ProcessedTokens) : Cost(comparison.Totals))}";
+        HeroNote = tokens
+            ? $"{Cost(totals)} estimated API value"
+            : "* API list-price estimate, not your subscription bill";
 
-        // Unpriced tokens are counted but not costed, so the hero figure is a
+        // Unpriced tokens are counted but not costed, so the dollar figure is a
         // floor, not the truth. Say so instead of implying those models are free,
         // for the comparison period as much as for the current one.
         var unpriced = report.UnpricedModels
@@ -1107,14 +1150,7 @@ public sealed partial class UsageWindowViewModel : ObservableObject
             ? $"excludes {unpriced} unpriced model{(unpriced == 1 ? string.Empty : "s")}"
             : string.Empty;
 
-        ComparisonNote = BuildComparisonNote(view);
-        ProviderRows = BuildProviderRows(report, comparison, view.Direction);
-        Tiles = BuildTiles(report, comparison, view.Direction);
-        Chart = BuildChart(view, SelectedMetric);
-        BreakdownRows = BuildBreakdown(view);
-        RefreshModelDetail();
-        UpdateHeaders();
-        UpdateSortGlyphs();
+        ProviderRows = BuildProviderRows(report, comparison, view.Direction, SelectedMetric);
     }
 
     /// <summary>
@@ -1206,7 +1242,11 @@ public sealed partial class UsageWindowViewModel : ObservableObject
         return UsageNumberFormat.RangeLabel(period.FirstDay, period.LastDay, today);
     }
 
-    private static IReadOnlyList<UsageProviderRow> BuildProviderRows(UsageReport report, UsageReport? comparison, UsageChangeDirection direction)
+    private static IReadOnlyList<UsageProviderRow> BuildProviderRows(
+        UsageReport report,
+        UsageReport? comparison,
+        UsageChangeDirection direction,
+        UsageMetric metric)
     {
         var totalCost = report.Totals.CostUsd;
         var totalTokens = report.Totals.Tokens.ProcessedTokens;
@@ -1216,12 +1256,39 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
         // A provider only the comparison period used still gets a row, so its
         // drop to zero is visible instead of silently missing.
-        return current.Keys
+        var entries = current.Keys
             .Union(previous.Keys)
             .Select(provider => (
                 Provider: provider,
                 Totals: current.GetValueOrDefault(provider, UsageTotals.Empty),
-                Previous: previous.GetValueOrDefault(provider, UsageTotals.Empty)))
+                Previous: previous.GetValueOrDefault(provider, UsageTotals.Empty)));
+
+        if (metric == UsageMetric.Tokens)
+        {
+            // Tokens first: the value, the bar and the order all follow token
+            // share, and the estimate moves into the caption.
+            return entries
+                .OrderByDescending(entry => entry.Totals.Tokens.ProcessedTokens)
+                .ThenByDescending(entry => entry.Previous.Tokens.ProcessedTokens)
+                .Select(entry =>
+                {
+                    var tokens = entry.Totals.Tokens.ProcessedTokens;
+                    return new UsageProviderRow(
+                        DisplayName(entry.Provider),
+                        Key(entry.Provider),
+                        UsageNumberFormat.Tokens(tokens),
+                        totalTokens > 0 ? (double)tokens / totalTokens : 0d,
+                        $"{UsageNumberFormat.Percent(tokens, totalTokens)} of tokens · {Cost(entry.Totals)}",
+                        comparison is null
+                            ? string.Empty
+                            : WithPrevious(
+                                UsageNumberFormat.Tokens(entry.Previous.Tokens.ProcessedTokens),
+                                UsageNumberFormat.Delta(direction.OfTokens(tokens, entry.Previous.Tokens.ProcessedTokens))));
+                })
+                .ToList();
+        }
+
+        return entries
             .OrderByDescending(entry => entry.Totals.CostUsd)
             .ThenByDescending(entry => entry.Totals.Tokens.ProcessedTokens)
             .ThenByDescending(entry => entry.Previous.CostUsd)
