@@ -193,11 +193,105 @@ public sealed class UsageFileCache
         }
     }
 
-    private string EntryPath(string fullPath, UsageProviderKind provider)
+    private string EntryPath(string fullPath, UsageProviderKind provider) =>
+        Path.Combine(_directory!, EntryFileName(fullPath, provider));
+
+    /// <summary>File name of the cache entry for a log file.</summary>
+    public static string EntryFileName(string fullPath, UsageProviderKind provider)
     {
         var key = provider + "|" + fullPath.ToLowerInvariant();
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(key));
-        return Path.Combine(_directory!, Convert.ToHexStringLower(hash) + ".json");
+        return Convert.ToHexStringLower(hash) + ".json";
+    }
+
+    /// <summary>
+    /// Recovers Claude requests from cache entries whose log file is no longer
+    /// part of the scan, typically because Claude Code deleted the transcript.
+    /// </summary>
+    /// <remarks>
+    /// An entry keeps no path or account, so only what can be proven unique is
+    /// returned: rows with a request identity (non-zero <c>DedupKey</c>, which
+    /// only the Claude parser produces) that no live file already holds, each
+    /// identity once. Rows without an identity, which includes all Codex rows,
+    /// are left alone. Claude rows parse the same under parser versions 1 and
+    /// 2 (version 2 changed only Codex), so both are accepted.
+    /// </remarks>
+    /// <param name="liveEntryNames">Entry file names of every log file the scan listed.</param>
+    /// <param name="knownKeys">Request identities the scan already counted.</param>
+    /// <param name="before">Only rows older than this instant are returned.</param>
+    /// <param name="complete">
+    /// False when an entry could not be opened (locked, say), so the caller
+    /// can try again later. A damaged entry is skipped and does not count:
+    /// it will never become readable.
+    /// </param>
+    public IReadOnlyList<RawUsageEntry> ReadOrphanedClaudeEntries(
+        IReadOnlySet<string> liveEntryNames,
+        IReadOnlySet<long> knownKeys,
+        DateTimeOffset before,
+        out bool complete)
+    {
+        ArgumentNullException.ThrowIfNull(liveEntryNames);
+        ArgumentNullException.ThrowIfNull(knownKeys);
+
+        complete = true;
+        var recovered = new List<RawUsageEntry>();
+        if (_directory is null || !System.IO.Directory.Exists(_directory))
+        {
+            return recovered;
+        }
+
+        var seen = new HashSet<long>();
+        IEnumerable<string> paths;
+        try
+        {
+            paths = System.IO.Directory.EnumerateFiles(_directory, "*.json")
+                .Where(path => !liveEntryNames.Contains(Path.GetFileName(path)))
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch (Exception exception) when (IsRecoverable(exception))
+        {
+            complete = false;
+            return recovered;
+        }
+
+        foreach (var path in paths)
+        {
+            IReadOnlyList<RawUsageEntry> rows;
+            try
+            {
+                using var stream = File.OpenRead(path);
+                var entry = JsonSerializer.Deserialize<CacheEntry>(stream, SerializerOptions);
+                if (entry is null || entry.Schema != CacheSchemaVersion || entry.Parser is < 1 or > UsageLogParser.FormatVersion)
+                {
+                    continue;
+                }
+
+                rows = entry.ToParsed().Entries;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                complete = false;
+                continue;
+            }
+            catch (Exception exception) when (IsRecoverable(exception))
+            {
+                continue;
+            }
+
+            foreach (var row in rows)
+            {
+                if (row.DedupKey != 0 &&
+                    row.Timestamp < before &&
+                    !knownKeys.Contains(row.DedupKey) &&
+                    seen.Add(row.DedupKey))
+                {
+                    recovered.Add(row);
+                }
+            }
+        }
+
+        return recovered;
     }
 
     private static bool IsRecoverable(Exception exception) =>

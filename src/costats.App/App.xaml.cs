@@ -350,6 +350,7 @@ namespace costats.App
         /// <summary>
         /// Dev/docs helpers render the normal widget, settings, the usage window,
         /// guided onboarding, or its compact widget fallback to a PNG and exit.
+        /// Settings takes <c>--settings-category Name</c> (default Automation).
         /// The usage window takes <c>--usage-range 1|7|30|90</c>,
         /// <c>--usage-from yyyy-MM-dd</c> with an optional <c>--usage-to</c>,
         /// <c>--usage-breakdown model|time</c>,
@@ -383,7 +384,10 @@ namespace costats.App
                     var settingsWindow = _host!.Services.GetRequiredService<SettingsWindow>();
                     settingsWindow.ShowCentered(
                         returnToWidgetOnDismiss: false,
-                        initialCategory: SettingsCategory.Automation);
+                        initialCategory: Enum.TryParse<SettingsCategory>(
+                            ReadOptionalArgument(args, "--settings-category"), ignoreCase: true, out var category)
+                            ? category
+                            : SettingsCategory.Automation);
                     window = settingsWindow;
                 }
                 else if (flag == "--usage-screenshot")
@@ -869,10 +873,19 @@ namespace costats.App
                                 logger: sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<PricingCatalogUpdater>>());
                         return new ModelPricingProvider(updater);
                     });
-                    services.AddSingleton<IUsageAnalyticsService>(sp => new UsageAnalyticsService(
-                        sp.GetRequiredService<AppSettings>(),
-                        sp.GetRequiredService<ModelPricingProvider>(),
-                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<UsageAnalyticsService>>()));
+                    services.AddSingleton<IUsageAnalyticsService>(sp =>
+                    {
+                        var settings = sp.GetRequiredService<AppSettings>();
+                        var logger = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<UsageAnalyticsService>>();
+                        return new UsageAnalyticsService(settings, sp.GetRequiredService<ModelPricingProvider>(), logger)
+                        {
+                            History = new UsageHistoryOptions(
+                                new UsageHistoryStore(logger: logger),
+                                settings.GetEffectiveAccounts,
+                                () => settings.UsageHistoryRetentionDays)
+                        };
+                    });
+                    services.AddHostedService<UsageHistorySyncWorker>();
 
                     services.AddSingleton<ICredentialVault, CredentialVault>();
 

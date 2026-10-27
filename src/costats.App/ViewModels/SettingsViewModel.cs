@@ -1140,7 +1140,104 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     public void RefreshUsageCacheInfo()
     {
         UsageCacheSummary = FormatCacheInfo(_analytics.GetCacheInfo());
+        UsageHistorySummary = FormatHistoryInfo(_analytics.GetHistoryInfo());
     }
+
+    public static IReadOnlyList<RetentionOption> HistoryRetentionOptions { get; } =
+        AppSettings.UsageHistoryRetentionChoices
+            .Select(days => new RetentionOption(days, days switch
+            {
+                0 => "Forever",
+                365 => "1 year",
+                _ => $"{days / 365} years"
+            }))
+            .ToArray();
+
+    public RetentionOption SelectedHistoryRetentionOption
+    {
+        get => HistoryRetentionOptions.FirstOrDefault(option => option.Days == _settings.UsageHistoryRetentionDays)
+            ?? HistoryRetentionOptions.First(option => option.Days == AppSettings.DefaultUsageHistoryRetentionDays);
+        set
+        {
+            if (value is null || value.Days == _settings.UsageHistoryRetentionDays)
+            {
+                return;
+            }
+
+            _settings.UsageHistoryRetentionDays = value.Days;
+            SaveSettingsInBackground();
+            // Reports hide expired usage right away; the files follow on the
+            // next sync. Off the UI thread: a running sync holds the scan lock.
+            _ = Task.Run(_analytics.Invalidate);
+            OnPropertyChanged();
+        }
+    }
+
+    [ObservableProperty]
+    private string usageHistorySummary = string.Empty;
+
+    /// <summary>True while the inline "delete history?" confirmation is shown.</summary>
+    [ObservableProperty]
+    private bool isHistoryDeleteConfirmationVisible;
+
+    [ObservableProperty]
+    private bool isDeletingHistory;
+
+    [RelayCommand]
+    private void RequestDeleteHistory() => IsHistoryDeleteConfirmationVisible = true;
+
+    [RelayCommand]
+    private void CancelDeleteHistory() => IsHistoryDeleteConfirmationVisible = false;
+
+    [RelayCommand]
+    private async Task ConfirmDeleteHistoryAsync()
+    {
+        if (IsDeletingHistory)
+        {
+            return;
+        }
+
+        IsHistoryDeleteConfirmationVisible = false;
+        IsDeletingHistory = true;
+        UsageHistorySummary = "Deleting usage history...";
+        try
+        {
+            var deleted = await Task.Run(() => _analytics.DeleteHistoryAsync(CancellationToken.None)).ConfigureAwait(true);
+            UsageHistorySummary = deleted
+                ? "Usage history deleted. Usage from now on will be saved again."
+                : "Usage history could not be fully deleted right now. Try again in a moment.";
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(
+                "Could not delete usage history: {ErrorKind}: {Error}",
+                ex.GetType().Name,
+                LogRedaction.Redact(ex.Message));
+            UsageHistorySummary = "Could not delete the usage history. Try again in a moment.";
+        }
+        finally
+        {
+            IsDeletingHistory = false;
+        }
+    }
+
+    private static string FormatHistoryInfo(UsageHistoryInfo info)
+    {
+        if (info.FirstBucket is not { } first)
+        {
+            return "No usage history saved yet. It is saved in the background a minute after the app starts, then every 6 hours.";
+        }
+
+        var since = first.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture);
+        return $"Saved usage from {since}, {FormatBytes(info.Bytes)}.";
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        >= 1024L * 1024L => $"{bytes / (1024d * 1024d):0.##} MB",
+        >= 1024L => $"{bytes / 1024d:0.##} KB",
+        _ => $"{bytes} bytes"
+    };
 
     [RelayCommand]
     private async Task ClearUsageCacheAsync()
@@ -1170,16 +1267,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         }
     }
 
-    private static string FormatCacheInfo(UsageCacheInfo info)
-    {
-        var size = info.Bytes switch
-        {
-            >= 1024L * 1024L => $"{info.Bytes / (1024d * 1024d):0.##} MB",
-            >= 1024L => $"{info.Bytes / 1024d:0.##} KB",
-            _ => $"{info.Bytes} bytes"
-        };
-        return $"{info.FileCount:N0} cached files, {size}.";
-    }
+    private static string FormatCacheInfo(UsageCacheInfo info) =>
+        $"{info.FileCount:N0} cached files, {FormatBytes(info.Bytes)}.";
 
     /// <summary>Deletes the remote snapshot and reports the outcome truthfully.</summary>
     private async Task ReportRemoteSnapshotDeleteAsync(string? writeId)
@@ -1738,6 +1827,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         OnPropertyChanged(nameof(SelectedTheme));
         OnPropertyChanged(nameof(SelectedSessionActivationScheduleStart));
         OnPropertyChanged(nameof(SelectedSessionActivationScheduleEnd));
+        OnPropertyChanged(nameof(SelectedHistoryRetentionOption));
         NotifySessionActivationScheduleDescriptionChanged();
         OnPropertyChanged(nameof(CanAutoStartZaiFiveHourWindow));
         RemoteViewQrImage = null;
@@ -1996,6 +2086,12 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
 }
 
 public sealed record RefreshOption(int Minutes, string Label)
+{
+    public override string ToString() => Label;
+}
+
+/// <summary>A usage-history retention choice; 0 days keeps everything.</summary>
+public sealed record RetentionOption(int Days, string Label)
 {
     public override string ToString() => Label;
 }

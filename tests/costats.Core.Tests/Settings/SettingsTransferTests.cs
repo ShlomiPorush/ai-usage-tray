@@ -28,6 +28,7 @@ public sealed class SettingsTransferTests
             nameof(AppSettings.Hotkey),
             nameof(AppSettings.StartAtLogin),
             nameof(AppSettings.AutomaticUpdateChecksEnabled),
+            nameof(AppSettings.UsageHistoryRetentionDays),
             nameof(AppSettings.CopilotEnabled),
             nameof(AppSettings.ShowOverviewResetTimes),
             nameof(AppSettings.ShowRemainingPercentages),

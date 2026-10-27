@@ -106,7 +106,15 @@ public sealed record UsageSample(
     UsageProviderKind Provider,
     string AccountId,
     string Model,
-    UsageTokens Tokens);
+    UsageTokens Tokens)
+{
+    /// <summary>
+    /// How many requests this sample stands for. A sample read from a log is
+    /// one request; a sample rebuilt from a usage-history bucket carries the
+    /// bucket's request count, so request totals survive the logs being deleted.
+    /// </summary>
+    public long Requests { get; init; } = 1;
+}
 
 /// <summary>Well-known account identifiers used by the usage engine.</summary>
 public static class UsageAccounts

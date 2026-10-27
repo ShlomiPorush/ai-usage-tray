@@ -776,6 +776,45 @@
                         <TextBlock Text="After clearing, the next usage report performs a slower full scan."
                                    FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,6,0,0"
                                    TextWrapping="Wrap" />
+
+                        <!-- Usage history -->
+                        <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,12,0,12" />
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="Keep usage history" FontSize="12"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" DockPanel.Dock="Left"
+                                       VerticalAlignment="Center" />
+                            <ComboBox ItemsSource="{Binding HistoryRetentionOptions}"
+                                      SelectedItem="{Binding SelectedHistoryRetentionOption}"
+                                      DockPanel.Dock="Right" HorizontalAlignment="Right" Width="120" />
+                        </DockPanel>
+                        <TextBlock Text="Claude Code deletes its logs after 30 days. AI Usage Tray saves their token counts so usage reports keep showing older usage. No message content is saved."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="0,0,0,10"
+                                   TextWrapping="Wrap" />
+                        <DockPanel>
+                            <Button Content="Delete history" Command="{Binding RequestDeleteHistoryCommand}"
+                                    IsEnabled="{Binding IsDeletingHistory, Converter={x:Static local:BoolNegationConverter.Instance}}"
+                                    Style="{StaticResource SettingsButton}" DockPanel.Dock="Right" HorizontalAlignment="Right" />
+                            <TextBlock Text="{Binding UsageHistorySummary}" FontSize="11"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"
+                                       TextWrapping="Wrap" Margin="0,0,10,0" />
+                        </DockPanel>
+                        <Border x:Name="HistoryDeleteConfirmationPanel" CornerRadius="8" BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
+                                Background="{DynamicResource PanelBgBrush}" Padding="12" Margin="0,10,0,0"
+                                Visibility="{Binding IsHistoryDeleteConfirmationVisible, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
+                            <StackPanel>
+                                <TextBlock Text="Delete all usage history?" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4" />
+                                <TextBlock Text="Usage before now will no longer appear in AI Usage Tray, even if the logs are still on disk. This cannot be undone."
+                                           FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,10" />
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button Content="Cancel" Command="{Binding CancelDeleteHistoryCommand}"
+                                            Style="{StaticResource SettingsButton}" Padding="12,6" FontSize="11" />
+                                    <Button Content="Delete history" Command="{Binding ConfirmDeleteHistoryCommand}"
+                                            Style="{StaticResource SettingsButton}" Padding="12,6" FontSize="11" Margin="8,0,0,0"
+                                            BorderBrush="{DynamicResource AccentBrush}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </Expander>
 

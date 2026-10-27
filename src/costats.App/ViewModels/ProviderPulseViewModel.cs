@@ -446,6 +446,16 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         HasCostData = true;
     }
 
+    /// <summary>Hides the Cost section, for an account whose report is now empty.</summary>
+    public void ClearUsageCost()
+    {
+        HasCostData = false;
+        TodayCostText = string.Empty;
+        TodayTokensText = string.Empty;
+        MonthCostText = string.Empty;
+        MonthTokensText = string.Empty;
+    }
+
     /// <summary>
     /// Carries an already-loaded Cost section onto the instance that replaced
     /// this one on a refresh, so the section does not blink out while the next
