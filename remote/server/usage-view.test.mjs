@@ -764,3 +764,36 @@ test("cross-check: the viewer reproduces the desktop aggregator", { skip: fixtur
   }
   assert.ok(cases > 0);
 });
+
+// --- chart curves stay inside the plot (review D1) ------------------------------
+
+function pathYs(d) {
+  // "M x y", "L x y" and "C x1 y1 x2 y2 x y": every second number is a y.
+  const numbers = d.match(/-?\d+(?:\.\d+)?/g).map(Number);
+  return numbers.filter((_, index) => index % 2 === 1);
+}
+
+test("D1: smooth chart curves never leave the plot, top or bottom", () => {
+  const top = 14;
+  const bottom = 200;
+  const x = (index) => 40 + index * 100;
+  const y = (value) => bottom - (value / 100) * (bottom - top);
+  const shapes = [
+    [0, 100, 100, 0],      // two points at the ceiling: no peak above it
+    [100, 0, 0, 100],      // two points at zero: no dip below it
+    [0, 100, 0, 100, 0],   // a zigzag between both bounds
+    [50, 100, 100, 100, 50],
+    [0, 0, 5, 100, 100, 0],
+  ];
+  for (const values of shapes) {
+    const d = U.smoothLinePath(values.map((value, index) => [x(index), y(value)]), top, bottom);
+    for (const value of pathYs(d)) {
+      assert.ok(value >= top && value <= bottom, `${values.join(",")}: y ${value} outside [${top}, ${bottom}] in ${d}`);
+    }
+  }
+  // The reviewer's case: the curve must not reach above the ceiling (it reached -18.47).
+  const ceiling = U.smoothLinePath([0, 100, 100, 0].map((value, index) => [x(index), y(value)]), top, bottom);
+  assert.equal(Math.min(...pathYs(ceiling)), top);
+  // Two points are a straight segment.
+  assert.equal(U.smoothLinePath([[0, 50], [10, 60]], top, bottom), "M0.0 50.0 L10.0 60.0");
+});
