@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.5.1
+ghcr.io/shlomiporush/ai-usage-tray:1.6.0
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -209,6 +209,9 @@ limit is a floor that survives a misconfigured edge, not a replacement for one.
 | `UNSIGNED_PUT_PER_MINUTE` | `10` | Writes per minute per address without a valid signature. |
 | `SIGNED_PUT_PER_MINUTE` | `120` | Writes per minute per address with a valid signature. |
 | `TRUST_PROXY` | `0` (`1` in the shipped Compose file) | `1` keys the limit on the last `X-Forwarded-For` entry (the one the proxy appended). |
+| `MAX_USAGE_BODY_BYTES` | `1048576` (1 MiB) | Largest accepted usage report body. Snapshots keep their 16 KB cap. |
+| `USAGE_WRITE_BUDGET_BYTES` | `8388608` (8 MiB) | Usage report bytes stored per client address per fixed 10-minute window. |
+| `USAGE_STORAGE_MAX_BYTES` | `268435456` (256 MiB) | Total size of all stored usage reports and tombstones. |
 | `CLOUDFLARE_PURGE_ON_START` | unset | `files` or `everything` purges the Cloudflare cache once at startup. See below. |
 | `CLOUDFLARE_ZONE_ID` | unset | Cloudflare zone id (32 hex characters). Required when the purge is enabled. |
 | `CLOUDFLARE_API_TOKEN` | unset | API token with the zone's **Cache Purge** permission. Required when the purge is enabled. Keep it secret. |
@@ -221,7 +224,7 @@ the edge cache until the cached copies expire. Setting `CLOUDFLARE_PURGE_ON_STAR
 container purge them once, right after it starts listening, so a deploy is visible immediately.
 
 - `files` purges exactly the shell addresses this relay serves (`/`, `index.html`, `app.js`,
-  `styles.css`, `sw.js`, `config.js`, the manifest and the icons) under `PUBLIC_BASE_URL`. Nothing
+  `usage.js`, `styles.css`, `sw.js`, `config.js`, the manifest and the icons) under `PUBLIC_BASE_URL`. Nothing
   else on the zone is touched, so this is the right mode when the zone hosts other sites.
 - `everything` drops the zone's whole cache. Only use it on a zone dedicated to this relay.
 
@@ -293,7 +296,12 @@ ai.yaaps.net {
 }
 ```
 
-Keep request body limits at 16 KB or slightly above. If Cloudflare remains the proxied DNS provider,
+Keep request body limits at 16 KB or slightly above, except for `/u/*/usage`, which must accept
+request bodies of 1 MiB (or the configured `MAX_USAGE_BODY_BYTES`). A proxy that keeps 16 KB there
+breaks usage sharing: the desktop app's uploads are refused before they reach the relay. In nginx,
+for example, set `client_max_body_size 16k;` for the server and `client_max_body_size 1m;` in a
+`location ~ ^/u/[^/]+/usage/?$` block. Caddy has no body limit unless one is configured. If
+Cloudflare remains the proxied DNS provider,
 keep rate limiting for `/u/` enabled there and restrict direct access to the origin where practical.
 Cloudflare proxy traffic does not use Workers or KV.
 
@@ -319,10 +327,21 @@ CREATE TABLE health_probe (
     id INTEGER PRIMARY KEY,
     checked_at INTEGER NOT NULL
 ) STRICT;
+
+CREATE TABLE usage_reports (
+    read_id TEXT PRIMARY KEY,
+    seq INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    bytes INTEGER NOT NULL,
+    payload TEXT NULL
+) STRICT;
 ```
 
 The JSON is stored unchanged. The server does not extract account data into columns. `health_probe`
-holds a single row that `/health` rewrites to prove the database is still writable.
+holds a single row that `/health` rewrites to prove the database is still writable. In
+`usage_reports`, a row with a `NULL` payload is a tombstone (see [Usage reports](#usage-reports)).
+`bytes` records `length(CAST(payload AS BLOB))`, or 256 for a tombstone, so the storage cap is a sum
+over a small index instead of a read of every stored report.
 
 Deleted rows leave free pages behind, so the database keeps its high-water mark. The periodic
 cleanup truncates the write-ahead log after each expiry sweep, and rewrites the file with `VACUUM`
@@ -338,15 +357,21 @@ only when more than half of its pages are free and it is larger than 32 MB. `jou
 | `GET` | `/version` | Returns the deployed remote-view version shown in the viewer. |
 | `GET` | `/push/vapid-public-key` | Returns the public VAPID key used for browser subscriptions. |
 | `PUT` | `/u/{writeId}` | Validates and stores a snapshot. Returns `204` and `X-Read-Id`, or `429` over the write limit. |
-| `DELETE` | `/u/{writeId}` | Deletes a snapshot. Returns `204` for a valid ID, or `429` over the write limit. |
+| `DELETE` | `/u/{writeId}` | Deletes a snapshot and turns its usage report into a tombstone. Returns `204` for a valid ID, or `429` over the write limit. |
 | `GET` | `/u/{readId}` | Returns unexpired JSON or `404 {"error":"not_found"}`. |
+| `PUT` | `/u/{writeId}/usage` | Validates and stores a usage report. Container relay only; see [Usage reports](#usage-reports). |
+| `GET` | `/u/{readId}/usage` | Returns the stored usage report or `404 {"error":"not_found"}`. Container relay only. |
+| `DELETE` | `/u/{writeId}/usage` | Removes the usage report, leaving a tombstone. Container relay only. |
 | `POST` | `/u/{readId}/push-subscription` | Registers this browser for the shared view. |
 | `DELETE` | `/u/{readId}/push-subscription` | Removes this browser subscription. |
 | `GET` | `/u/demo` | Returns the generated read-only demo snapshot. |
+| `GET` | `/u/demo/usage` | Returns the generated read-only demo usage report. Container relay only. |
 | `OPTIONS` | any path | Handles CORS preflight. |
 
-Bodies must use `application/json` and must not exceed 16 KB. Payload validation, security headers,
-ID derivation, the seven-day TTL, and error bodies match the Cloudflare Worker implementation.
+Snapshot bodies must use `application/json` and must not exceed 16 KB. Payload validation, security
+headers, ID derivation, the seven-day TTL, and error bodies match the Cloudflare Worker
+implementation. The usage routes exist only on this relay; the Worker answers them with
+`404 {"error":"not_found"}`, and the viewer then keeps its Usage tab hidden.
 
 Write signing and the per-address write limit exist only here. The Worker ignores the two signing
 headers, which is compatible in both directions because neither implementation ever requires them:
@@ -364,6 +389,102 @@ The authoritative test vector is:
 writeId = 0123456789abcdef0123456789abcdef
 readId  = 3eb1bd439947eb762998e566ccc2e099
 ```
+
+## Usage reports
+
+When the desktop user turns on usage sharing (off by default), the app also uploads a usage report:
+the cost and token analytics of the desktop Usage window, so the viewer can show a Usage tab. The
+report holds per-day and per-hour token counts, request counts and estimated cost per account
+nickname and model id. It never holds prompts, file paths, project names, internal account ids or
+credentials. Only this container relay implements it. The Cloudflare Worker does not, and a viewer
+served by the Worker never shows the tab.
+
+### Payload
+
+Version 1, UTF-8 JSON. `validateUsagePayload` in `server.mjs` is the authoritative check, and
+`RemoteUsagePayload` in `src/costats.Core/Remote` produces it. Unknown extra fields are ignored.
+
+| Field | Content |
+| --- | --- |
+| `version` | `1`. |
+| `seq` | Positive safe integer. The write sequence; see ordering below. |
+| `generatedAt` | ISO-8601 UTC instant ending in `Z`. |
+| `timeZone` | IANA id of the desktop's zone, for example `Europe/London`. |
+| `coverage` | `dailyFrom`, `dailyTo` (local `YYYY-MM-DD`), and `hourlyFrom`, `hourlyTo` (both dates inside the daily range, or both `null`). |
+| `accounts` | `[{ name, provider }]`, provider `claude` or `codex`. Rows refer to them by index. |
+| `models` | `[{ id, provider, priced, price }]`. `price` is `null` when unpriced, else per-MTok USD `input`, `cacheRead`, `cacheWrite5m`, `cacheWrite1h`, `output` (each a number or `null`). |
+| `days` | Rows `[dayNumber, accountIdx, modelIdx, ...10 metrics]`, `dayNumber` counted from `dailyFrom`. |
+| `hourDayStarts` | UTC epoch minutes of each local midnight from `hourlyFrom` to the day after `hourlyTo`; empty without hourly coverage. |
+| `hours` | Up to four grids `{ phaseMinutes, rows }` of 60-minute buckets; rows `[dayNumber, bucketStartEpochMinutes, accountIdx, modelIdx, ...10 metrics]`. |
+| `rolling` | `current` and `previous` adjacent 24-hour windows `{ since, until, rows }`; rows `[hourIndex 0..23, accountIdx, modelIdx, ...10 metrics]`. |
+
+The ten metrics, always in this order, are integers: `uncached`, `cacheRead`, `cacheWrite5m`,
+`cacheWrite1h`, `output`, `reasoning` (tokens), `costMicroUsd`, `savingsMicroUsd` (the only signed
+value), `requests` and `unpricedTokens`. Each is a safe integer with an absolute value of at most
+10^15. A repeated key (day, account and model; grid, day, bucket, account and model; window, hour,
+account and model) is rejected.
+
+Validation limits: 64 accounts, 512 models, 60,000 day rows, a daily span of 1,100 days, an hourly
+span of 8 days with each local day 20 to 28 hours long and the first `hourDayStarts` entry within 15
+hours of the UTC midnight of `hourlyFrom`, 4 hour grids, 40,000 hour rows in total,
+5,000 rows per rolling window, and 256 characters per name or model id. An invalid report is
+answered with `422 {"error":"invalid_payload","reason":"<reason>"}`.
+
+### Routes
+
+`PUT /u/{writeId}/usage` takes the report as the body (`Content-Type: application/json`, at most
+`MAX_USAGE_BODY_BYTES`, else `413 {"error":"too_large"}`). It is signed and counted against the
+per-address write limit like a snapshot write; the signed path includes `/usage`. In order:
+
+1. `422 invalid_payload` when the report fails validation.
+2. `409 {"error":"snapshot_missing"}` when the read id has no live snapshot. Upload the snapshot
+   first.
+3. `409 {"error":"stale_write"}` when `seq` is not greater than the stored sequence, whether the
+   stored row is a report or a tombstone. Nothing is stored.
+4. `429 {"error":"usage_budget","retryAfterSeconds":<s>}` with `Retry-After` when the address has
+   already stored `USAGE_WRITE_BUDGET_BYTES` of reports in the current 10-minute window. Only stored
+   reports are charged.
+5. `507 {"error":"storage_full"}` when storing the report would take the total over
+   `USAGE_STORAGE_MAX_BYTES` (the row it replaces is not counted).
+
+Success is `204` with `X-Read-Id`. The report is stored verbatim with an expiry of seven days
+(`SNAPSHOT_TTL_SECONDS`), but never later than its snapshot's expiry.
+
+`GET /u/{readId}/usage` returns the stored JSON (`Cache-Control: no-store`) only while both the
+report and its snapshot are live, else `404 {"error":"not_found"}`. `GET /u/demo/usage` returns a
+generated demo report, and the demo snapshot carries the matching `usage` flag.
+
+`DELETE /u/{writeId}/usage` takes an optional `X-Usage-Seq` header, a decimal safe integer (any
+other value is `400 {"error":"invalid_usage_seq"}`). It is signed like other deletes. It always
+answers `204` on success:
+
+- With neither a live snapshot nor a stored row for the read id, nothing is stored.
+- With a header lower than the stored sequence, nothing changes, so a retried old delete cannot
+  remove a newer report.
+- Otherwise the row becomes a tombstone (`payload` `NULL`) with the larger of the stored and the
+  header sequence (without a row yet: the header, or 0), expiring seven days later. Every later
+  delete refreshes that expiry.
+
+`DELETE /u/{writeId}` also turns an existing usage row into a tombstone with the larger of the stored
+sequence and its own `X-Usage-Seq` header. On this route a malformed header is ignored, so the
+snapshot delete itself never fails because of it.
+
+The snapshot carries an additive `usage` field, `{ "shared": true, "seq": <number or null>,
+"checkedAt": <ISO instant or null> }`, while sharing is on. The relay stores it with the snapshot
+unchanged; the viewer uses it to discover the report.
+
+### Ordering and storage
+
+The desktop gives every usage write (PUT, usage DELETE and snapshot DELETE) a strictly increasing
+sequence. The sequence check and the storage-cap check run in one `BEGIN IMMEDIATE` transaction
+together with the write, so a delete that lands while an older PUT is still in flight always wins:
+the PUT then fails with `stale_write`.
+
+A tombstone keeps that sequence after a delete and counts 256 bytes against the storage cap. The cap
+never blocks turning a stored report into a tombstone, only a new row. The hourly sweep turns a
+report whose expiry passed, or whose snapshot is no longer live, into a tombstone (keeping its
+sequence, expiring seven days later), and removes a tombstone only when its own expiry passes.
+Tombstones are exempt from the snapshot cascade and from the orphan rule.
 
 ## Move `ai.yaaps.net` from the Worker
 

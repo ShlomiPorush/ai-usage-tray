@@ -1,6 +1,7 @@
 using System.Globalization;
 using costats.Application.Settings;
 using costats.Core.Analytics;
+using costats.Core.Remote;
 using costats.Infrastructure.Analytics;
 using Xunit;
 
@@ -438,6 +439,40 @@ public sealed class UsageHistoryStoreTests : IDisposable
         Assert.StartsWith(UsageHistory.ArchivedAccountIdPrefix, removed.AccountId);
         Assert.Equal("Old work (removed)", removed.DisplayName);
         Assert.Equal(2, (await service.GetReportAsync(UsageDateRange.All)).Totals.RequestCount);
+    }
+
+    [Fact]
+    public async Task The_remote_usage_source_matches_the_reports_and_names_accounts_without_their_ids()
+    {
+        IReadOnlyList<MonitoredAccountSettings> accounts =
+        [
+            Claude("claude-1", "c1", "Old work"),
+            Claude("claude-2", "c2"),
+            Claude("claude-3", "c3", "Home")
+        ];
+        var oldLog = WriteLog("c1", "s.jsonl", ClaudeLine("1", "2026-08-21T12:01:00Z"));
+        var namelessLog = WriteLog("c2", "s.jsonl", ClaudeLine("2", "2026-08-22T12:01:00Z"));
+        WriteLog("c3", "s.jsonl", ClaudeLine("3", "2026-08-23T12:01:00Z"));
+        var service = Service(() => accounts);
+        await service.SyncHistoryAsync();
+        File.Delete(oldLog);
+        File.Delete(namelessLog);
+
+        // Two accounts are removed; their usage lives on in the history.
+        accounts = [Claude("claude-3", "c3", "Home")];
+        var source = await service.GetRemoteUsageSourceAsync();
+        var report = await service.GetReportAsync(UsageDateRange.All);
+
+        Assert.Equal(report.Totals.RequestCount, source.Samples.Sum(sample => sample.Requests));
+        Assert.Contains(source.Accounts, account => account is { AccountId: "claude-3", Nickname: "Home", Kind: RemoteUsageAccountKind.Configured });
+        Assert.Contains(source.Accounts, account => account is { Nickname: "Old work", Kind: RemoteUsageAccountKind.Removed });
+        Assert.Contains(source.Accounts, account => account is { Nickname: null, Kind: RemoteUsageAccountKind.Removed });
+
+        var payload = RemoteUsageComposer.Compose(source, "Etc/UTC", TimeZoneInfo.Utc, new DateTimeOffset(2026, 9, 1, 0, 0, 0, TimeSpan.Zero)).Payload!;
+        Assert.Equal(["Claude account 1 (removed)", "Home", "Old work (removed)"], payload.Accounts.Select(account => account.Name));
+        var json = System.Text.Encoding.UTF8.GetString(payload.ToUtf8Json(1));
+        Assert.DoesNotContain("claude-2", json, StringComparison.Ordinal);
+        Assert.DoesNotContain(UsageHistory.ArchivedAccountIdPrefix, json, StringComparison.Ordinal);
     }
 
     [Fact]

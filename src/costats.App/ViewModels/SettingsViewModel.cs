@@ -112,9 +112,18 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         autoStartZaiFiveHourWindow = settings.AutoStartZaiFiveHourWindow;
 
         remoteViewEnabled = settings.RemoteViewEnabled;
+        remoteViewShareUsage = settings.RemoteViewShareUsage;
         remoteViewUploadUrl = settings.RemoteViewUploadUrl ?? string.Empty;
         remoteViewPageUrl = settings.RemoteViewPageUrl ?? string.Empty;
         remoteViewMessage = DescribeRemoteViewUrlProblems();
+        if (_remoteViewUploader is not null)
+        {
+            remoteUsageStatus = _remoteViewUploader.Sharing.Status;
+            // The status changes on the sharing timer's thread.
+            _remoteViewUploader.Sharing.StatusChanged += (_, _) =>
+                System.Windows.Application.Current?.Dispatcher.InvokeAsync(
+                    () => RemoteUsageStatus = _remoteViewUploader.Sharing.Status);
+        }
 
         _ = LoadCopilotTokenStatusAsync();
         RefreshUsageCacheInfo();
@@ -240,6 +249,18 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     [ObservableProperty]
     private bool remoteViewEnabled;
 
+    /// <summary>Also share the Usage window's report on the remote view.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RemoteViewHint))]
+    private bool remoteViewShareUsage;
+
+    /// <summary>
+    /// One line under the usage sharing checkbox when sharing cannot run,
+    /// such as a time zone without an IANA name. Empty means nothing to say.
+    /// </summary>
+    [ObservableProperty]
+    private string remoteUsageStatus = string.Empty;
+
     [ObservableProperty]
     private string remoteViewUploadUrl = string.Empty;
 
@@ -292,7 +313,22 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
                     : "Nothing is uploaded: the upload endpoint in settings.json is not a valid https address. Fix it, or remove it to use the built-in relay.";
             }
 
-            return string.Equals(endpoint, RemoteViewEndpoints.Normalize(_settings.DefaultRemoteViewUploadUrl), StringComparison.OrdinalIgnoreCase)
+            var builtIn = string.Equals(endpoint, RemoteViewEndpoints.Normalize(_settings.DefaultRemoteViewUploadUrl), StringComparison.OrdinalIgnoreCase);
+            if (_settings.RemoteViewEnabled && _settings.RemoteViewShareUsage)
+            {
+                // "No tokens" would be wrong here: token counts are part of
+                // the shared usage report.
+                return (builtIn
+                        ? "After each refresh, uploads a small snapshot to the built-in relay: provider, account nickname, plan, usage percentages and reset times. "
+                        : "After each refresh, uploads a small snapshot to your endpoint: provider, account nickname, plan, usage percentages and reset times. ") +
+                    "Usage sharing also uploads token counts, request counts and estimated cost per day and per hour, by account nickname and model id. " +
+                    "Prompts, file paths, project names and credentials are never sent. " +
+                    (builtIn
+                        ? "The share link is read-only, and the data expires server-side after about a week without updates."
+                        : "The data expires server-side after about a week without updates.");
+            }
+
+            return builtIn
                 ? "After each refresh, uploads a small snapshot to the built-in relay: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The share link is read-only, and the snapshot expires server-side after about a week without updates."
                 : "After each refresh, uploads a small snapshot to your endpoint: provider, account nickname, plan, usage percentages and reset times. No tokens, credentials or folder paths are sent. The snapshot expires server-side after about a week without updates.";
         }
@@ -1039,24 +1075,42 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         OnPropertyChanged(nameof(HasInvalidSessionActivationSchedule));
     }
 
+    /// <summary>
+    /// Applies a change that can move the usage sharing target together with
+    /// the removal of the old target it causes, under the lock settings saves
+    /// serialize with, so no save ever holds one without the other.
+    /// </summary>
+    private Task<bool>? ChangeSharingTarget(Action change)
+    {
+        lock (_settings.SyncRoot)
+        {
+            change();
+            return _remoteViewUploader?.Sharing.Reconcile();
+        }
+    }
+
     partial void OnRemoteViewEnabledChanged(bool value)
     {
         RemoteViewQrImage = null;
-        _settings.RemoteViewEnabled = value;
 
-        RemoteViewMessage = DescribeRemoteViewUrlProblems();
-
-        if (value)
+        // A shared usage report leaves with the remote view; its removal is
+        // queued first and saved with this change.
+        _ = ChangeSharingTarget(() =>
         {
+            _settings.RemoteViewEnabled = value;
+
             // The write id is minted on first enable and then kept, so the link
             // a user has already sent to their phone keeps working. Ids from
             // older versions are already 32 lowercase hex characters.
-            if (!RemoteViewIds.IsValidId(_settings.RemoteViewId))
+            if (value && !RemoteViewIds.IsValidId(_settings.RemoteViewId))
             {
                 _settings.RemoteViewId = RemoteViewIds.MintWriteId();
             }
-        }
-        else
+        });
+
+        RemoteViewMessage = DescribeRemoteViewUrlProblems();
+
+        if (!value)
         {
             // Turning it off stops uploads; the stored snapshot is removed too,
             // instead of sitting on the server until the weekly expiry. The
@@ -1066,12 +1120,58 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
 
         SaveSettingsInBackground();
         OnPropertyChanged(nameof(ShareLink));
+        OnPropertyChanged(nameof(RemoteViewHint));
         _pulseOrchestrator.RepublishLastState();
+    }
+
+    partial void OnRemoteViewShareUsageChanged(bool value)
+    {
+        // Queues the removal of the shared report when sharing stops, and
+        // records it in settings together with the flag.
+        var removal = ChangeSharingTarget(() => _settings.RemoteViewShareUsage = value);
+        SaveSettingsInBackground();
+
+        if (!value && removal is not null)
+        {
+            _ = ReportRemoteUsageDeleteAsync(removal);
+        }
+        else if (value)
+        {
+            RemoteViewMessage = DescribeRemoteViewUrlProblems();
+        }
+
+        // The snapshot announces sharing, so the viewer learns at once.
+        _remoteViewUploader?.RequestImmediateUpload();
+        _pulseOrchestrator.RepublishLastState();
+    }
+
+    /// <summary>Says truthfully whether the shared usage report is gone.</summary>
+    private async Task ReportRemoteUsageDeleteAsync(Task<bool> removal)
+    {
+        bool removed;
+        try
+        {
+            removed = await removal.ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning("Remote usage removal failed: {ErrorKind}", ex.GetType().Name);
+            removed = false;
+        }
+
+        // Sharing may have been turned back on meanwhile.
+        if (_settings.RemoteViewShareUsage && _settings.RemoteViewEnabled)
+        {
+            return;
+        }
+
+        RemoteViewMessage = removed ? RemoteUsageSharing.RemovedStatus : RemoteUsageSharing.RemovalPendingStatus;
     }
 
     partial void OnRemoteViewUploadUrlChanged(string value)
     {
-        _settings.RemoteViewUploadUrl = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        // Usage shared to the previous relay is removed from there.
+        _ = ChangeSharingTarget(() => _settings.RemoteViewUploadUrl = string.IsNullOrWhiteSpace(value) ? null : value.Trim());
         RemoteViewMessage = DescribeRemoteViewUrlProblems();
         SaveSettingsInBackground();
 
@@ -1121,7 +1221,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     {
         RemoteViewQrImage = null;
         var retiredWriteId = _settings.RemoteViewId;
-        _settings.RemoteViewId = RemoteViewIds.MintWriteId();
+        // Usage shared under the old link is removed, ahead of its snapshot.
+        _ = ChangeSharingTarget(() => _settings.RemoteViewId = RemoteViewIds.MintWriteId());
         SaveSettingsInBackground();
         OnPropertyChanged(nameof(ShareLink));
         RemoteViewMessage = "New link ready. The old one no longer updates.";
@@ -1751,13 +1852,18 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         _isApplyingImport = true;
         try
         {
-            result = SettingsTransfer.Apply(
-                _settings,
-                import,
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                Directory.Exists);
-            _settings.Accounts = _settings.GetEffectiveAccounts().ToList();
-            SyncFromImportedSettings();
+            // Held throughout, so a save running meanwhile never captures an
+            // imported sharing target without the removal of the old one.
+            lock (_settings.SyncRoot)
+            {
+                result = SettingsTransfer.Apply(
+                    _settings,
+                    import,
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    Directory.Exists);
+                _settings.Accounts = _settings.GetEffectiveAccounts().ToList();
+                SyncFromImportedSettings();
+            }
         }
         catch (Exception ex)
         {
@@ -1812,12 +1918,18 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         RemoteViewUploadUrl = _settings.RemoteViewUploadUrl ?? string.Empty;
         RemoteViewPageUrl = _settings.RemoteViewPageUrl ?? string.Empty;
         RemoteViewEnabled = _settings.RemoteViewEnabled;
+        RemoteViewShareUsage = _settings.RemoteViewShareUsage;
         if (_settings.RemoteViewEnabled && !RemoteViewIds.IsValidId(_settings.RemoteViewId))
         {
             // Normally minted by the enable handler; covers the case where the
             // checkbox was already on.
             _settings.RemoteViewId = RemoteViewIds.MintWriteId();
         }
+
+        // The handlers above only run for values that changed on screen; this
+        // catches every other way the import moved the sharing target, and
+        // the import's one save keeps any removal it queued.
+        _ = _remoteViewUploader?.Sharing.Reconcile();
 
         ApplyImportedHotkey();
 

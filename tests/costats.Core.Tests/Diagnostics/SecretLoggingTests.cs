@@ -4,8 +4,11 @@ using costats.App.Services;
 using costats.Application.Diagnostics;
 using costats.Application.Pulse;
 using costats.Application.Settings;
+using costats.Core.Analytics;
 using costats.Core.Pulse;
+using costats.Core.Remote;
 using costats.Core.RemoteView;
+using costats.Infrastructure.Analytics;
 using costats.Infrastructure.Providers;
 using costats.Infrastructure.Settings;
 using Microsoft.Extensions.Logging;
@@ -304,6 +307,91 @@ public sealed class SecretLoggingTests : IDisposable
         AssertNoSecrets(text, writeId, readId, SigningKey);
     }
 
+    [Fact]
+    public async Task Remote_usage_sharing_never_logs_ids_urls_or_report_content()
+    {
+        const string Nickname = "Nick-SENTINEL-1234";
+        const string Model = "model-SENTINEL-5678";
+        var writeId = RemoteViewIds.MintWriteId();
+        var readId = RemoteViewIds.DeriveReadId(writeId);
+        var settings = new AppSettings
+        {
+            RemoteViewEnabled = true,
+            RemoteViewShareUsage = true,
+            RemoteViewId = writeId,
+            DefaultRemoteViewUploadUrl = "https://relay.example.test",
+            DefaultRemoteViewPageUrl = "https://viewer.example.test",
+            DefaultRemoteViewSigningKey = SigningKey
+        };
+
+        var sink = new CapturingSink();
+        using var log = new LoggerConfiguration().MinimumLevel.Verbose().WriteTo.Sink(sink).CreateLogger();
+        var clock = new SteppedClock(new DateTimeOffset(2026, 10, 28, 8, 0, 0, TimeSpan.Zero));
+        var puts = 0;
+        var deletes = 0;
+        var handler = new FakeHandler(request =>
+        {
+            if (request.Method == HttpMethod.Put)
+            {
+                return Interlocked.Increment(ref puts) switch
+                {
+                    // A relay that echoes the address and the body back.
+                    1 => new HttpResponseMessage(HttpStatusCode.InternalServerError)
+                    {
+                        Content = new StringContent($"bad {request.RequestUri} {request.Content!.ReadAsStringAsync().Result}")
+                    },
+                    2 => throw new HttpRequestException($"connection lost for {request.RequestUri}"),
+                    3 => new HttpResponseMessage(HttpStatusCode.Conflict)
+                    {
+                        Content = new StringContent($"{{\"error\":\"stale_write\",\"detail\":\"{request.RequestUri}\"}}")
+                    },
+                    _ => new HttpResponseMessage(HttpStatusCode.NoContent)
+                };
+            }
+
+            return Interlocked.Increment(ref deletes) == 1
+                ? new HttpResponseMessage(HttpStatusCode.BadGateway) { Content = new StringContent($"no {request.RequestUri}") }
+                : new HttpResponseMessage(HttpStatusCode.NoContent);
+        });
+
+        var analytics = new FixedUsageAnalytics(new RemoteUsageSource(
+            [new UsageSample(clock.GetUtcNow().AddHours(-2), UsageProviderKind.Claude, "claude-1", Model, new UsageTokens { UncachedInputTokens = 100, OutputTokens = 10 })],
+            ModelPricingTable.Default,
+            [new RemoteUsageAccountSource("claude-1", UsageProviderKind.Claude, Nickname)]));
+
+        using var uploader = new RemoteViewUploader(
+            new FakePulseOrchestrator(),
+            [],
+            new FakeAccountSources(),
+            settings,
+            handler,
+            log,
+            analytics,
+            settingsStore: null,
+            clock);
+
+        foreach (var wait in new[] { 0, 10, 20, 10 })
+        {
+            clock.Advance(TimeSpan.FromMinutes(wait));
+            await uploader.Sharing.RunCycleAsync();
+        }
+
+        settings.RemoteViewShareUsage = false;
+        await uploader.Sharing.Reconcile()!;
+        clock.Advance(TimeSpan.FromMinutes(10));
+        await uploader.Sharing.RetryPendingDeletesAsync();
+        await uploader.DeleteAsync(writeId);
+        await uploader.Queue.WhenIdleAsync();
+
+        Assert.Equal(4, puts);
+        Assert.Equal(3, deletes);
+        var text = sink.AllText;
+        Assert.Contains("relay.example.test", text, StringComparison.Ordinal);
+        Assert.Contains("usage upload", text, StringComparison.Ordinal);
+        Assert.Contains("stale_write", text, StringComparison.Ordinal);
+        AssertNoSecrets(text, writeId, readId, SigningKey, Nickname, Model);
+    }
+
     [Theory]
     [InlineData("refresh token expired", "refresh token expired")]
     [InlineData("Authorization: Bearer abc.def", "Authorization=[redacted]")]
@@ -362,6 +450,51 @@ public sealed class SecretLoggingTests : IDisposable
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(respond(request));
+    }
+
+    private sealed class SteppedClock(DateTimeOffset now) : TimeProvider
+    {
+        private DateTimeOffset _now = now;
+
+        public void Advance(TimeSpan by) => _now += by;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+    }
+
+    /// <summary>Usage analytics that only answers the remote usage question.</summary>
+    private sealed class FixedUsageAnalytics(RemoteUsageSource source) : IUsageAnalyticsService
+    {
+        public TimeZoneInfo TimeZone => TimeZoneInfo.FindSystemTimeZoneById("Europe/London");
+
+        public event EventHandler? HistoryChanged { add { } remove { } }
+
+        public Task<RemoteUsageSource> GetRemoteUsageSourceAsync(CancellationToken cancellationToken = default) => Task.FromResult(source);
+
+        public Task<UsageReport> GetReportAsync(UsageDateRange range, IReadOnlyCollection<string>? accountIds = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(UsageReport.Empty);
+
+        public Task<UsageReport> GetWindowReportAsync(UsageTimeWindow window, IReadOnlyCollection<string>? accountIds = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(UsageReport.Empty);
+
+        public Task<IReadOnlyList<UsageAccountInfo>> GetAccountsAsync(CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyList<UsageAccountInfo>>([]);
+
+        public Task<UsageActivityDays?> GetActivityDaysAsync(IReadOnlyCollection<string>? accountIds = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult<UsageActivityDays?>(null);
+
+        public UsageCacheInfo GetCacheInfo() => new(0, 0);
+
+        public Task<UsageCacheInfo> ClearCacheAsync(CancellationToken cancellationToken = default) => Task.FromResult(GetCacheInfo());
+
+        public void Invalidate()
+        {
+        }
+
+        public Task SyncHistoryAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task<bool> DeleteHistoryAsync(CancellationToken cancellationToken = default) => Task.FromResult(false);
+
+        public UsageHistoryInfo GetHistoryInfo() => UsageHistoryInfo.Empty;
     }
 
     private sealed class FakeAccountSources : IAccountSourceRegistry

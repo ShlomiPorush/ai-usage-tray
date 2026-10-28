@@ -45,5 +45,8 @@
     <Compile Include="../../src/costats.App/Services/Diagnostics/DebugLogSink.cs" Link="Services/Diagnostics/DebugLogSink.cs" />
     <Compile Include="../../src/costats.App/Services/Diagnostics/DebugLoggingController.cs" Link="Services/Diagnostics/DebugLoggingController.cs" />
     <Compile Include="../../src/costats.App/Services/RemoteViewUploader.cs" Link="Services/RemoteViewUploader.cs" />
+    <Compile Include="../../src/costats.App/Services/RelayWriteQueue.cs" Link="Services/RelayWriteQueue.cs" />
+    <Compile Include="../../src/costats.App/Services/RemoteRelayClient.cs" Link="Services/RemoteRelayClient.cs" />
+    <Compile Include="../../src/costats.App/Services/RemoteUsageSharing.cs" Link="Services/RemoteUsageSharing.cs" />
   </ItemGroup>
 </Project>

@@ -45,13 +45,14 @@ call to your own remote-view server.
 | --- | --- |
 | `index.html` | The page shell: header, percentage and theme toggles, notice slots. |
 | `styles.css` | Both palettes. Light/dark follow the system unless `<html data-theme>` forces one. |
+| `usage.js` | The Usage tab: reads the shared usage report and renders the cost and token analytics. Loaded before `app.js`. |
 | `app.js` | Fetches the snapshot, renders the cards, owns the persisted percentage/theme toggles and the landing view. |
 | `config.js` | The one line you edit: `apiBase`. |
 | `manifest.webmanifest` | Makes the page installable ("Add to home screen"). |
 | `sw.js` | Service worker. Caches the static shell; never caches `/u/` responses. |
 | `icon-192.png`, `icon-512.png` | App icons for the manifest, the favicon and iOS. |
 
-All seven files must be reachable at the site root. The manifest, the service
+All eight files must be reachable at the site root. The manifest, the service
 worker and the icons are referenced by relative path, and a missing `sw.js` or
 manifest makes the page uninstallable.
 
@@ -90,3 +91,37 @@ Warning colours preserve the same capacity state in both modes. The page refetch
 every 60 seconds and shows how long ago the app last reported.
 Snapshots expire after about a week without the app running, and the page then
 shows a "no data" message.
+
+## Usage tab
+
+When the desktop app shares its usage report (Settings, Remote view, "Share usage
+on the remote view", off by default), the page shows a **Quotas | Usage** switch
+in the header. The Usage tab mirrors the desktop Usage window: past 24 hours,
+7, 30 or 90 days or custom dates, an account filter, a comparison with the
+previous period or with picked dates, cost or tokens, a chart per agent, the
+headline tiles, a breakdown by model or by day (days in the last week open by
+hour), and model details. `#usage` in the link opens the tab directly.
+
+How the page finds the report:
+
+- Every quota snapshot carries `usage: { shared, seq, checkedAt }` while sharing
+  is on. When `seq` is set and newer than the report on screen, the page fetches
+  `GET /u/{id}/usage`. A 404 or a network error is retried on the next snapshot
+  poll; there is no separate loop.
+- When the flag disappears, the report is cleared from memory and from the page,
+  the tab is hidden and `#usage` falls back to the quotas.
+- A relay without the usage route (the Cloudflare Worker) never sets the flag,
+  so the tab never appears there.
+
+What the numbers mean:
+
+- Days and hours are the desktop's, in its time zone. The page never works out
+  a local midnight itself: day starts come from the report's `hourDayStarts`.
+- Days or hours outside what the report covers are left blank and labelled
+  "Partial data", never shown as zero. A one to three day range older than the
+  report's hourly week is shown by day, with a note.
+- "Past 24 hours" is the window the desktop stored, labelled "as of" its time.
+- "Usage report updated" follows the snapshot's `checkedAt`; a yellow banner
+  appears when the desktop has not confirmed the report for 30 minutes.
+- Cost is the API list-price estimate, not a subscription bill. Models without a
+  known price show "unpriced" and are left out of the dollar figures.

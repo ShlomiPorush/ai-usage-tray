@@ -64,6 +64,42 @@ public sealed class JsonSettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task A_save_never_captures_half_of_a_change_made_under_the_settings_lock()
+    {
+        var store = new JsonSettingsStore(credentialVault: null, basePath: _root);
+        var settings = await store.LoadAsync(CancellationToken.None);
+        settings.RemoteViewShareUsage = true;
+        using var serializing = new ManualResetEventSlim();
+        store.BeforeSerializing = serializing.Set;
+        Task saving;
+        bool finishedInside;
+
+        // Sharing stops and its pending removal is recorded as one change,
+        // the way the Settings screen and usage sharing make it. A save that
+        // starts in between must wait and then capture both.
+        lock (settings.SyncRoot)
+        {
+            settings.RemoteViewShareUsage = false;
+            saving = Task.Run(() => store.SaveAsync(settings, CancellationToken.None));
+            // The save has started and is at its serialization point. Without
+            // the lock it would finish now, holding only half of the change.
+            Assert.True(serializing.Wait(TimeSpan.FromSeconds(10)), "The save never reached its serialization point.");
+            finishedInside = SpinWait.SpinUntil(() => saving.IsCompleted, TimeSpan.FromSeconds(1));
+            settings.RemoteUsagePendingDeletes =
+            [
+                new RemoteUsagePendingDelete { UploadUrl = "https://relay.example.test", WriteId = "0123456789abcdef0123456789abcdef", Seq = 42 }
+            ];
+        }
+
+        await saving;
+
+        Assert.False(finishedInside, "The save finished while the change was half made.");
+        using var saved = JsonDocument.Parse(await File.ReadAllTextAsync(SettingsPath));
+        Assert.False(saved.RootElement.GetProperty("remoteViewShareUsage").GetBoolean());
+        Assert.Equal(42, saved.RootElement.GetProperty("remoteUsagePendingDeletes")[0].GetProperty("seq").GetInt64());
+    }
+
+    [Fact]
     public async Task Save_writes_valid_json_and_leaves_no_temp_file()
     {
         var vault = new FakeCredentialVault();

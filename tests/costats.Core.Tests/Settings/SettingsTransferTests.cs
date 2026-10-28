@@ -50,12 +50,15 @@ public sealed class SettingsTransferTests
             nameof(AppSettings.RemoteViewEnabled),
             nameof(AppSettings.RemoteViewUploadUrl),
             nameof(AppSettings.RemoteViewPageUrl),
+            nameof(AppSettings.RemoteViewShareUsage),
             nameof(AppSettings.ZAiDisplayName),
             nameof(AppSettings.Accounts),
         ];
         string[] excluded =
         [
             nameof(AppSettings.RemoteViewId),
+            nameof(AppSettings.RemoteUsageLastSeq),
+            nameof(AppSettings.RemoteUsagePendingDeletes),
             nameof(AppSettings.OnboardingState),
             nameof(AppSettings.FloatingPanelWidth),
             nameof(AppSettings.FloatingPanelHeight),
@@ -113,6 +116,50 @@ public sealed class SettingsTransferTests
         Assert.False(payload.ContainsKey("zAiApiKey"));
         Assert.True(payload.ContainsKey("accounts"));
         Assert.True(payload.ContainsKey("remoteViewEnabled"));
+    }
+
+    [Fact]
+    public void Usage_sharing_sequence_and_pending_removals_never_leave_the_machine()
+    {
+        var source = SourceSettings();
+        source.RemoteViewShareUsage = true;
+        source.RemoteUsageLastSeq = 1_761_650_000_123;
+        source.RemoteUsagePendingDeletes =
+        [
+            new RemoteUsagePendingDelete { UploadUrl = "https://source-relay.example.net", WriteId = OtherWriteId, Seq = 1_761_650_000_100 }
+        ];
+
+        var json = Export(source);
+
+        var payload = (JsonObject)JsonNode.Parse(json)!["settings"]!;
+        Assert.False(payload.ContainsKey("remoteUsageLastSeq"));
+        Assert.False(payload.ContainsKey("remoteUsagePendingDeletes"));
+        Assert.True(payload.ContainsKey("remoteViewShareUsage"));
+        Assert.DoesNotContain(OtherWriteId, json, StringComparison.Ordinal);
+        Assert.DoesNotContain(WriteId, json, StringComparison.Ordinal);
+        Assert.DoesNotContain("source-relay.example.net", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Import_keeps_the_target_usage_sequence_and_pending_removals()
+    {
+        var pending = new RemoteUsagePendingDelete { UploadUrl = "https://target-relay.example.net", WriteId = OtherWriteId, Seq = 1_761_650_000_500 };
+        var target = new AppSettings
+        {
+            RemoteUsageLastSeq = 1_761_650_000_999,
+            RemoteUsagePendingDeletes = [pending]
+        };
+        var source = SourceSettings();
+        source.RemoteViewShareUsage = true;
+        // The source's lower sequence must not lower the target's.
+        source.RemoteUsageLastSeq = 5;
+        source.RemoteUsagePendingDeletes = [];
+
+        SettingsTransfer.Apply(target, Parse(Export(source)), TargetProfile, _ => true);
+
+        Assert.Equal(1_761_650_000_999, target.RemoteUsageLastSeq);
+        Assert.Same(pending, Assert.Single(target.RemoteUsagePendingDeletes));
+        Assert.True(target.RemoteViewShareUsage);
     }
 
     [Fact]

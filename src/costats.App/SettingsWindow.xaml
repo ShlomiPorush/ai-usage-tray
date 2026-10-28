@@ -652,6 +652,18 @@
                 <TextBlock Text="{Binding RemoteViewHint}"
                            FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,12" TextWrapping="Wrap" />
 
+                <!-- Usage sharing rides on the remote view, so it is only available while that is on. -->
+                <CheckBox IsChecked="{Binding RemoteViewShareUsage}" IsEnabled="{Binding RemoteViewEnabled}"
+                          Style="{StaticResource SettingsCheckBox}" Margin="0,0,0,6">
+                    <TextBlock Text="Share usage on the remote view" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" />
+                </CheckBox>
+                <TextBlock Text="Adds a Usage tab to the remote view with the cost and token report of the Usage window."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" Margin="30,0,0,4" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding RemoteUsageStatus}" FontSize="11" Foreground="#F97316"
+                           Margin="30,0,0,4" TextWrapping="Wrap"
+                           Visibility="{Binding RemoteUsageStatus, Converter={x:Static local:StringToVisibilityConverter.Instance}}" />
+                <Border Height="8" />
+
                 <!-- Endpoint boxes only appear when this build ships no default service. -->
                 <StackPanel Visibility="{Binding ShowRemoteViewUrlFields, Converter={x:Static local:BoolToVisibilityConverter.Instance}}">
                     <TextBlock Text="Upload endpoint URL" FontSize="12"

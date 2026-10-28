@@ -15,6 +15,11 @@ namespace costats.Application.Settings;
 /// <list type="bullet">
 /// <item><see cref="AppSettings.RemoteViewId"/>: the secret write id of this
 /// machine's remote view.</item>
+/// <item><see cref="AppSettings.RemoteUsageLastSeq"/> and
+/// <see cref="AppSettings.RemoteUsagePendingDeletes"/>: this machine's usage
+/// write sequence and its unconfirmed removals, which carry write ids. The
+/// target keeps its own, so an import never lowers its sequence or drops a
+/// removal it still owes.</item>
 /// <item><see cref="AppSettings.OnboardingState"/>: first-run progress belongs
 /// to the installation, not to the person.</item>
 /// <item><see cref="AppSettings.FloatingPanelWidth"/> and
@@ -46,6 +51,8 @@ public static class SettingsTransfer
     public static IReadOnlyCollection<string> ExcludedProperties { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         nameof(AppSettings.RemoteViewId),
+        nameof(AppSettings.RemoteUsageLastSeq),
+        nameof(AppSettings.RemoteUsagePendingDeletes),
         nameof(AppSettings.OnboardingState),
         nameof(AppSettings.FloatingPanelWidth),
         nameof(AppSettings.FloatingPanelHeight),
