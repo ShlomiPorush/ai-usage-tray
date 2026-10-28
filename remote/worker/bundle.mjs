@@ -87,6 +87,9 @@ const CSP = [
 const assets = [
   { path: "/index.html", type: "text/html; charset=utf-8", text: indexHtml, html: true },
   { path: "/styles.css", type: "text/css; charset=utf-8", text: read(join(webDir, "styles.css")) },
+  // The Usage tab script ships with the shell, but the Worker has no usage
+  // routes: GET /u/{id}/usage answers 404 here and the viewer keeps the tab hidden.
+  { path: "/usage.js", type: "text/javascript; charset=utf-8", text: read(join(webDir, "usage.js")) },
   { path: "/app.js", type: "text/javascript; charset=utf-8", text: read(join(webDir, "app.js")) },
   { path: "/config.js", type: "text/javascript; charset=utf-8", text: CONFIG_BODY },
   {

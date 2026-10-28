@@ -30,6 +30,32 @@ public sealed class RemoteSnapshotComposerTests
         };
 
     [Fact]
+    public void Usage_field_is_absent_while_usage_sharing_is_off()
+    {
+        var snapshot = RemoteSnapshotComposer.Compose(null, [], Now);
+
+        var json = JsonSerializer.Serialize(snapshot, WebOptions);
+
+        Assert.DoesNotContain("\"usage\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Usage_field_carries_shared_seq_and_checked_at_with_explicit_nulls()
+    {
+        var shared = RemoteSnapshotComposer.Compose(null, [], Now, usage: new RemoteUsageShareStatus(true, 1761650000123, "2026-10-28T10:00:00Z"));
+        var pending = RemoteSnapshotComposer.Compose(null, [], Now, usage: new RemoteUsageShareStatus(true, null, null));
+
+        var usage = JsonDocument.Parse(JsonSerializer.Serialize(shared, WebOptions)).RootElement.GetProperty("usage");
+        Assert.True(usage.GetProperty("shared").GetBoolean());
+        Assert.Equal(1761650000123, usage.GetProperty("seq").GetInt64());
+        Assert.Equal("2026-10-28T10:00:00Z", usage.GetProperty("checkedAt").GetString());
+
+        var empty = JsonDocument.Parse(JsonSerializer.Serialize(pending, WebOptions)).RootElement.GetProperty("usage");
+        Assert.Equal(JsonValueKind.Null, empty.GetProperty("seq").ValueKind);
+        Assert.Equal(JsonValueKind.Null, empty.GetProperty("checkedAt").ValueKind);
+    }
+
+    [Fact]
     public void Compose_maps_session_weekly_and_scoped_windows_in_order()
     {
         var usage = Pulse(

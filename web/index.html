@@ -78,6 +78,12 @@
         </button>
       </div>
     </div>
+    <div class="view-tabs" id="view-tabs" role="tablist" aria-label="View" hidden>
+      <button type="button" class="view-tab" id="tab-quotas" role="tab"
+              aria-selected="true" aria-controls="content">Quotas</button>
+      <button type="button" class="view-tab" id="tab-usage" role="tab"
+              aria-selected="false" aria-controls="usage-panel" tabindex="-1">Usage</button>
+    </div>
     <p class="updated" id="updated" hidden></p>
   </header>
 
@@ -86,6 +92,7 @@
   <p class="notice notice-quiet" id="notifications" role="status" hidden></p>
 
   <div id="content"></div>
+  <section class="usage-panel" id="usage-panel" role="tabpanel" aria-labelledby="tab-usage" hidden></section>
 </main>
 
 <footer class="page-footer">
@@ -100,6 +107,7 @@
 </footer>
 
 <script src="config.js"></script>
+<script src="usage.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

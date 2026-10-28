@@ -52,6 +52,9 @@ public sealed class JsonSettingsStore : ISettingsStore
     /// </summary>
     public ILogger Logger { get; set; } = NullLogger.Instance;
 
+    /// <summary>Test hook: runs on the saving thread just before it takes the settings lock.</summary>
+    internal Action? BeforeSerializing { get; set; }
+
     /// <param name="credentialVault">
     /// Where the Z.AI keys live. When null the keys are simply not persisted,
     /// which is only useful in tests.
@@ -142,12 +145,21 @@ public sealed class JsonSettingsStore : ISettingsStore
         await _saveGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var saved = SerializeForComparison(settings);
+            // One consistent picture: a change that spans several settings
+            // holds the same lock, so it is saved whole or not at all.
+            byte[] json;
+            BeforeSerializing?.Invoke();
+            lock (settings.SyncRoot)
+            {
+                json = JsonSerializer.SerializeToUtf8Bytes(settings, _serializerOptions);
+            }
+
+            var saved = ParseForComparison(json);
             var changed = ChangedSettingNames(_lastSaved, saved);
             var codingKeyChanged = HashOf(settings.ZAiCodingApiKey) != _lastCodingKeyHash;
             var apiKeyChanged = HashOf(settings.ZAiApiKey) != _lastApiKeyHash;
 
-            await WriteAtomicallyAsync(settings, cancellationToken).ConfigureAwait(false);
+            await WriteAtomicallyAsync(json, cancellationToken).ConfigureAwait(false);
             await PersistSecretsAsync(settings, cancellationToken).ConfigureAwait(false);
 
             _lastSaved = saved;
@@ -164,7 +176,19 @@ public sealed class JsonSettingsStore : ISettingsStore
         }
     }
 
-    private async Task WriteAtomicallyAsync(AppSettings settings, CancellationToken cancellationToken)
+    private static JsonObject? ParseForComparison(byte[] json)
+    {
+        try
+        {
+            return JsonNode.Parse(json) as JsonObject;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private async Task WriteAtomicallyAsync(byte[] json, CancellationToken cancellationToken)
     {
         var path = _settingsPath;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -175,8 +199,7 @@ public sealed class JsonSettingsStore : ISettingsStore
             await using (var stream = new FileStream(
                 tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
             {
-                await JsonSerializer.SerializeAsync(stream, settings, _serializerOptions, cancellationToken)
-                    .ConfigureAwait(false);
+                await stream.WriteAsync(json, cancellationToken).ConfigureAwait(false);
                 await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
                 stream.Flush(flushToDisk: true);
             }

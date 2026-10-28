@@ -6,6 +6,14 @@ namespace costats.Application.Settings;
 public sealed class AppSettings
 {
     /// <summary>
+    /// Held while settings are serialized for a save, and by any change of
+    /// several settings that must never be saved half done (such as leaving
+    /// a usage sharing target together with its pending removal).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public object SyncRoot { get; } = new();
+
+    /// <summary>
     /// Persisted first-run state. Null in settings written before onboarding
     /// existed, which is deliberately treated as an existing completed setup.
     /// </summary>
@@ -356,6 +364,28 @@ public sealed class AppSettings
     public string? RemoteViewPageUrl { get; set; }
 
     /// <summary>
+    /// When true, and remote view is on, the usage report of the Usage
+    /// window (tokens, requests and estimated cost per day and hour, per
+    /// account nickname and model) is also shared through the remote view.
+    /// Off by default and separate from <see cref="RemoteViewEnabled"/>.
+    /// </summary>
+    public bool RemoteViewShareUsage { get; set; } = false;
+
+    /// <summary>
+    /// The last write sequence given to a usage write. Every usage write
+    /// takes a larger one, saved before it is sent, so the relay can tell an
+    /// older write from a newer one even across restarts.
+    /// </summary>
+    public long RemoteUsageLastSeq { get; set; }
+
+    /// <summary>
+    /// Removals of a shared usage report that have not been confirmed yet,
+    /// each bound to the link and sequence it was made for. Retried until the
+    /// relay confirms them, whatever the sharing settings say now.
+    /// </summary>
+    public List<RemoteUsagePendingDelete> RemoteUsagePendingDeletes { get; set; } = [];
+
+    /// <summary>
     /// Upload endpoint shipped with the app, read at startup from
     /// <c>appsettings.json</c> (<c>Costats:RemoteView:UploadUrl</c>). Never
     /// serialized: it is an app default, not user state, so a later release can
@@ -539,6 +569,23 @@ public sealed class AppSettings
             }
         ];
     }
+}
+
+/// <summary>
+/// A removal of a shared usage report still waiting for the relay to confirm
+/// it. Bound to the link it was made for, so a later change of link or a
+/// re-enable never redirects or cancels it.
+/// </summary>
+public sealed class RemoteUsagePendingDelete
+{
+    /// <summary>The relay's base URL at the time sharing stopped.</summary>
+    public string UploadUrl { get; set; } = string.Empty;
+
+    /// <summary>The secret write id the report was shared under.</summary>
+    public string WriteId { get; set; } = string.Empty;
+
+    /// <summary>The write sequence the removal carries on every retry.</summary>
+    public long Seq { get; set; }
 }
 
 /// <summary>One provider's opt-in usage alert configuration.</summary>

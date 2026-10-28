@@ -178,6 +178,9 @@ if (typeof module !== "undefined" && module.exports) {
   var notificationLabel = document.getElementById("notification-label");
   var notificationTestButton = document.getElementById("notification-test");
   var versionEl = document.getElementById("remote-version");
+  // The Usage tab lives in usage.js. It reads the snapshot's usage flag and
+  // owns its own panel, so the quota re-render below never touches it.
+  var usageView = null;
 
   var id = null;
   var payload = null; // last payload we managed to render
@@ -1036,11 +1039,13 @@ if (typeof module !== "undefined" && module.exports) {
         lastFetchAt = Date.now();
         hide(connectionEl);
         render();
+        if (usageView) usageView.onSnapshot(data.usage);
         syncNotificationControl();
       })
       .catch(function (error) {
         if (error && error.code === 404) {
           payload = null;
+          if (usageView) usageView.clear();
           hide(updatedEl);
           hide(staleEl);
           hide(connectionEl);
@@ -1110,6 +1115,27 @@ if (typeof module !== "undefined" && module.exports) {
     return ID_PATTERN.test(stored) ? stored : null;
   }
 
+  // The Usage tab, when usage.js is loaded and the page has its containers.
+  // A relay without the usage route (the Cloudflare Worker) never sets the
+  // snapshot's usage flag, so the tab simply never appears there.
+  function setupUsage() {
+    var panel = document.getElementById("usage-panel");
+    var tabList = document.getElementById("view-tabs");
+    var quotaTab = document.getElementById("tab-quotas");
+    var usageTab = document.getElementById("tab-usage");
+    if (!window.UsageView || !panel || !tabList || !quotaTab || !usageTab) return;
+    usageView = window.UsageView.createController({
+      apiBase: API_BASE,
+      readId: id,
+      panel: panel,
+      quotaPanel: content,
+      tabList: tabList,
+      quotaTab: quotaTab,
+      usageTab: usageTab,
+      providerIcon: renderProviderIcon
+    });
+  }
+
   function start() {
     setupTheme();
     loadVersion();
@@ -1141,6 +1167,7 @@ if (typeof module !== "undefined" && module.exports) {
     } else {
       writeStored(LAST_ID_KEY, id);
     }
+    setupUsage();
     renderMessage("Loading…", ["Fetching the latest usage snapshot."]);
     load();
 

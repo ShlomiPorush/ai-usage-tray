@@ -1,7 +1,5 @@
 using System.Diagnostics;
-using System.Globalization;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using costats.Application.Diagnostics;
@@ -11,6 +9,7 @@ using costats.Core.Pulse;
 using costats.Core.Remote;
 using costats.Core.RemoteView;
 using costats.Core.Tray;
+using costats.Infrastructure.Analytics;
 using Serilog;
 
 namespace costats.App.Services
@@ -19,12 +18,17 @@ namespace costats.App.Services
     /// Optional "remote view": after each refresh, PUTs a small non-sensitive
     /// usage snapshot to the built-in endpoint (or a user override) so it can be
     /// read from a phone. Entirely opt-in and best effort: a failed upload never affects
-    /// the tray.
+    /// the tray. When usage sharing is on as well, <see cref="Sharing"/> shares
+    /// the Usage window's report beside it. Every relay write, of either kind,
+    /// goes through one <see cref="RelayWriteQueue"/>.
     /// </summary>
     public sealed class RemoteViewUploader : IObserver<PulseState>, IDisposable
     {
         /// <summary>Floor between two successful uploads, so a burst of manual refreshes doesn't hammer the endpoint.</summary>
         private static readonly TimeSpan MinimumUploadInterval = TimeSpan.FromSeconds(60);
+
+        /// <summary>How often usage sharing checks whether something is due.</summary>
+        private static readonly TimeSpan SharingTick = TimeSpan.FromMinutes(1);
 
         private readonly IDisposable _pulseSubscription;
         private readonly IEnumerable<ISignalSource> _staticSources;
@@ -33,18 +37,27 @@ namespace costats.App.Services
         private readonly HttpClient _http;
         private readonly JsonSerializerOptions _serializerOptions = new(JsonSerializerDefaults.Web);
         private readonly ILogger? _log;
+        private readonly RelayWriteQueue _queue = new();
+        private readonly RemoteRelayClient _relay;
+        private readonly Timer? _sharingTimer;
 
         private DateTimeOffset _lastSuccessfulUpload = DateTimeOffset.MinValue;
         private int _consecutiveFailures;
         private int _uploadInFlight;
+        private int _refreshAfterUpload;
+        private long _snapshotGeneration;
         private int _warnedAboutRejectedUrl;
+        private PulseState? _lastState;
 
         public RemoteViewUploader(
             IPulseOrchestrator pulseOrchestrator,
             IEnumerable<ISignalSource> sources,
             IAccountSourceRegistry accountSources,
-            AppSettings settings)
-            : this(pulseOrchestrator, sources, accountSources, settings, new HttpClient(), log: null)
+            AppSettings settings,
+            IUsageAnalyticsService analytics,
+            ISettingsStore settingsStore)
+            : this(pulseOrchestrator, sources, accountSources, settings, new HttpClient(), log: null,
+                analytics, settingsStore, TimeProvider.System, startSharingTimer: true, limits: null)
         {
         }
 
@@ -55,8 +68,13 @@ namespace costats.App.Services
             IAccountSourceRegistry accountSources,
             AppSettings settings,
             HttpMessageHandler handler,
-            ILogger log)
-            : this(pulseOrchestrator, sources, accountSources, settings, new HttpClient(handler), log)
+            ILogger log,
+            IUsageAnalyticsService? analytics = null,
+            ISettingsStore? settingsStore = null,
+            TimeProvider? clock = null,
+            RemoteUsageLimits? limits = null)
+            : this(pulseOrchestrator, sources, accountSources, settings, new HttpClient(handler), log,
+                analytics, settingsStore, clock ?? TimeProvider.System, startSharingTimer: false, limits)
         {
         }
 
@@ -66,7 +84,12 @@ namespace costats.App.Services
             IAccountSourceRegistry accountSources,
             AppSettings settings,
             HttpClient http,
-            ILogger? log)
+            ILogger? log,
+            IUsageAnalyticsService? analytics,
+            ISettingsStore? settingsStore,
+            TimeProvider clock,
+            bool startSharingTimer,
+            RemoteUsageLimits? limits)
         {
             _staticSources = sources;
             _accountSources = accountSources;
@@ -74,20 +97,46 @@ namespace costats.App.Services
             _log = log;
             _http = http;
             _http.Timeout = TimeSpan.FromSeconds(10);
+            _relay = new RemoteRelayClient(_http, () => _settings.EffectiveRemoteViewSigningKey, () => clock.GetUtcNow(), () => Logger);
+
+            Sharing = new RemoteUsageSharing(
+                settings,
+                settingsStore is null ? _ => Task.CompletedTask : token => settingsStore.SaveAsync(settings, token),
+                _queue,
+                _relay,
+                analytics is null ? null : analytics.GetRemoteUsageSourceAsync,
+                () => analytics?.TimeZone ?? TimeZoneInfo.Local,
+                clock,
+                () => Logger,
+                limits,
+                startCyclesOnChange: startSharingTimer);
+            Sharing.SnapshotRefreshRequested += (_, _) => PublishNow();
+
             _pulseSubscription = pulseOrchestrator.PulseStream.Subscribe(this);
+
+            if (startSharingTimer)
+            {
+                // The first tick also retries removals saved by an earlier run.
+                _sharingTimer = new Timer(_ => _ = Sharing.TickAsync(), null, TimeSpan.FromSeconds(30), SharingTick);
+            }
         }
+
+        /// <summary>Usage sharing: schedule, uploads, removals and the snapshot's usage field.</summary>
+        public RemoteUsageSharing Sharing { get; }
+
+        /// <summary>The queue every relay write goes through; tests wait on it.</summary>
+        internal RelayWriteQueue Queue => _queue;
 
         // Resolved on every call: the static logger is replaced once the host starts.
         // Log lines carry the relay's host name at most: the upload URL ends in
         // the secret write id, so no URL or id is ever logged.
         private ILogger Logger => _log ?? Log.Logger;
 
-        /// <summary>The relay's host name for logs, without the path that carries the write id.</summary>
-        private static string HostOf(string url) =>
-            Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : "(invalid address)";
+        private static string HostOf(string url) => RemoteRelayClient.HostOf(url);
 
         public void OnNext(PulseState state)
         {
+            var claimedSlot = false;
             try
             {
                 if (state.IsRefreshing || state.Providers.Count == 0)
@@ -95,6 +144,7 @@ namespace costats.App.Services
                     return;
                 }
 
+                _lastState = state;
                 var uploadUrl = ResolveUploadUrl();
                 if (!_settings.RemoteViewEnabled ||
                     !RemoteViewIds.IsValidId(_settings.RemoteViewId) ||
@@ -119,10 +169,6 @@ namespace costats.App.Services
                     return;
                 }
 
-                var snapshot = Compose(state, now);
-                // The write id, never the read id: only this app can PUT.
-                var url = $"{uploadUrl.TrimEnd('/')}/u/{_settings.RemoteViewId}";
-
                 // One upload at a time; a slow endpoint must not queue refreshes up.
                 if (Interlocked.Exchange(ref _uploadInFlight, 1) == 1)
                 {
@@ -130,22 +176,74 @@ namespace costats.App.Services
                     return;
                 }
 
-                _ = Task.Run(() => UploadAsync(url, snapshot));
+                claimedSlot = true;
+                _ = EnqueueSnapshotUpload(PrepareSnapshotUpload(state, now));
             }
             catch (Exception ex)
             {
+                if (claimedSlot)
+                {
+                    Interlocked.Exchange(ref _uploadInFlight, 0);
+                }
+
                 // OnNext must never throw: it would tear down the pulse stream.
-                Logger.Warning(ex, "Remote view snapshot could not be prepared");
+                Logger.Warning("Remote view snapshot could not be prepared: {ErrorKind}", ex.GetType().Name);
             }
         }
 
+        /// <summary>
+        /// Builds a snapshot upload bound to where it goes and to the delete
+        /// generation it was built in, so it can be dropped if remote view was
+        /// turned off, or its snapshot deleted, before its turn in the queue.
+        /// </summary>
+        internal SnapshotUpload PrepareSnapshotUpload(PulseState state, DateTimeOffset now)
+        {
+            var generation = Interlocked.Read(ref _snapshotGeneration);
+            // The write id, never the read id: only this app can PUT.
+            var url = SnapshotUrl() ?? throw new InvalidOperationException("Remote view has no upload address.");
+            return new SnapshotUpload(url, Compose(state, now), generation);
+        }
+
+        internal Task EnqueueSnapshotUpload(SnapshotUpload upload) => _queue.Enqueue(() => UploadAsync(upload));
+
+        /// <summary>Where the snapshot goes right now, or null while remote view is off or unusable.</summary>
+        private string? SnapshotUrl()
+        {
+            var uploadUrl = _settings.EffectiveRemoteViewUploadUrl;
+            return _settings.RemoteViewEnabled && RemoteViewIds.IsValidId(_settings.RemoteViewId) && uploadUrl is not null
+                ? $"{uploadUrl.TrimEnd('/')}/u/{_settings.RemoteViewId}"
+                : null;
+        }
+
+        internal sealed record SnapshotUpload(string Url, RemoteSnapshot Snapshot, long Generation);
+
         public void OnError(Exception error)
         {
-            Logger.Warning(error, "Remote view usage stream failed");
+            Logger.Warning("Remote view usage stream failed: {ErrorKind}", error.GetType().Name);
         }
 
         public void OnCompleted()
         {
+        }
+
+        /// <summary>
+        /// Uploads the snapshot again now, skipping the throttle, so the viewer
+        /// learns about a new usage report without waiting for the next refresh.
+        /// An upload already running is followed by one more.
+        /// </summary>
+        private void PublishNow()
+        {
+            if (Volatile.Read(ref _uploadInFlight) == 1)
+            {
+                Interlocked.Exchange(ref _refreshAfterUpload, 1);
+                return;
+            }
+
+            RequestImmediateUpload();
+            if (_lastState is { } state)
+            {
+                OnNext(state);
+            }
         }
 
         private RemoteSnapshot Compose(PulseState state, DateTimeOffset generatedAt)
@@ -178,7 +276,8 @@ namespace costats.App.Services
                 _settings.PrimaryAccountId,
                 entries,
                 generatedAt,
-                _settings.ShowRemainingPercentages);
+                _settings.ShowRemainingPercentages,
+                Sharing.SnapshotStatus());
         }
 
         /// <summary>
@@ -222,84 +321,62 @@ namespace costats.App.Services
         /// Removes the snapshot stored under <paramref name="writeId"/>. Best
         /// effort: returns false instead of throwing, because the caller is a UI
         /// toggle that must not fail. The server answers 204 whether or not
-        /// anything was stored.
+        /// anything was stored. Queued behind every earlier write, and it
+        /// carries a usage write sequence, so the relay's shared usage report
+        /// is retired along with it and never outlives a later upload.
         /// </summary>
-        public async Task<bool> DeleteAsync(string? writeId)
+        public Task<bool> DeleteAsync(string? writeId)
         {
             var uploadUrl = ResolveUploadUrl();
             if (!RemoteViewIds.IsValidId(writeId) || uploadUrl is null)
             {
-                return false;
+                return Task.FromResult(false);
             }
 
             var url = $"{uploadUrl.TrimEnd('/')}/u/{writeId}";
-            try
+            var seq = Sharing.NextSeq();
+            // Snapshot uploads built before this point must not bring it back.
+            Interlocked.Increment(ref _snapshotGeneration);
+            return _queue.Enqueue(async () =>
             {
-                using var request = new HttpRequestMessage(HttpMethod.Delete, url);
-                Sign(request, string.Empty);
-
-                using var response = await _http.SendAsync(request).ConfigureAwait(false);
-                Logger.Debug("Remote view delete at {Host}: HTTP {StatusCode}", HostOf(url), (int)response.StatusCode);
-                if (response.IsSuccessStatusCode)
+                // The sequence is saved first; a failed save does not hold a removal back.
+                await Sharing.PersistAsync().ConfigureAwait(false);
+                var response = await _relay.SendAsync(HttpMethod.Delete, url, null, seq, "delete").ConfigureAwait(false);
+                if (response.IsSuccess)
                 {
                     return true;
                 }
 
                 Logger.Warning(
-                    "Remote view delete answered {StatusCode}", (int)response.StatusCode);
+                    "Remote view delete answered {Status}",
+                    response.FailureKind ?? $"HTTP {response.StatusCode}");
                 return false;
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning(ex, "Remote view delete failed");
-                return false;
-            }
+            });
         }
 
-        /// <summary>
-        /// Adds the remote-view signing headers. The relay never requires them:
-        /// they buy a larger share of its per-address write budget, and an older
-        /// relay ignores them, so signing can only ever help. Failing to sign is
-        /// therefore not a reason to skip the upload.
-        /// </summary>
-        private void Sign(HttpRequestMessage request, string body)
+        private async Task UploadAsync(SnapshotUpload upload)
         {
-            try
-            {
-                var timestamp = RemoteViewSignature.Timestamp(DateTimeOffset.UtcNow);
-                var signature = RemoteViewSignature.Sign(
-                    _settings.EffectiveRemoteViewSigningKey,
-                    timestamp,
-                    request.Method.Method,
-                    request.RequestUri!.AbsolutePath,
-                    body);
-
-                request.Headers.TryAddWithoutValidation(
-                    RemoteViewSignature.TimestampHeader,
-                    timestamp.ToString(CultureInfo.InvariantCulture));
-                request.Headers.TryAddWithoutValidation(
-                    RemoteViewSignature.SignatureHeader,
-                    signature);
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning(ex, "Remote view request could not be signed; sending it unsigned");
-            }
-        }
-
-        private async Task UploadAsync(string url, RemoteSnapshot snapshot)
-        {
+            var (url, snapshot, generation) = upload;
             var stopwatch = Stopwatch.StartNew();
             try
             {
+                // Built before remote view was turned off, its link changed or
+                // its snapshot was deleted: sending it now would undo that.
+                if (generation != Interlocked.Read(ref _snapshotGeneration) ||
+                    !string.Equals(SnapshotUrl(), url, StringComparison.Ordinal))
+                {
+                    Logger.Debug("Remote view upload dropped: remote view changed before it was sent");
+                    return;
+                }
+
                 var json = JsonSerializer.Serialize(snapshot, _serializerOptions);
                 using var content = new StringContent(json, Encoding.UTF8);
-                content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+                content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
 
                 using var request = new HttpRequestMessage(HttpMethod.Put, url) { Content = content };
                 // The signature covers the exact bytes of the body, so it is
                 // taken over the serialized JSON that is about to be sent.
-                Sign(request, json);
+                _relay.Sign(request, json);
 
                 using var response = await _http.SendAsync(request).ConfigureAwait(false);
                 Logger.Debug(
@@ -311,6 +388,7 @@ namespace costats.App.Services
                 response.EnsureSuccessStatusCode();
 
                 _lastSuccessfulUpload = DateTimeOffset.UtcNow;
+                Sharing.NoteSnapshotPublished(snapshot.Usage);
 
                 // Only announce recovery when something was actually broken.
                 if (Interlocked.Exchange(ref _consecutiveFailures, 0) > 0)
@@ -325,7 +403,9 @@ namespace costats.App.Services
                 var failures = Interlocked.Increment(ref _consecutiveFailures);
                 if (failures == 1)
                 {
-                    Logger.Warning(ex, "Remote view upload failed; further failures are silent until it recovers");
+                    Logger.Warning(
+                        "Remote view upload failed; further failures are silent until it recovers: {ErrorKind}",
+                        ex.GetType().Name);
                 }
 
                 Logger.Debug(
@@ -338,11 +418,16 @@ namespace costats.App.Services
             finally
             {
                 Interlocked.Exchange(ref _uploadInFlight, 0);
+                if (Interlocked.Exchange(ref _refreshAfterUpload, 0) == 1)
+                {
+                    PublishNow();
+                }
             }
         }
 
         public void Dispose()
         {
+            _sharingTimer?.Dispose();
             _pulseSubscription.Dispose();
             _http.Dispose();
         }

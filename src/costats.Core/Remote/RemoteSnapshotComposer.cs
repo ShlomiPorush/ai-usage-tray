@@ -63,6 +63,15 @@ public sealed record RemoteAccountSnapshot(
     RemoteAlertSettings? Alert = null);
 
 /// <summary>
+/// Whether this machine shares its usage report, published with every
+/// snapshot while sharing is on. <c>Seq</c> is the sequence of the last
+/// successful usage upload to this link, and <c>CheckedAt</c> (an ISO UTC
+/// instant) the last time the app confirmed the stored report is current;
+/// both are null until the first success.
+/// </summary>
+public sealed record RemoteUsageShareStatus(bool Shared, long? Seq, string? CheckedAt);
+
+/// <summary>
 /// The whole payload uploaded to the remote endpoint. Serialized with
 /// <c>JsonSerializerDefaults.Web</c>, so every property lands as camelCase.
 /// </summary>
@@ -71,7 +80,10 @@ public sealed record RemoteSnapshot(
     DateTimeOffset GeneratedAt,
     string? Primary,
     IReadOnlyList<RemoteAccountSnapshot> Accounts,
-    string DisplayMode);
+    string DisplayMode,
+    // Additive: absent entirely while usage sharing is off.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    RemoteUsageShareStatus? Usage = null);
 
 /// <summary>
 /// Builds the remote-view payload. Deliberately free of clocks and I/O: the
@@ -91,7 +103,8 @@ public static class RemoteSnapshotComposer
         string? primaryProviderId,
         IEnumerable<RemoteSnapshotEntry> entries,
         DateTimeOffset generatedAt,
-        bool showRemainingPercentages = false)
+        bool showRemainingPercentages = false,
+        RemoteUsageShareStatus? usage = null)
     {
         var accounts = entries.Select(ToAccount).ToList();
 
@@ -100,7 +113,8 @@ public static class RemoteSnapshotComposer
             generatedAt.ToUniversalTime(),
             string.IsNullOrWhiteSpace(primaryProviderId) ? null : primaryProviderId,
             accounts,
-            showRemainingPercentages ? RemainingDisplayMode : UsedDisplayMode);
+            showRemainingPercentages ? RemainingDisplayMode : UsedDisplayMode,
+            usage);
     }
 
     private static RemoteAccountSnapshot ToAccount(RemoteSnapshotEntry entry)

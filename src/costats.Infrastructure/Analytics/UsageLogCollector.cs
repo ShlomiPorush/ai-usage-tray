@@ -19,6 +19,13 @@ public sealed record UsageScanResult(
     /// <summary>A scan that found nothing.</summary>
     public static readonly UsageScanResult Empty = new([], [], UsageScanDiagnostics.Empty);
 
+    /// <summary>
+    /// Last saved name of every removed account in <see cref="Accounts"/>, by
+    /// its archived account id, as the user typed it (no "(removed)" mark).
+    /// </summary>
+    public IReadOnlyDictionary<string, string> ArchivedAccountNames { get; init; } =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Request identities counted by this scan, for usage-history recovery.</summary>
     public IReadOnlySet<long> DedupKeys { get; init; } = new HashSet<long>();
 

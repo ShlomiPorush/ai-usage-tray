@@ -10,6 +10,7 @@ using System.Windows.Threading;
 using costats.App;
 using costats.App.ViewModels;
 using costats.Core.Analytics;
+using costats.Core.Remote;
 using costats.Infrastructure.Analytics;
 
 /// <summary>
@@ -47,6 +48,9 @@ sealed class ScriptedAnalytics : IUsageAnalyticsService
 
     public Task<UsageActivityDays?> GetActivityDaysAsync(IReadOnlyCollection<string>? accountIds = null, CancellationToken cancellationToken = default) =>
         Task.FromResult(Activity);
+
+    public Task<RemoteUsageSource> GetRemoteUsageSourceAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new RemoteUsageSource([], ModelPricingTable.Default, []));
 
     public UsageCacheInfo GetCacheInfo() => new(0, 0);
 
@@ -156,6 +160,9 @@ sealed class SyntheticAnalytics : IUsageAnalyticsService
         Task.FromResult<UsageActivityDays?>(new UsageActivityDays(
             DateOnly.FromDateTime(_samples.Min(sample => sample.Timestamp).LocalDateTime),
             DateOnly.FromDateTime(_samples.Max(sample => sample.Timestamp).LocalDateTime)));
+
+    public Task<RemoteUsageSource> GetRemoteUsageSourceAsync(CancellationToken cancellationToken = default) =>
+        Task.FromResult(new RemoteUsageSource([], ModelPricingTable.Default, []));
 
     public UsageCacheInfo GetCacheInfo() => new(0, 0);
 

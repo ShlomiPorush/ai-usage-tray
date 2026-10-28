@@ -1,5 +1,6 @@
 using costats.Application.Settings;
 using costats.Core.Analytics;
+using costats.Core.Remote;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -68,6 +69,13 @@ public interface IUsageAnalyticsService
 
     /// <summary>The time zone whose calendar days the reports bucket by.</summary>
     TimeZoneInfo TimeZone { get; }
+
+    /// <summary>
+    /// What the remote usage report is composed from: the same combined
+    /// samples (after the deletion floor), prices and accounts the reports
+    /// use, from the same scan cache.
+    /// </summary>
+    Task<RemoteUsageSource> GetRemoteUsageSourceAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Returns the current on-disk parse cache size.</summary>
     UsageCacheInfo GetCacheInfo();
@@ -241,6 +249,51 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
                 return report with { Diagnostics = scan.Diagnostics };
             }
         }
+    }
+
+    /// <inheritdoc />
+    public async Task<RemoteUsageSource> GetRemoteUsageSourceAsync(CancellationToken cancellationToken = default)
+    {
+        // Same rule as the reports: rebuilt when a history delete lands
+        // meanwhile, so deleted usage is never shared.
+        for (var attempt = 0; ; attempt++)
+        {
+            var generation = Volatile.Read(ref _generation);
+            var scan = await GetScanAsync(cancellationToken).ConfigureAwait(false);
+            var pricing = await _pricing(cancellationToken).ConfigureAwait(false);
+
+            if (generation == Volatile.Read(ref _generation) || attempt >= 2)
+            {
+                return new RemoteUsageSource(scan.Samples, pricing, [.. scan.Accounts.Select(account => ShareAccountOf(account, scan))]);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The account as the remote report may name it. A removed account saved
+    /// without a nickname was saved under its id, which is not a name.
+    /// </summary>
+    private static RemoteUsageAccountSource ShareAccountOf(UsageAccountInfo account, UsageScanResult scan)
+    {
+        if (account.AccountId.Equals(UsageHistory.ArchivedAccountIdPrefix + UsageHistory.UnknownClaudeAccountKey, StringComparison.Ordinal))
+        {
+            return new RemoteUsageAccountSource(account.AccountId, account.Provider, null, RemoteUsageAccountKind.UnknownHistory);
+        }
+
+        if (scan.ArchivedAccountNames.TryGetValue(account.AccountId, out var savedName))
+        {
+            var nickname = RemoteUsageComposer.LooksLikeAccountId(savedName) ? null : savedName;
+            return new RemoteUsageAccountSource(account.AccountId, account.Provider, nickname, RemoteUsageAccountKind.Removed);
+        }
+
+        if (account.AccountId.StartsWith(UsageHistory.ArchivedAccountIdPrefix, StringComparison.Ordinal))
+        {
+            return new RemoteUsageAccountSource(account.AccountId, account.Provider, null, RemoteUsageAccountKind.Removed);
+        }
+
+        // A configured account without a nickname shows its id; the composer
+        // treats a name equal to the id as no name.
+        return new RemoteUsageAccountSource(account.AccountId, account.Provider, account.DisplayName);
     }
 
     /// <inheritdoc />
@@ -595,6 +648,7 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         var samples = UsageHistory.Combine(live.Samples, map.KeyOf, stored.Buckets, map.IdOf, notBefore);
 
         var accounts = live.Accounts.ToList();
+        var archivedNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var listed = new HashSet<string>(accounts.Select(account => account.AccountId), StringComparer.OrdinalIgnoreCase);
         foreach (var accountKey in stored.Buckets.Keys.Select(key => key.AccountKey).Distinct(StringComparer.Ordinal))
         {
@@ -602,6 +656,11 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             if (info is not null && listed.Add(info.AccountId))
             {
                 accounts.Add(info);
+                if (info.AccountId.StartsWith(UsageHistory.ArchivedAccountIdPrefix, StringComparison.Ordinal) &&
+                    stored.Accounts.TryGetValue(accountKey, out var known))
+                {
+                    archivedNames[info.AccountId] = known.Name;
+                }
             }
         }
 
@@ -613,7 +672,7 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
                 : string.Compare(left.AccountId, right.AccountId, StringComparison.OrdinalIgnoreCase);
         });
 
-        return live with { Samples = samples, Accounts = accounts };
+        return live with { Samples = samples, Accounts = accounts, ArchivedAccountNames = archivedNames };
     }
 
     public async Task<UsageCacheInfo> ClearCacheAsync(CancellationToken cancellationToken = default)

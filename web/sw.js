@@ -5,13 +5,14 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v22: pins the GitHub footer to the bottom of the page.
-var CACHE = "ai-usage-tray-shell-v22";
+// v23: adds the Usage tab (usage.js).
+var CACHE = "ai-usage-tray-shell-v23";
 
 var SHELL = [
   "./",
   "./index.html",
   "./styles.css",
+  "./usage.js",
   "./app.js",
   "./config.js",
   "./manifest.webmanifest",

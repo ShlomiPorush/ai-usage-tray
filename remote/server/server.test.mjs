@@ -14,6 +14,7 @@ import {
   readAllowedEndpointHosts,
   readCloudflarePurgeConfig,
   SnapshotStore,
+  validatePayload,
 } from "./server.mjs";
 import {
   DEFAULT_SIGNING_KEY,
@@ -228,6 +229,26 @@ test("stores, reads, and deletes an unchanged JSON payload", async () => {
   assert.equal((await fetch(`${fixture.baseUrl}/u/${READ_ID}`)).status, 404);
 });
 
+test("accepts the additive usage flag on a snapshot", async () => {
+  const flagged = (usage) => ({
+    version: 2,
+    generatedAt: "2026-08-27T12:00:00Z",
+    accounts: [],
+    usage,
+  });
+  assert.equal(validatePayload(flagged({ shared: true, seq: 1761650000123, checkedAt: "2026-10-28T10:00:00Z" })), null);
+  assert.equal(validatePayload(flagged({ shared: true, seq: null, checkedAt: null })), null);
+
+  const body = JSON.stringify(flagged({ shared: true, seq: 1761650000123, checkedAt: "2026-10-28T10:00:00.0000000Z" }));
+  const put = await fetch(`${fixture.baseUrl}/u/${WRITE_ID}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+  assert.equal(put.status, 204);
+  assert.equal(await (await fetch(`${fixture.baseUrl}/u/${READ_ID}`)).text(), body);
+});
+
 test("reports the deployed remote-view version", async () => {
   const response = await fetch(`${fixture.baseUrl}/version`);
   assert.equal(response.status, 200);
@@ -337,6 +358,9 @@ test("serves the viewer, same-origin config, demo, and health endpoint", async (
   const demoPayload = await demo.json();
   assert.equal(demoPayload.version, 2);
   assert.equal(demoPayload.displayMode, "used");
+  assert.equal(demoPayload.usage.shared, true);
+  assert.ok(Number.isSafeInteger(demoPayload.usage.seq));
+  assert.equal(validatePayload(demoPayload), null);
   assert.equal((await fetch(`${fixture.baseUrl}/u/demo`, { method: "DELETE" })).status, 405);
 
   const health = await fetch(`${fixture.baseUrl}/health`);
@@ -907,6 +931,7 @@ test("Cloudflare purge lists exactly the served shell addresses", () => {
     "https://ai.example.net/manifest.webmanifest",
     "https://ai.example.net/styles.css",
     "https://ai.example.net/sw.js",
+    "https://ai.example.net/usage.js",
   ]);
 });
 
