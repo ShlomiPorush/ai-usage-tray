@@ -30,6 +30,12 @@
         <h1>AI usage</h1>
         <span class="version-badge" id="remote-version" hidden></span>
       </div>
+      <div class="view-tabs" id="view-tabs" role="tablist" aria-label="View" hidden>
+        <button type="button" class="view-tab" id="tab-quotas" role="tab"
+                aria-selected="true" aria-controls="content">Quotas</button>
+        <button type="button" class="view-tab" id="tab-usage" role="tab"
+                aria-selected="false" aria-controls="usage-panel" tabindex="-1">Usage</button>
+      </div>
       <span class="demo-badge" id="demo-badge" hidden>Demo data</span>
       <div class="header-actions">
         <div class="percent-toggle" id="percent-toggle" role="group"
@@ -77,12 +83,6 @@
           </svg>
         </button>
       </div>
-    </div>
-    <div class="view-tabs" id="view-tabs" role="tablist" aria-label="View" hidden>
-      <button type="button" class="view-tab" id="tab-quotas" role="tab"
-              aria-selected="true" aria-controls="content">Quotas</button>
-      <button type="button" class="view-tab" id="tab-usage" role="tab"
-              aria-selected="false" aria-controls="usage-panel" tabindex="-1">Usage</button>
     </div>
     <p class="updated" id="updated" hidden></p>
   </header>

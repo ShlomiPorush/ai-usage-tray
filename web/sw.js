@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v23: adds the Usage tab (usage.js).
-var CACHE = "ai-usage-tray-shell-v23";
+// v24: restyles the Usage tab and the shared header.
+var CACHE = "ai-usage-tray-shell-v24";
 
 var SHELL = [
   "./",

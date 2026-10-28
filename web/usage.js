@@ -1270,6 +1270,33 @@ var UsageView = (function () {
     return { title: title, rows: rows, comparisonTitle: comparisonTitle, comparisonRows: comparisonRows };
   }
 
+  // A smooth SVG path through chart points (Catmull-Rom as cubic Bezier).
+  // Every control point is clamped to the plot's [top, bottom], so the curve,
+  // which stays inside the hull of its points, never rises above the axis
+  // ceiling or dips below zero: no peak or trough the data does not have.
+  function smoothLinePath(points, top, bottom) {
+    function f(value) {
+      return value.toFixed(1);
+    }
+    function clampY(value) {
+      return Math.max(top, Math.min(bottom, value));
+    }
+    var d = "M" + f(points[0][0]) + " " + f(points[0][1]);
+    if (points.length === 2) return d + " L" + f(points[1][0]) + " " + f(points[1][1]);
+    for (var n = 0; n < points.length - 1; n++) {
+      var p0 = points[n - 1] || points[n];
+      var p1 = points[n];
+      var p2 = points[n + 1];
+      var p3 = points[n + 2] || p2;
+      var c1x = p1[0] + (p2[0] - p0[0]) / 6;
+      var c1y = clampY(p1[1] + (p2[1] - p0[1]) / 6);
+      var c2x = p2[0] - (p3[0] - p1[0]) / 6;
+      var c2y = clampY(p2[1] - (p3[1] - p1[1]) / 6);
+      d += " C" + f(c1x) + " " + f(c1y) + " " + f(c2x) + " " + f(c2y) + " " + f(p2[0]) + " " + f(p2[1]);
+    }
+    return d;
+  }
+
   // --- breakdown (UsageBreakdown) ------------------------------------------------
 
   var MODEL_DEFAULT_SORT = { column: "value", descending: true };
@@ -1841,6 +1868,7 @@ var UsageView = (function () {
       charts = [];
       if (dom && dom.dialog.open) dom.dialog.close();
       state.openModel = null;
+      pops = [];
       if (dom) {
         clear(panel);
         dom = null;
@@ -1916,6 +1944,28 @@ var UsageView = (function () {
       return node;
     }
 
+    // A range segment: a long label on wide screens, a short one on phones.
+    function rangeSegment(group, value, long, short, name, onClick) {
+      var node = segment(group, value, null, onClick);
+      node.appendChild(el("span", "usage-long", long));
+      node.appendChild(el("span", "usage-short", short));
+      node.setAttribute("aria-label", name);
+      return node;
+    }
+
+    function chevron() {
+      var node = el("span", "usage-chevron", "▾");
+      node.setAttribute("aria-hidden", "true");
+      return node;
+    }
+
+    // The dashed marker that stands for period B.
+    function dashMark() {
+      var dash = svg("svg", { "class": "usage-dash", viewBox: "0 0 16 4", width: "16", height: "4", "aria-hidden": "true" });
+      dash.appendChild(svg("line", { x1: "0", y1: "2", x2: "16", y2: "2" }));
+      return dash;
+    }
+
     function dateField(labelText) {
       var wrap = el("label", "usage-field");
       wrap.appendChild(el("span", "usage-field-label", labelText));
@@ -1925,11 +1975,13 @@ var UsageView = (function () {
       return { wrap: wrap, input: input };
     }
 
+    // A date range popover. Escape is handled by the popover layer.
     function buildPicker(title, help, onApply, onCancel) {
-      var box = el("div", "usage-picker");
+      var box = el("div", "usage-picker usage-pop");
       box.hidden = true;
-      var heading = el("p", "usage-picker-title", title);
-      box.appendChild(heading);
+      box.setAttribute("role", "group");
+      box.setAttribute("aria-label", title);
+      box.appendChild(el("p", "usage-picker-title", title));
       box.appendChild(el("p", "usage-picker-help", help));
       var fields = el("div", "usage-picker-fields");
       var from = dateField("First day");
@@ -1950,22 +2002,105 @@ var UsageView = (function () {
       [from.input, to.input].forEach(function (input) {
         input.addEventListener("keydown", function (event) {
           if (event.key === "Enter") onApply();
-          if (event.key === "Escape") onCancel();
         });
       });
       return { box: box, from: from.input, to: to.input, error: error, apply: apply };
     }
 
+    // --- popovers -------------------------------------------------------------
+    // One stack for the range picker, the comparison menu, its date picker and
+    // the phone Filters sheet. Escape closes the top one and returns focus to
+    // the button that opened it; a press outside closes whatever it is outside.
+
+    var pops = [];
+
+    function isShown(node) {
+      return Boolean(node && (node.offsetWidth || node.offsetHeight || node.getClientRects().length));
+    }
+
+    function popEntry(box, trigger) {
+      return {
+        box: box,
+        trigger: trigger,
+        show: function () { box.classList.add("is-open"); },
+        hide: function () { box.classList.remove("is-open"); }
+      };
+    }
+
+    function pickerEntry(picker, trigger) {
+      return {
+        box: picker.box,
+        trigger: trigger,
+        show: function () { picker.box.hidden = false; },
+        hide: function () {
+          picker.box.hidden = true;
+          picker.error.hidden = true;
+        }
+      };
+    }
+
+    function isOpen(entry) {
+      return Boolean(entry) && pops.indexOf(entry) !== -1;
+    }
+
+    function openPop(entry) {
+      pops.slice().reverse().forEach(function (open) {
+        if (open !== entry && !open.box.contains(entry.box)) closePop(open, false);
+      });
+      if (pops.indexOf(entry) === -1) pops.push(entry);
+      entry.show();
+      entry.trigger.setAttribute("aria-expanded", "true");
+    }
+
+    function closePop(entry, focusTrigger) {
+      if (!isOpen(entry)) return;
+      // Anything opened inside it closes with it.
+      pops.slice().reverse().forEach(function (inner) {
+        if (inner !== entry && entry.box.contains(inner.box)) closePop(inner, false);
+      });
+      pops.splice(pops.indexOf(entry), 1);
+      entry.hide();
+      entry.trigger.setAttribute("aria-expanded", "false");
+      if (focusTrigger && isShown(entry.trigger)) entry.trigger.focus();
+    }
+
+    function closeAllPops() {
+      pops.slice().reverse().forEach(function (entry) { closePop(entry, false); });
+    }
+
+    function onDocumentKey(event) {
+      if (event.key !== "Escape" || pops.length === 0) return;
+      if (dom && dom.dialog.open) return;
+      event.preventDefault();
+      closePop(pops[pops.length - 1], true);
+    }
+
+    function onDocumentPointer(event) {
+      var target = event.target;
+      for (var i = pops.length - 1; i >= 0; i--) {
+        var entry = pops[i];
+        if (!entry) continue;
+        if (entry.box.contains(target) || entry.trigger.contains(target)) break;
+        closePop(entry, false);
+      }
+    }
+
+    function onLayoutChange() {
+      if (!dom || pops.length === 0) return;
+      var root = pops[0];
+      var active = doc.activeElement;
+      var inside = pops.some(function (entry) { return entry.box.contains(active) || entry.trigger === active; });
+      closeAllPops();
+      if (!inside && isShown(active)) return;
+      var target = isShown(root.trigger) ? root.trigger
+        : isShown(dom.compareButton) ? dom.compareButton : dom.filtersButton;
+      if (isShown(target)) target.focus();
+    }
+
     function buildSkeleton() {
       clear(panel);
+      pops = [];
       var root = el("div", "usage");
-
-      var status = el("div", "usage-status");
-      var updated = el("p", "usage-updated");
-      status.appendChild(updated);
-      var zoneNote = el("p", "usage-zone");
-      status.appendChild(zoneNote);
-      root.appendChild(status);
 
       var stale = el("p", "notice notice-stale usage-stale");
       stale.setAttribute("role", "status");
@@ -1973,22 +2108,67 @@ var UsageView = (function () {
       root.appendChild(stale);
 
       var toolbar = el("div", "usage-toolbar");
+
+      // Left: Clear filters, the period lines, and the freshness line.
+      var period = el("div", "usage-period");
+      var clearLink = button("usage-link usage-clear", "Clear filters", clearFilters);
+      period.appendChild(clearLink);
+      var periodLines = el("div", "usage-period-lines");
+      period.appendChild(periodLines);
+      var fresh = el("p", "usage-fresh");
+      var updated = el("span", "usage-updated");
+      var zoneNote = el("span", "usage-zone");
+      fresh.appendChild(updated);
+      fresh.appendChild(zoneNote);
+      period.appendChild(fresh);
+      toolbar.appendChild(period);
+
+      // Right: account, range and comparison; on phones, range and Filters.
+      var controls = el("div", "usage-controls");
+
+      var rangeWrap = el("div", "usage-anchor usage-range-wrap");
       var rangeGroup = el("div", "usage-segments usage-range");
       rangeGroup.setAttribute("role", "group");
       rangeGroup.setAttribute("aria-label", "Range");
-      var ranges = [["24h", "Past 24 hours"], ["7", "7 days"], ["30", "30 days"], ["90", "90 days"]];
-      var rangeButtons = ranges.map(function (entry) {
-        return segment(rangeGroup, entry[0], entry[1], function () { applyRange(entry[0]); });
+      var rangeButtons = [
+        ["24h", "Past 24h", "24h", "Past 24 hours"],
+        ["7", "7 days", "7d", "7 days"],
+        ["30", "30 days", "30d", "30 days"],
+        ["90", "90 days", "90d", "90 days"]
+      ].map(function (entry) {
+        return rangeSegment(rangeGroup, entry[0], entry[1], entry[2], entry[3], function () { applyRange(entry[0]); });
       });
-      var customButton = segment(rangeGroup, "custom", "Custom", function () { toggleCustomPicker(); });
-      customButton.setAttribute("aria-haspopup", "true");
+      var customButton = rangeSegment(rangeGroup, "custom", "Custom", "⋯", "Custom dates", function () { toggleCustomPicker(); });
+      customButton.querySelector(".usage-long").appendChild(chevron());
       customButton.setAttribute("aria-expanded", "false");
-      toolbar.appendChild(rangeGroup);
+      rangeWrap.appendChild(rangeGroup);
+      var customPicker = buildPicker("Show a day or a range",
+        "A range of up to 3 days in the last week is shown by hour.",
+        applyCustomPicker, function () { closePop(dom.popCustom, true); });
+      customPicker.box.id = nextId("usage-custom");
+      customButton.setAttribute("aria-controls", customPicker.box.id);
+      rangeWrap.appendChild(customPicker.box);
+      controls.appendChild(rangeWrap);
 
-      var filters = el("div", "usage-filters");
+      var filtersButton = button("usage-filters-button", null, function () { toggleFilters(); });
+      filtersButton.appendChild(el("span", null, "Filters"));
+      var badge = el("span", "usage-badge");
+      badge.setAttribute("aria-hidden", "true");
+      badge.hidden = true;
+      filtersButton.appendChild(badge);
+      filtersButton.setAttribute("aria-expanded", "false");
+      controls.appendChild(filtersButton);
 
-      var accountLabel = el("label", "usage-select-wrap");
-      accountLabel.appendChild(el("span", "sr-only", "Account"));
+      // On wide screens these sit in the row; on phones they form the sheet.
+      var filterPanel = el("div", "usage-filter-panel");
+      filterPanel.id = nextId("usage-filters");
+      filterPanel.setAttribute("role", "group");
+      filterPanel.setAttribute("aria-label", "Filters");
+      filtersButton.setAttribute("aria-controls", filterPanel.id);
+      filterPanel.appendChild(el("p", "usage-sheet-title", "Filters"));
+
+      var accountLabel = el("label", "usage-field usage-account");
+      accountLabel.appendChild(el("span", "usage-field-label", "Account"));
       var accountSelect = el("select", "usage-select");
       accountSelect.addEventListener("change", function () {
         state.account = accountSelect.value === "" ? null : accountSelection(data, Number(accountSelect.value));
@@ -1996,63 +2176,44 @@ var UsageView = (function () {
         render();
       });
       accountLabel.appendChild(accountSelect);
-      filters.appendChild(accountLabel);
+      filterPanel.appendChild(accountLabel);
 
-      var compareLabel = el("label", "usage-select-wrap");
-      compareLabel.appendChild(el("span", "sr-only", "Comparison"));
-      var compareSelect = el("select", "usage-select");
-      [["off", "No comparison"], ["previous", "Compare with previous period"], ["custom", "Compare with dates\u2026"]]
-        .forEach(function (entry) {
-          var option = el("option", null, entry[1]);
-          option.value = entry[0];
-          compareSelect.appendChild(option);
+      var compareWrap = el("div", "usage-anchor usage-compare");
+      var compareButton = button("usage-compare-button", null, function () { toggleCompareMenu(); });
+      var compareText = el("span", null, "Compare");
+      compareButton.appendChild(compareText);
+      compareButton.appendChild(chevron());
+      compareButton.setAttribute("aria-expanded", "false");
+      compareWrap.appendChild(compareButton);
+      var compareMenu = el("div", "usage-menu");
+      compareMenu.id = nextId("usage-compare");
+      compareButton.setAttribute("aria-controls", compareMenu.id);
+      compareMenu.setAttribute("role", "group");
+      compareMenu.setAttribute("aria-label", "Comparison");
+      compareMenu.appendChild(el("p", "usage-sheet-label", "Comparison"));
+      var compareItems = [["off", "No comparison"], ["previous", "Previous period"], ["custom", "Pick dates…"]]
+        .map(function (entry) {
+          var item = button("usage-menu-item", null, function () { chooseCompare(entry[0], item); });
+          item.setAttribute("data-value", entry[0]);
+          item.setAttribute("aria-pressed", "false");
+          item.appendChild(el("span", "usage-menu-text", entry[1]));
+          item.appendChild(el("span", "usage-menu-detail"));
+          compareMenu.appendChild(item);
+          return item;
         });
-      compareSelect.addEventListener("change", function () {
-        var value = compareSelect.value;
-        if (value === "custom") {
-          openComparePicker();
-          return;
-        }
-        closePicker(dom.comparePicker);
-        state.compare = value;
-        render();
-      });
-      compareLabel.appendChild(compareSelect);
-      filters.appendChild(compareLabel);
-      var compareEdit = button("usage-button", "Edit B dates", function () { openComparePicker(); });
-      compareEdit.hidden = true;
-      filters.appendChild(compareEdit);
-
-      var metricGroup = el("div", "usage-segments usage-metric");
-      metricGroup.setAttribute("role", "group");
-      metricGroup.setAttribute("aria-label", "Metric");
-      var metricButtons = [["cost", "Cost"], ["tokens", "Tokens"]].map(function (entry) {
-        return segment(metricGroup, entry[0], entry[1], function () { setMetric(entry[0]); });
-      });
-      filters.appendChild(metricGroup);
-
-      var clearButton = button("usage-button usage-clear", "Clear filters", function () {
-        state.range = "30";
-        state.account = null;
-        state.compare = "off";
-        state.back = null;
-        closePicker(dom.customPicker);
-        closePicker(dom.comparePicker);
-        render();
-        rangeButtons[2].focus();
-      });
-      filters.appendChild(clearButton);
-      toolbar.appendChild(filters);
-      root.appendChild(toolbar);
-
-      var customPicker = buildPicker("Show a day or a range",
-        "A range of up to 3 days in the last week is shown by hour.",
-        applyCustomPicker, function () { closePicker(dom.customPicker); dom.customButton.focus(); });
-      root.appendChild(customPicker.box);
+      compareWrap.appendChild(compareMenu);
       var comparePicker = buildPicker("Compare with other days",
         "Different lengths compare the average per day.",
-        applyComparePicker, function () { closePicker(dom.comparePicker); syncControls(); dom.compareSelect.focus(); });
-      root.appendChild(comparePicker.box);
+        applyComparePicker, function () { closePop(dom.popCompareDates, true); });
+      comparePicker.box.id = nextId("usage-compare-dates");
+      compareWrap.appendChild(comparePicker.box);
+      filterPanel.appendChild(compareWrap);
+
+      var sheetClear = button("usage-button usage-sheet-clear", "Clear filters", clearFilters);
+      filterPanel.appendChild(sheetClear);
+      controls.appendChild(filterPanel);
+      toolbar.appendChild(controls);
+      root.appendChild(toolbar);
 
       var results = el("div", "usage-results");
       root.appendChild(results);
@@ -2093,16 +2254,24 @@ var UsageView = (function () {
         updated: updated,
         zoneNote: zoneNote,
         stale: stale,
+        clearLink: clearLink,
+        periodLines: periodLines,
         rangeButtons: rangeButtons,
         customButton: customButton,
+        filtersButton: filtersButton,
+        badge: badge,
         accountSelect: accountSelect,
         accountSignature: "",
-        compareSelect: compareSelect,
-        compareEdit: compareEdit,
-        metricButtons: metricButtons,
-        clearButton: clearButton,
+        compareButton: compareButton,
+        compareText: compareText,
+        compareItems: compareItems,
+        sheetClear: sheetClear,
         customPicker: customPicker,
         comparePicker: comparePicker,
+        popCustom: pickerEntry(customPicker, customButton),
+        popMenu: popEntry(compareMenu, compareButton),
+        popFilters: popEntry(filterPanel, filtersButton),
+        popCompareDates: null,
         results: results,
         live: live,
         dialog: dialog,
@@ -2129,7 +2298,7 @@ var UsageView = (function () {
     function applyRange(range) {
       state.range = range;
       state.back = null;
-      closePicker(dom.customPicker);
+      closeAllPops();
       render();
     }
 
@@ -2138,13 +2307,17 @@ var UsageView = (function () {
       render();
     }
 
-    function closePicker(picker) {
-      picker.box.hidden = true;
-      picker.error.hidden = true;
-      if (picker === dom.customPicker) dom.customButton.setAttribute("aria-expanded", "false");
+    function clearFilters() {
+      state.range = "30";
+      state.account = null;
+      state.compare = "off";
+      state.back = null;
+      closeAllPops();
+      render();
+      dom.rangeButtons[2].focus();
     }
 
-    function openPicker(picker, from, to) {
+    function fillPicker(picker, from, to) {
       var max = data.dailyTo;
       [picker.from, picker.to].forEach(function (input) {
         input.min = dayToIso(data.dailyFrom);
@@ -2153,19 +2326,46 @@ var UsageView = (function () {
       picker.from.value = isFinite(from) ? dayToIso(Math.max(data.dailyFrom, Math.min(max, from))) : "";
       picker.to.value = isFinite(to) ? dayToIso(Math.max(data.dailyFrom, Math.min(max, to))) : "";
       picker.error.hidden = true;
-      picker.box.hidden = false;
-      picker.from.focus();
     }
 
     function toggleCustomPicker() {
-      if (!dom.customPicker.box.hidden) {
-        closePicker(dom.customPicker);
+      if (isOpen(dom.popCustom)) {
+        closePop(dom.popCustom, false);
         return;
       }
-      closePicker(dom.comparePicker);
       var shown = view ? view.primary : null;
-      dom.customButton.setAttribute("aria-expanded", "true");
-      openPicker(dom.customPicker, shown ? shown.from : today(), shown ? shown.to : today());
+      fillPicker(dom.customPicker, shown ? shown.from : today(), shown ? shown.to : today());
+      openPop(dom.popCustom);
+      dom.customPicker.from.focus();
+    }
+
+    function toggleCompareMenu() {
+      if (isOpen(dom.popMenu)) {
+        closePop(dom.popMenu, false);
+        return;
+      }
+      openPop(dom.popMenu);
+      var current = dom.compareItems.filter(function (item) { return item.getAttribute("aria-pressed") === "true"; })[0];
+      (current || dom.compareItems[0]).focus();
+    }
+
+    function toggleFilters() {
+      if (isOpen(dom.popFilters)) {
+        closePop(dom.popFilters, false);
+        return;
+      }
+      openPop(dom.popFilters);
+      dom.accountSelect.focus();
+    }
+
+    function chooseCompare(value, item) {
+      if (value === "custom") {
+        openComparePicker(item);
+        return;
+      }
+      state.compare = value;
+      if (isOpen(dom.popMenu)) closePop(dom.popMenu, true);
+      render();
     }
 
     function readPicker(picker) {
@@ -2189,13 +2389,11 @@ var UsageView = (function () {
       state.customFrom = range.from;
       state.customTo = range.to;
       state.back = null;
-      closePicker(dom.customPicker);
+      closePop(dom.popCustom, true);
       render();
-      dom.customButton.focus();
     }
 
-    function openComparePicker() {
-      closePicker(dom.customPicker);
+    function openComparePicker(item) {
       var from = state.compareFrom;
       var to = state.compareTo;
       if (!isFinite(from) && view && !view.primary.rolling) {
@@ -2203,7 +2401,14 @@ var UsageView = (function () {
         from = previous.from;
         to = previous.to;
       }
-      openPicker(dom.comparePicker, isFinite(from) ? from : today() - 1, isFinite(to) ? to : today() - 1);
+      fillPicker(dom.comparePicker, isFinite(from) ? from : today() - 1, isFinite(to) ? to : today() - 1);
+      // The comparison button on wide screens, the menu item inside the sheet.
+      var trigger = isShown(dom.compareButton) ? dom.compareButton : item;
+      if (isOpen(dom.popMenu)) closePop(dom.popMenu, false);
+      if (isOpen(dom.popCompareDates)) closePop(dom.popCompareDates, false);
+      dom.popCompareDates = pickerEntry(dom.comparePicker, trigger);
+      openPop(dom.popCompareDates);
+      dom.comparePicker.from.focus();
     }
 
     function applyComparePicker() {
@@ -2212,9 +2417,8 @@ var UsageView = (function () {
       state.compare = "custom";
       state.compareFrom = range.from;
       state.compareTo = range.to;
-      closePicker(dom.comparePicker);
+      closePop(dom.popCompareDates, true);
       render();
-      dom.compareSelect.focus();
     }
 
     function drillDay(day) {
@@ -2301,9 +2505,6 @@ var UsageView = (function () {
         node.setAttribute("aria-pressed", node.getAttribute("data-value") === state.range ? "true" : "false");
       });
       dom.customButton.setAttribute("aria-pressed", state.range === "custom" ? "true" : "false");
-      dom.metricButtons.forEach(function (node) {
-        node.setAttribute("aria-pressed", node.getAttribute("data-value") === state.metric ? "true" : "false");
-      });
 
       var signature = JSON.stringify(data.accounts);
       if (signature !== dom.accountSignature) {
@@ -2322,9 +2523,26 @@ var UsageView = (function () {
       var picked = resolveAccount(state.account, data);
       if (picked === null) state.account = null;
       dom.accountSelect.value = picked === null ? "" : String(picked);
-      dom.compareSelect.value = state.compare;
-      dom.compareEdit.hidden = state.compare !== "custom";
-      dom.clearButton.hidden = !hasFilters();
+
+      var comparing = state.compare !== "off";
+      setText(dom.compareText, comparing ? "Comparing" : "Compare");
+      dom.compareButton.classList.toggle("is-active", comparing);
+      dom.compareItems.forEach(function (item) {
+        var value = item.getAttribute("data-value");
+        item.setAttribute("aria-pressed", value === state.compare ? "true" : "false");
+        var detail = value === "custom" && state.compare === "custom" && isFinite(state.compareFrom)
+          ? rangeLabel(state.compareFrom, state.compareTo, today())
+          : "";
+        setText(item.querySelector(".usage-menu-detail"), detail);
+      });
+
+      // The phone Filters badge counts the account and the comparison.
+      var active = (picked === null ? 0 : 1) + (comparing ? 1 : 0);
+      setText(dom.badge, active ? String(active) : "");
+      dom.badge.hidden = active === 0;
+      dom.filtersButton.setAttribute("aria-label", active ? "Filters, " + active + " active" : "Filters");
+      dom.clearLink.hidden = !hasFilters();
+      dom.sheetClear.hidden = !hasFilters();
     }
 
     function renderFreshness() {
@@ -2344,11 +2562,7 @@ var UsageView = (function () {
       } else {
         dom.stale.hidden = true;
       }
-      var browserZone = "";
-      try {
-        browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-      } catch (error) { /* older engines: always say it */ }
-      setText(dom.zoneNote, browserZone === data.zone ? "" : "Days and times use the desktop's time zone (" + data.zone + ").");
+      setText(dom.zoneNote, " · times in " + data.zone);
     }
 
     function captureFocus() {
@@ -2379,7 +2593,7 @@ var UsageView = (function () {
       clear(results);
       charts = charts.filter(function (entry) { return entry.inDialog; });
 
-      results.appendChild(renderPeriodHeader());
+      renderPeriodLines();
       var notes = buildNotes(view, chart);
       if (notes.length) {
         var list = el("div", "usage-notes");
@@ -2407,30 +2621,26 @@ var UsageView = (function () {
       return el("span", "usage-chip", text);
     }
 
-    function renderPeriodHeader() {
+    // The toolbar's period lines: A (or the range), vs B, and Back.
+    function renderPeriodLines() {
       var captions = buildCaptions(view);
-      var header = el("div", "usage-period");
-      var text = el("div", "usage-period-text");
+      var lines = dom.periodLines;
+      clear(lines);
       var title = el("h2", "usage-range-title");
       title.appendChild(el("span", null, captions.range));
       if (captions.rangePartial) title.appendChild(chip("Partial data"));
-      text.appendChild(title);
+      lines.appendChild(title);
       if (captions.comparison) {
         var versus = el("p", "usage-versus");
-        var dash = svg("svg", { "class": "usage-dash", viewBox: "0 0 18 4", width: "18", height: "4", "aria-hidden": "true" });
-        dash.appendChild(svg("line", { x1: "0", y1: "2", x2: "18", y2: "2" }));
-        versus.appendChild(dash);
+        versus.appendChild(dashMark());
         versus.appendChild(el("span", null, captions.comparison));
         if (captions.comparisonPartial) versus.appendChild(chip("Partial data"));
-        text.appendChild(versus);
+        lines.appendChild(versus);
       }
-      if (captions.asOf) text.appendChild(el("p", "usage-asof", captions.asOf));
-      header.appendChild(text);
+      if (captions.asOf) lines.appendChild(el("p", "usage-asof", captions.asOf));
       if (state.back) {
-        var back = focusKey(button("usage-button usage-back", state.back.label, goBack), "back");
-        header.appendChild(back);
+        lines.appendChild(focusKey(button("usage-link usage-back", "‹ " + state.back.label, goBack), "back"));
       }
-      return header;
     }
 
     function shareBar(provider, share) {
@@ -2458,7 +2668,7 @@ var UsageView = (function () {
       if (hero.previousText || hero.deltaText) {
         var delta = el("p", "usage-hero-delta");
         if (hero.previousText) delta.appendChild(el("span", null, hero.previousText));
-        if (hero.deltaText) delta.appendChild(el("span", null, hero.deltaText));
+        if (hero.deltaText) delta.appendChild(el("span", "usage-delta-value", hero.deltaText));
         box.appendChild(delta);
       }
       box.appendChild(el("p", "usage-hero-note", hero.note));
@@ -2483,13 +2693,34 @@ var UsageView = (function () {
       return box;
     }
 
+    // A small segmented control whose buttons keep focus across re-renders.
+    function smallSegments(label, entries, current, keyPrefix, onPick) {
+      var group = el("div", "usage-segments is-small");
+      group.setAttribute("role", "group");
+      group.setAttribute("aria-label", label);
+      entries.forEach(function (entry) {
+        var node = segment(group, entry[0], entry[1], function () { onPick(entry[0]); });
+        focusKey(node, keyPrefix + entry[0]);
+        node.setAttribute("aria-pressed", current === entry[0] ? "true" : "false");
+      });
+      return group;
+    }
+
     function renderChartCard(chart) {
       var card = el("section", "usage-chart-card");
       var head = el("div", "usage-chart-head");
       var period = view.primary.hourly ? "Hourly" : "Daily";
       var titleText = state.metric === "tokens" ? period + " tokens" : period + " API value";
-      var title = el("h3", "usage-chart-title", titleText);
-      head.appendChild(title);
+      var titles = el("div", "usage-chart-titles");
+      titles.appendChild(el("h3", "usage-chart-title", titleText));
+      var captions = buildCaptions(view);
+      if (captions.comparison && (chart.comparisonSeries.length || chart.comparisonUnavailable)) {
+        var sub = el("p", "usage-chart-sub");
+        sub.appendChild(dashMark());
+        sub.appendChild(el("span", null, captions.comparison + (chart.averageDay ? ", average day" : "")));
+        titles.appendChild(sub);
+      }
+      head.appendChild(titles);
       var legend = el("div", "usage-legend");
       chart.series.forEach(function (line) {
         var item = el("span", "usage-legend-item");
@@ -2497,15 +2728,8 @@ var UsageView = (function () {
         item.appendChild(el("span", null, line.name));
         legend.appendChild(item);
       });
-      if (chart.comparisonSeries.length) {
-        var compareItem = el("span", "usage-legend-item");
-        var dash = svg("svg", { "class": "usage-dash", viewBox: "0 0 18 4", width: "18", height: "4", "aria-hidden": "true" });
-        dash.appendChild(svg("line", { x1: "0", y1: "2", x2: "18", y2: "2" }));
-        compareItem.appendChild(dash);
-        compareItem.appendChild(el("span", null, chart.averageDay ? "B: average day" : "B"));
-        legend.appendChild(compareItem);
-      }
       head.appendChild(legend);
+      head.appendChild(smallSegments("Metric", [["cost", "API value"], ["tokens", "Tokens"]], state.metric, "metric-", setMetric));
       card.appendChild(head);
       var host = el("div", "usage-chart");
       card.appendChild(host);
@@ -2526,14 +2750,16 @@ var UsageView = (function () {
       return grid;
     }
 
-    function sortHeader(text, column, sort, numeric, title) {
-      var th = el("th", numeric ? "is-numeric" : null);
+    // extra: "is-secondary" marks a column phones leave out (the Sort menu
+    // above the table still reaches it).
+    function sortHeader(text, column, sort, numeric, title, extra) {
+      var th = el("th", [numeric ? "is-numeric" : "", extra || ""].join(" ").trim() || null);
       th.scope = "col";
       var active = sort.column === column;
       th.setAttribute("aria-sort", active ? (sort.descending ? "descending" : "ascending") : "none");
       var node = focusKey(button("usage-sort", null, function () { sortBy(column); }), "sort:" + column);
       node.appendChild(el("span", null, text));
-      var glyph = el("span", "usage-sort-glyph", active ? (sort.descending ? "\u25BC" : "\u25B2") : "");
+      var glyph = el("span", "usage-sort-glyph", active ? (sort.descending ? "▼" : "▲") : "");
       glyph.setAttribute("aria-hidden", "true");
       node.appendChild(glyph);
       if (title) node.title = title;
@@ -2541,27 +2767,56 @@ var UsageView = (function () {
       return th;
     }
 
+    // The sortable columns of a table, for the phone Sort menu.
+    function sortColumns(table) {
+      var columns = [[table.labelHeader, "label"], [table.valueHeader, "value"]];
+      if (table.showComparison) {
+        columns.push(["API value B", "previousValue"], [table.tokensHeader, "tokens"], ["Tokens B", "previousTokens"], [table.changeHeader, "change"]);
+      } else {
+        columns.push(["Share", "share"], [table.tokensHeader, "tokens"]);
+      }
+      return columns;
+    }
+
+    function sortMenu(table) {
+      var wrap = el("label", "usage-sort-menu");
+      wrap.appendChild(el("span", "sr-only", "Sort by"));
+      var select = focusKey(el("select", "usage-select"), "sort-menu");
+      sortColumns(table).forEach(function (column) {
+        var label = column[1] !== "label" ? ["high to low", "low to high"]
+          : table.mode === "time" ? ["newest first", "oldest first"] : ["Z to A", "A to Z"];
+        [true, false].forEach(function (descending, index) {
+          var option = el("option", null, column[0] + ", " + label[index]);
+          option.value = column[1] + (descending ? ":d" : ":a");
+          select.appendChild(option);
+        });
+      });
+      select.value = table.sort.column + (table.sort.descending ? ":d" : ":a");
+      select.addEventListener("change", function () {
+        var parts = select.value.split(":");
+        var sort = { column: parts[0], descending: parts[1] === "d" };
+        if (state.breakdown === "time") state.timeSort = sort;
+        else state.modelSort = sort;
+        renderResults();
+        focusByKey("sort-menu");
+      });
+      wrap.appendChild(select);
+      return wrap;
+    }
+
     function renderBreakdown() {
       var table = buildBreakdown(view, state.breakdown, state.modelSort, state.timeSort);
       var section = el("section", "usage-breakdown");
       var head = el("div", "usage-breakdown-head");
-      var titles = el("div", "usage-breakdown-titles");
-      titles.appendChild(el("h3", "usage-breakdown-title", "Breakdown"));
-      if (table.hint) titles.appendChild(el("p", "usage-breakdown-hint", table.hint));
-      head.appendChild(titles);
-      var toggle = el("div", "usage-segments");
-      toggle.setAttribute("role", "group");
-      toggle.setAttribute("aria-label", "Breakdown by");
-      [["model", "Model"], ["time", view.primary.hourly ? "Hour" : "Day"]].forEach(function (entry) {
-        var node = segment(toggle, entry[0], entry[1], function () {
-          state.breakdown = entry[0];
+      head.appendChild(el("h3", "usage-breakdown-title", "Breakdown"));
+      if (table.hint) head.appendChild(el("p", "usage-breakdown-hint", table.hint));
+      if (table.rows.length) head.appendChild(sortMenu(table));
+      head.appendChild(smallSegments("Breakdown by", [["model", "Model"], ["time", view.primary.hourly ? "Hour" : "Day"]],
+        state.breakdown, "breakdown-", function (mode) {
+          state.breakdown = mode;
           renderResults();
-          focusByKey("breakdown-" + entry[0]);
-        });
-        focusKey(node, "breakdown-" + entry[0]);
-        node.setAttribute("aria-pressed", state.breakdown === entry[0] ? "true" : "false");
-      });
-      head.appendChild(toggle);
+          focusByKey("breakdown-" + mode);
+        }));
       section.appendChild(head);
 
       if (table.rows.length === 0) {
@@ -2570,7 +2825,7 @@ var UsageView = (function () {
       }
 
       var scroller = el("div", "usage-table-wrap");
-      var grid = el("table", "usage-table");
+      var grid = el("table", "usage-table" + (table.showComparison ? " is-comparing" : ""));
       var caption = el("caption", "sr-only", "Usage by " + table.labelHeader.toLowerCase());
       grid.appendChild(caption);
       var thead = el("thead");
@@ -2578,13 +2833,13 @@ var UsageView = (function () {
       headRow.appendChild(sortHeader(table.labelHeader, "label", table.sort, false));
       headRow.appendChild(sortHeader(table.valueHeader, "value", table.sort, true));
       if (table.showComparison) {
-        headRow.appendChild(sortHeader("API value B", "previousValue", table.sort, true));
-        headRow.appendChild(sortHeader(table.tokensHeader, "tokens", table.sort, true));
-        headRow.appendChild(sortHeader("Tokens B", "previousTokens", table.sort, true));
+        headRow.appendChild(sortHeader("API value B", "previousValue", table.sort, true, null, "is-secondary"));
+        headRow.appendChild(sortHeader(table.tokensHeader, "tokens", table.sort, true, null, "is-secondary"));
+        headRow.appendChild(sortHeader("Tokens B", "previousTokens", table.sort, true, null, "is-secondary"));
         headRow.appendChild(sortHeader(table.changeHeader, "change", table.sort, true,
           "Change in API value from the earlier period to the later one, as an average per day when the periods differ in length. Models without a price, or periods with unpriced usage, compare tokens instead."));
       } else {
-        headRow.appendChild(sortHeader("Share", "share", table.sort, true));
+        headRow.appendChild(sortHeader("Share", "share", table.sort, true, null, "is-secondary"));
         headRow.appendChild(sortHeader(table.tokensHeader, "tokens", table.sort, true));
       }
       thead.appendChild(headRow);
@@ -2607,7 +2862,7 @@ var UsageView = (function () {
           labelInner = focusKey(button("usage-row-button", null, function () { drillDay(row.drillDay); }), "day:" + row.drillDay);
           labelInner.setAttribute("aria-label", "Show " + row.label + " by hour");
           labelInner.appendChild(el("span", "usage-row-text", row.label));
-          var more = el("span", "usage-row-more", "\u203A");
+          var more = el("span", "usage-row-more", "›");
           more.setAttribute("aria-hidden", "true");
           labelInner.appendChild(more);
         } else {
@@ -2617,12 +2872,12 @@ var UsageView = (function () {
         tr.appendChild(label);
         tr.appendChild(el("td", "is-numeric", row.valueText));
         if (table.showComparison) {
-          tr.appendChild(el("td", "is-numeric is-muted", row.previousValueText));
-          tr.appendChild(el("td", "is-numeric", row.tokensText));
-          tr.appendChild(el("td", "is-numeric is-muted", row.previousTokensText));
+          tr.appendChild(el("td", "is-numeric is-muted is-secondary", row.previousValueText));
+          tr.appendChild(el("td", "is-numeric is-secondary", row.tokensText));
+          tr.appendChild(el("td", "is-numeric is-muted is-secondary", row.previousTokensText));
           tr.appendChild(el("td", "is-numeric usage-change", row.changeText));
         } else {
-          tr.appendChild(el("td", "is-numeric is-muted", row.shareText));
+          tr.appendChild(el("td", "is-numeric is-muted is-secondary", row.shareText));
           tr.appendChild(el("td", "is-numeric", row.tokensText));
         }
         tbody.appendChild(tr);
@@ -2643,6 +2898,7 @@ var UsageView = (function () {
     }
 
     function openModel(key) {
+      closeAllPops();
       state.openModel = key;
       var filled = false;
       try {
@@ -2826,7 +3082,7 @@ var UsageView = (function () {
       instance.width = measured;
       var width = Math.max(280, measured || 640);
       var small = width < 520;
-      var height = instance.inDialog ? (small ? 180 : 200) : (small ? 220 : 270);
+      var height = instance.inDialog ? (small ? 180 : 200) : (small ? 230 : 300);
       clear(host);
       host.appendChild(instance.announcer);
 
@@ -2850,6 +3106,7 @@ var UsageView = (function () {
       for (var t = 0; t <= tickCount; t++) tickLabels.push(chartAxisText(step * t, chart.metric));
       var longest = tickLabels.reduce(function (length, text) { return Math.max(length, text.length); }, 1);
       var left = Math.round(longest * 6.6 + 12);
+      if (chart.comparisonLabels.some(function (text) { return text; })) left = Math.max(left, 44);
       var right = 14;
       var top = 14;
       var hasComparisonLabels = chart.comparisonLabels.some(function (text) { return text; });
@@ -2881,20 +3138,40 @@ var UsageView = (function () {
         root.appendChild(tick);
       }
 
-      // X labels, thinned so they never overlap.
+      // X labels, thinned so they never overlap; the first and last sit flush
+      // with the plot edges, and the last point is always labelled.
       var labelChars = chart.labels.reduce(function (length, text) { return Math.max(length, text.length); }, 1);
       var labelWidth = labelChars * 6.4 + 14;
       var stride = Math.max(1, Math.ceil(chart.count / Math.max(1, Math.floor(plotWidth / labelWidth))));
-      for (var i = 0; i < chart.count; i += stride) {
-        var lx = Math.max(left + labelWidth / 2 - 7, Math.min(width - right - labelWidth / 2 + 7, x(i)));
-        var label = svg("text", { "class": "usage-axis", x: String(lx), y: String(bottom + 17), "text-anchor": "middle" });
-        label.textContent = chart.labels[i];
+      var shown = [];
+      for (var i = 0; i < chart.count; i += stride) shown.push(i);
+      var lastIndex = chart.count - 1;
+      if (shown[shown.length - 1] !== lastIndex) {
+        var gap = x(lastIndex) - x(shown[shown.length - 1]);
+        // The last label hangs left of its point, so it needs one and a half widths.
+        if (gap < labelWidth * 1.5 && shown.length > 1) shown.pop();
+        shown.push(lastIndex);
+      }
+      shown.forEach(function (index) {
+        var anchor = chart.count === 1 ? "middle" : index === 0 ? "start" : index === lastIndex ? "end" : "middle";
+        var label = svg("text", { "class": "usage-axis", x: String(x(index)), y: String(bottom + 17), "text-anchor": anchor });
+        label.textContent = chart.labels[index];
         root.appendChild(label);
-        if (hasComparisonLabels && chart.comparisonLabels[i]) {
-          var second = svg("text", { "class": "usage-axis is-comparison", x: String(lx), y: String(bottom + 32), "text-anchor": "middle" });
-          second.textContent = chart.comparisonLabels[i];
+        if (hasComparisonLabels && chart.comparisonLabels[index]) {
+          var second = svg("text", { "class": "usage-axis is-comparison", x: String(x(index)), y: String(bottom + 32), "text-anchor": anchor });
+          second.textContent = chart.comparisonLabels[index];
           root.appendChild(second);
         }
+      });
+      if (hasComparisonLabels) {
+        // Which date row is which: A on top, B below.
+        var keyX = String(Math.max(2, left - 30));
+        var keyA = svg("text", { "class": "usage-axis is-key", x: keyX, y: String(bottom + 17) });
+        keyA.textContent = "A";
+        root.appendChild(keyA);
+        var keyB = svg("text", { "class": "usage-axis is-key", x: keyX, y: String(bottom + 32) });
+        keyB.textContent = "B";
+        root.appendChild(keyB);
       }
 
       function runs(values) {
@@ -2912,32 +3189,45 @@ var UsageView = (function () {
         return list;
       }
 
-      function linePath(points) {
-        return points.map(function (point, index) {
-          return (index ? "L" : "M") + point[0].toFixed(1) + " " + point[1].toFixed(1);
-        }).join(" ");
+      function f(value) {
+        return value.toFixed(1);
       }
+
+      // A smooth line through the points (Catmull-Rom as cubic Bezier). The
+      // control points are clamped to the baseline, so a curve between two
+      // values never dips below zero.
+      function smoothPath(points) {
+        return smoothLinePath(points, top, bottom);
+      }
+
+      // Soft areas first, then the dashed comparison, then the lines on top.
+      var mainRuns = chart.series.map(function (line) { return { line: line, runs: runs(line.values) }; });
+      mainRuns.forEach(function (entry) {
+        entry.runs.forEach(function (points) {
+          if (points.length < 2) return;
+          var area = smoothPath(points) + " L" + f(points[points.length - 1][0]) + " " + bottom +
+            " L" + f(points[0][0]) + " " + bottom + " Z";
+          root.appendChild(svg("path", { "class": "usage-area is-" + entry.line.provider, d: area }));
+        });
+      });
 
       chart.comparisonSeries.forEach(function (line) {
         runs(line.values).forEach(function (points) {
           if (points.length === 1) {
             root.appendChild(svg("circle", { "class": "usage-point-cmp is-" + line.provider, cx: String(points[0][0]), cy: String(points[0][1]), r: "1.8" }));
           } else {
-            root.appendChild(svg("path", { "class": "usage-line-cmp is-" + line.provider, d: linePath(points) }));
+            root.appendChild(svg("path", { "class": "usage-line-cmp is-" + line.provider, d: smoothPath(points) }));
           }
         });
       });
 
-      chart.series.forEach(function (line) {
-        runs(line.values).forEach(function (points) {
+      mainRuns.forEach(function (entry) {
+        entry.runs.forEach(function (points) {
           if (points.length === 1) {
-            root.appendChild(svg("circle", { "class": "usage-point is-" + line.provider, cx: String(points[0][0]), cy: String(points[0][1]), r: "3" }));
+            root.appendChild(svg("circle", { "class": "usage-point is-" + entry.line.provider, cx: String(points[0][0]), cy: String(points[0][1]), r: "3" }));
             return;
           }
-          var area = linePath(points) + " L" + points[points.length - 1][0].toFixed(1) + " " + bottom +
-            " L" + points[0][0].toFixed(1) + " " + bottom + " Z";
-          root.appendChild(svg("path", { "class": "usage-area is-" + line.provider, d: area }));
-          root.appendChild(svg("path", { "class": "usage-line is-" + line.provider, d: linePath(points) }));
+          root.appendChild(svg("path", { "class": "usage-line is-" + entry.line.provider, d: smoothPath(points) }));
         });
       });
 
@@ -3079,6 +3369,13 @@ var UsageView = (function () {
 
     setupTabs();
     setTabsVisible(false);
+    doc.addEventListener("keydown", onDocumentKey);
+    doc.addEventListener("pointerdown", onDocumentPointer, true);
+    var phoneQuery = typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 719px)") : null;
+    if (phoneQuery) {
+      if (typeof phoneQuery.addEventListener === "function") phoneQuery.addEventListener("change", onLayoutChange);
+      else if (typeof phoneQuery.addListener === "function") phoneQuery.addListener(onLayoutChange);
+    }
     doc.body.setAttribute("data-view", "quotas");
     window.setInterval(renderFreshness, 30000);
 
@@ -3150,6 +3447,7 @@ var UsageView = (function () {
     buildTiles: buildTiles,
     buildChart: buildChart,
     tooltipFor: tooltipFor,
+    smoothLinePath: smoothLinePath,
     buildBreakdown: buildBreakdown,
     sortBreakdown: sortBreakdown,
     toggleSort: toggleSort,
