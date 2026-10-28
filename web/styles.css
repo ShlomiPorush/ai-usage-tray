@@ -223,9 +223,6 @@ body {
   flex-wrap: wrap;
 }
 
-@media (max-width: 719px) {
-  .header-row { gap: 10px 12px; }
-}
 
 .title-group {
   flex: none;
@@ -1036,7 +1033,6 @@ body[data-view="usage"] #percent-toggle { display: none; }
 .usage-filter-panel { display: contents; }
 .usage-filters-button,
 .usage-sheet-title,
-.usage-sheet-label,
 .usage-sheet-clear,
 .usage-short { display: none; }
 
@@ -1093,8 +1089,7 @@ body[data-view="usage"] #percent-toggle { display: none; }
   color: var(--ink-3);
 }
 
-.usage-select,
-.usage-input {
+.usage-select {
   min-height: 34px;
   max-width: 100%;
   padding: 0 10px;
@@ -1172,71 +1167,23 @@ body[data-view="usage"] #percent-toggle { display: none; }
   background: var(--accent-hover);
 }
 
-/* Popovers: the date pickers and the comparison menu */
+/* Popovers: the Custom and Compare calendars (the desktop DateRangePicker) */
 
-.usage-pop,
-.usage-menu {
+.usage-pop {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
   z-index: 20;
+  width: 304px;
+  max-width: calc(100vw - 28px);
+  padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--panel);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
 }
 
-.usage-pop {
-  width: max-content;
-  max-width: min(420px, calc(100vw - 28px));
-  padding: 14px 16px;
-}
-
 .usage-pop[hidden] { display: none; }
-
-.usage-menu {
-  min-width: 240px;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.usage-menu:not(.is-open) { display: none; }
-
-.usage-menu-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  width: 100%;
-  min-height: 36px;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-size: 13.5px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.usage-menu-item:hover { background: var(--btn); }
-
-.usage-menu-item[aria-pressed="true"] {
-  background: var(--btn-on);
-  font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--accent);
-}
-
-.usage-menu-detail {
-  color: var(--ink-3);
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.usage-menu-detail:empty { display: none; }
 
 .usage-picker-title {
   margin: 0;
@@ -1249,12 +1196,8 @@ body[data-view="usage"] #percent-toggle { display: none; }
   font-size: 12.5px;
 }
 
-.usage-picker-fields {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 10px 12px;
-}
+.usage-picker-help[hidden] { display: none; }
+.usage-compare-hint { margin: 10px 0 0; }
 
 .usage-field {
   display: flex;
@@ -1268,16 +1211,188 @@ body[data-view="usage"] #percent-toggle { display: none; }
   font-weight: 600;
 }
 
-.usage-picker-actions { display: flex; gap: 8px; }
-
-.usage-picker-error {
-  margin: 10px 0 0;
-  color: var(--ink-red);
-  font-size: 13px;
-  font-weight: 600;
+.usage-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
 }
 
-.usage-picker-error[hidden] { display: none; }
+.usage-picker-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.usage-picker-footer .usage-picker-actions { margin-left: auto; }
+.usage-compare-off { margin: 12px 0 0; }
+
+.usage-button:disabled { opacity: 0.45; cursor: default; }
+
+/* The two period cards: which one the calendar edits */
+
+.usage-period-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.usage-period-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  background: var(--input);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.usage-period-card[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--btn-on);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.usage-period-label {
+  color: var(--ink-3);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.usage-period-range,
+.usage-period-days {
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+/* The month grid */
+
+.usage-cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.usage-cal-title {
+  margin: 0;
+  font: 600 14px/1.3 var(--font-display);
+}
+
+.usage-cal-nav {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.usage-cal-nav:hover:not(:disabled) { background: var(--btn); }
+.usage-cal-nav:disabled { opacity: 0.3; cursor: default; }
+
+.usage-cal-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.usage-cal-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.usage-cal-weekday {
+  padding: 4px 0;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.usage-cal-cell { display: flex; }
+
+.usage-cal-day {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0;
+  border: 1.5px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.usage-cal-day:hover { background: var(--btn); }
+.usage-cal-day.is-outside { color: var(--faint); }
+.usage-cal-day.is-today { border-color: var(--accent); }
+.usage-cal-day.is-range { background: var(--chip-bg); }
+.usage-cal-day.is-range:not(.is-end) { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+.usage-cal-day.is-end {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+/* The other period's days are underlined. */
+.usage-cal-day.is-reference::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  width: 14px;
+  height: 2px;
+  margin-left: -7px;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.usage-cal-day.is-disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.usage-cal-day.is-disabled:hover { background: transparent; }
+
+.usage-cal-selection {
+  margin: 10px 0 0;
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+
+/* Scroll lock: the page behind an open overlay stays where it was. The
+   body's offset is set from script (CSSOM) when the lock starts. */
+html.usage-scroll-locked { overflow: hidden; }
+
+/* Wide screens keep the scrollbar space, so the page does not shift. */
+@media (min-width: 720px) {
+  html.usage-scroll-locked { scrollbar-gutter: stable; }
+}
+
+html.usage-scroll-locked body {
+  position: fixed;
+  left: 0;
+  right: 0;
+  width: 100%;
+}
 
 /* Notes */
 
@@ -1591,7 +1706,6 @@ body[data-view="usage"] #percent-toggle { display: none; }
   font-size: 12px;
 }
 
-.usage-sort-menu { display: none; }
 
 .usage-breakdown-empty {
   margin: 0;
@@ -1694,6 +1808,7 @@ th[aria-sort="descending"] .usage-sort { color: var(--ink); }
   color: var(--ink);
   box-shadow: 0 16px 64px #0006;
   overflow-y: auto;
+  overscroll-behavior: contain;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1841,11 +1956,26 @@ th[aria-sort="descending"] .usage-sort { color: var(--ink); }
   .usage-filters-button { display: inline-flex; flex: none; order: 3; }
 
   .usage-pop {
+    position: fixed;
+    top: auto;
     left: 0;
     right: 0;
+    bottom: 0;
+    z-index: 40;
     width: auto;
     max-width: none;
+    max-height: 88dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.35);
   }
+
+  .usage-cal-day { height: 42px; min-height: 40px; font-size: 14px; }
+  .usage-cal-nav { width: 44px; height: 44px; }
+  .usage-period-card { padding: 10px 12px; }
+  .usage-picker-actions .usage-button { min-height: 42px; }
 
   /* The sheet: account, comparison and Clear filters. */
   .usage-filter-panel {
@@ -1862,22 +1992,21 @@ th[aria-sort="descending"] .usage-sort { color: var(--ink); }
     border-radius: 14px;
     background: var(--panel);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+    max-height: calc(100dvh - 140px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .usage-filter-panel.is-open { display: flex; }
+
+  /* The sheet has handed its place to the comparison picker inside it. */
+  .usage-filter-panel.is-handoff { display: flex; visibility: hidden; }
+  .usage-filter-panel.is-handoff .usage-compare-pop { visibility: visible; }
 
   .usage-sheet-title {
     display: block;
     margin: 0;
     font: 600 15px/1.3 var(--font-display);
-  }
-
-  .usage-sheet-label {
-    display: block;
-    margin: 0 0 4px;
-    color: var(--ink-2);
-    font-size: 12px;
-    font-weight: 600;
   }
 
   .usage-account .usage-field-label {
@@ -1890,26 +2019,7 @@ th[aria-sort="descending"] .usage-sort { color: var(--ink); }
 
   .usage-account .usage-select { width: 100%; }
 
-  .usage-compare-button { display: none; }
-
-  .usage-menu {
-    position: static;
-    display: flex;
-    min-width: 0;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .usage-menu:not(.is-open) { display: flex; }
-
-  .usage-filter-panel .usage-pop {
-    position: static;
-    margin-top: 8px;
-    box-shadow: none;
-    background: var(--btn);
-  }
+  .usage-compare-button { width: 100%; justify-content: space-between; min-height: 40px; }
 
   .usage-sheet-clear:not([hidden]) { display: block; align-self: flex-start; order: 4; }
 
@@ -1927,9 +2037,6 @@ th[aria-sort="descending"] .usage-sort { color: var(--ink); }
 
   .usage-breakdown-hint { display: none; }
   .usage-breakdown-head .usage-segments { margin-left: auto; }
-  /* The columns phones leave out stay sortable from here. */
-  .usage-sort-menu { display: flex; order: 5; flex-basis: 100%; }
-  .usage-sort-menu .usage-select { width: 100%; }
   .usage-table .is-secondary { display: none; }
   .usage-table th,
   .usage-table td { padding-left: 6px; padding-right: 6px; }
@@ -1944,4 +2051,73 @@ th[aria-sort="descending"] .usage-sort { color: var(--ink); }
   }
 
   .usage-dialog { padding: 16px; }
+}
+
+/* Phone header: title, tabs and theme on one row. Last in the file so it
+   wins over the header rules above and the Usage tab styles. */
+@media (max-width: 719px) {
+  .header-row { gap: 0 8px; }
+  .header-actions { display: contents; }
+  .title-group { order: 1; }
+  .view-tabs { order: 2; }
+  .notification-toggle,
+  .notification-test,
+  .theme-toggle { order: 3; }
+  .theme-toggle { margin-left: auto; }
+  .notification-toggle:not([hidden]) { margin-left: auto; }
+  .notification-toggle:not([hidden]) ~ .theme-toggle { margin-left: 0; }
+  /* Everything after this break sits on the line under the header. */
+  .header-row::after {
+    content: "";
+    order: 10;
+    flex-basis: 100%;
+    height: 0;
+  }
+  .demo-badge { order: 11; margin-top: 8px; }
+  .percent-toggle { order: 12; margin-top: 8px; margin-left: auto; }
+  .version-badge { display: none; }
+  h1 { font-size: 18px; }
+  .view-tab { min-height: 30px; padding: 0 10px; font-size: 13.5px; }
+
+  /* The alert, test and theme buttons stay icons at one size: their labels
+     never slide out on focus or hover here (aria-label carries the name). */
+  .notification-toggle,
+  .notification-test,
+  .theme-toggle,
+  .notification-toggle:hover,
+  .notification-toggle:focus-visible,
+  .notification-test:hover,
+  .notification-test:focus-visible {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    min-height: 32px;
+    padding: 0;
+  }
+
+  .notification-toggle span,
+  .notification-test span,
+  .notification-toggle:hover span,
+  .notification-toggle:focus-visible span,
+  .notification-test:hover span,
+  .notification-test:focus-visible span {
+    width: 0;
+    margin-left: 0;
+    opacity: 0;
+  }
+}
+
+/* The narrowest phones: a little less padding so all of it still fits. */
+@media (max-width: 379px) {
+  body { padding-left: 12px; padding-right: 12px; }
+  h1 { font-size: 17px; }
+  .header-row { column-gap: 6px; }
+  .view-tab { padding: 0 8px; font-size: 13px; }
+}
+
+/* 320 px with every header button: tighter still. */
+@media (max-width: 339px) {
+  h1 { font-size: 16px; }
+  .header-row { column-gap: 4px; }
+  .view-tab { padding: 0 6px; }
 }

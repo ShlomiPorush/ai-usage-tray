@@ -344,12 +344,195 @@ test("the previous period has the same length and ends the day before", () => {
   assert.equal(current.slots.length, 24);
 });
 
-test("custom ranges stay inside the shared days and 366 days", () => {
-  const data = prepared({ coverage: { dailyFrom: "2024-10-28", dailyTo: "2026-10-27", hourlyFrom: null, hourlyTo: null } });
-  assert.equal(U.validateCustomRange(data, day("2026-10-01"), day("2026-10-27")), null);
-  assert.match(U.validateCustomRange(data, day("2026-10-01"), day("2026-10-28")), /^Pick days from/);
-  assert.match(U.validateCustomRange(data, day("2024-10-28"), day("2025-12-31")), /at most 366 days/);
-  assert.match(U.validateCustomRange(data, NaN, day("2026-10-01")), /first and a last day/);
+test("custom ranges follow the desktop limits: no future day, 730 days back, 366 days long", () => {
+  // UsagePeriodTests.Custom_ranges_stay_inside_the_picker_limits.
+  const today = day("2026-10-26");
+  assert.equal(U.isValidCustomRange(day("2026-10-01"), day("2026-10-26"), today), true);
+  assert.equal(U.isValidCustomRange(day("2026-10-01"), day("2026-10-27"), today), false, "no future day");
+  assert.equal(U.isValidCustomRange(today - 730, today - 400, today), true);
+  assert.equal(U.isValidCustomRange(today - 731, today - 400, today), false, "lookback");
+  assert.equal(U.isValidCustomRange(today - 365, today, today), true, "366 days");
+  assert.equal(U.isValidCustomRange(today - 366, today, today), false, "367 days");
+  assert.equal(U.isValidCustomRange(today, today - 1, today), false, "reversed");
+  assert.equal(U.isValidCustomRange(NaN, today, today), false);
+  assert.deepEqual(U.customRangeLimits(today), { min: today - 730, max: today, maxSpan: 366 });
+});
+
+// --- the date picker (DateRangeSelectionTests.cs) ------------------------------------------
+
+const oct1 = day("2026-10-01");
+const rangeOf = (maxSpan = 366, allowed = () => true) => U.createRangeSelection(false, maxSpan, allowed);
+
+test("two plain clicks make a range in either order", () => {
+  const selection = rangeOf();
+  selection.click(oct1 + 9);
+  assert.equal(selection.awaitingEnd, true);
+  assert.equal(selection.from, oct1 + 9);
+  assert.equal(selection.to, oct1 + 9);
+  selection.click(oct1);
+  assert.equal(selection.awaitingEnd, false);
+  assert.equal(selection.from, oct1);
+  assert.equal(selection.to, oct1 + 9);
+});
+
+test("a third click starts over", () => {
+  const selection = rangeOf();
+  selection.click(oct1);
+  selection.click(oct1 + 3);
+  selection.click(oct1 + 20);
+  assert.equal(selection.from, oct1 + 20);
+  assert.equal(selection.to, oct1 + 20);
+  assert.equal(selection.awaitingEnd, true);
+});
+
+test("clicking the same day twice selects that day", () => {
+  const selection = rangeOf();
+  selection.click(oct1);
+  selection.click(oct1);
+  assert.equal(selection.from, oct1);
+  assert.equal(selection.to, oct1);
+  assert.equal(selection.awaitingEnd, false);
+});
+
+test("shift-click closes the range against the starting selection", () => {
+  const selection = U.createRangeSelection(false, 366, () => true, oct1, oct1 + 2);
+  selection.click(oct1 + 6, true);
+  assert.equal(selection.from, oct1);
+  assert.equal(selection.to, oct1 + 6);
+});
+
+test("days that are not allowed change nothing", () => {
+  const selection = rangeOf(366, (value) => value <= oct1 + 5);
+  selection.click(oct1);
+  assert.equal(selection.click(oct1 + 6), false);
+  assert.equal(selection.to, oct1);
+  assert.equal(selection.awaitingEnd, true);
+});
+
+test("a range longer than the limit is pulled back to the anchor", () => {
+  const selection = rangeOf(7);
+  selection.click(oct1);
+  selection.click(oct1 + 30);
+  assert.equal(selection.from, oct1);
+  assert.equal(selection.to, oct1 + 6);
+});
+
+test("single mode picks one day per click", () => {
+  const selection = U.createRangeSelection(true, 1, () => true);
+  selection.click(oct1);
+  selection.click(oct1 + 4);
+  assert.equal(selection.from, oct1 + 4);
+  assert.equal(selection.to, oct1 + 4);
+  assert.equal(selection.awaitingEnd, false);
+});
+
+test("the month grid has six full weeks from the first weekday", () => {
+  // October 2026 starts on a Thursday.
+  for (const [firstDay, start] of [[0, "2026-09-27"], [1, "2026-09-28"]]) {
+    const grid = U.monthGrid(2026, 10, firstDay);
+    assert.equal(grid.length, 42);
+    assert.equal(grid[0], day(start));
+    assert.equal(new Date(grid[0] * 86400000).getUTCDay(), firstDay);
+    assert.ok(grid.includes(oct1));
+    assert.ok(grid.includes(day("2026-10-31")));
+  }
+  assert.equal(U.monthTitle(day("2026-10-15")), "October 2026");
+});
+
+test("the Custom picker describes its selection like the desktop", () => {
+  const today = day("2026-10-28");
+  const selection = rangeOf();
+  assert.equal(U.rangeSelectionText(U.createRangeSelection(false, 366, () => true), today), "No days picked");
+  selection.click(day("2026-09-29"));
+  assert.equal(U.rangeSelectionText(selection, today), "Tue, Sep 29, now pick the last day");
+  selection.click(day("2026-10-28"));
+  assert.equal(U.rangeSelectionText(selection, today), "Sep 29 to Oct 28 (30 days)");
+  assert.equal(U.rangeSelectionText(U.createRangeSelection(false, 366, () => true, day("2026-10-04"), day("2026-10-04")), today),
+    "Sun, Oct 4 (by hour)");
+});
+
+// --- the comparison picker (UsageWindow "Compare two periods") -------------------------------
+
+function session(overrides = {}) {
+  return U.createCompareSession({
+    a: { from: day("2026-09-29"), to: day("2026-10-28") },
+    b: { from: day("2026-08-30"), to: day("2026-09-28") },
+    bIsPrevious: true,
+    today: day("2026-10-28"),
+    ...overrides,
+  });
+}
+
+test("compare: A then B in four clicks, with the calendar moving on to B", () => {
+  const picker = session();
+  assert.equal(picker.editA, true);
+  assert.equal(picker.hint(), "Editing period A. Underlined days are period B.");
+  assert.deepEqual(picker.reference(), { from: day("2026-08-30"), to: day("2026-09-28") });
+  assert.equal(picker.canApply(), true, "the defaults can be applied as they are");
+
+  assert.deepEqual(picker.click(day("2026-10-20")), { changed: true, switched: false });
+  assert.equal(picker.hint(), "Now click the last day of period A.");
+  assert.equal(picker.canApply(), false, "never half a selection");
+  assert.deepEqual(picker.click(day("2026-10-26")), { changed: true, switched: true });
+  assert.deepEqual(picker.a, { from: day("2026-10-20"), to: day("2026-10-26") });
+  // An untouched B is "the period before A" and follows it.
+  assert.deepEqual(picker.b, { from: day("2026-10-13"), to: day("2026-10-19") });
+  assert.equal(picker.editA, false);
+  assert.equal(picker.hint(), "Editing period B. Underlined days are period A.");
+
+  picker.click(day("2026-09-01"));
+  picker.click(day("2026-09-07"));
+  assert.deepEqual(picker.result(), {
+    current: { from: day("2026-10-20"), to: day("2026-10-26") },
+    comparison: { from: day("2026-09-01"), to: day("2026-09-07") },
+  });
+});
+
+test("compare: untouched defaults keep their meaning on Apply", () => {
+  // Nothing edited: the range on screen and "the period before" both stay.
+  assert.deepEqual(session().result(), { current: null, comparison: null });
+  // A picked comparison is handed back even when untouched.
+  const picked = session({ b: { from: day("2026-09-01"), to: day("2026-09-07") }, bIsPrevious: false });
+  assert.deepEqual(picked.result(), { current: null, comparison: { from: day("2026-09-01"), to: day("2026-09-07") } });
+  // Only B edited: A stays as it is.
+  const onlyB = session();
+  onlyB.select(false);
+  onlyB.click(day("2026-10-01"));
+  onlyB.click(day("2026-10-02"));
+  assert.deepEqual(onlyB.result(), { current: null, comparison: { from: day("2026-10-01"), to: day("2026-10-02") } });
+});
+
+test("compare: a first click alone is dropped when switching period", () => {
+  const picker = session();
+  picker.click(day("2026-10-10"));
+  picker.select(false);
+  assert.equal(picker.selection.awaitingEnd, false);
+  assert.deepEqual(picker.a, { from: day("2026-09-29"), to: day("2026-10-28") });
+  assert.equal(picker.aEdited, false);
+});
+
+test("compare: the picker respects the desktop limits", () => {
+  const picker = session();
+  assert.deepEqual(picker.click(day("2026-10-29")), { changed: false, switched: false }, "no future day");
+  assert.deepEqual(picker.click(day("2026-10-28") - 731), { changed: false, switched: false }, "lookback");
+  picker.click(day("2025-01-01"));
+  picker.click(day("2026-10-28"));
+  assert.equal(periodDays(picker.a), 366, "pulled back to 366 days");
+});
+
+function periodDays(period) {
+  return period.to - period.from + 1;
+}
+
+test("phones hide the B and token columns, and Share without a comparison", () => {
+  assert.equal(U.hiddenOnPhone("tokens", true), true);
+  assert.equal(U.hiddenOnPhone("previousValue", true), true);
+  assert.equal(U.hiddenOnPhone("previousTokens", true), true);
+  assert.equal(U.hiddenOnPhone("change", true), false);
+  assert.equal(U.hiddenOnPhone("value", true), false);
+  assert.equal(U.hiddenOnPhone("label", true), false);
+  assert.equal(U.hiddenOnPhone("share", false), true);
+  assert.equal(U.hiddenOnPhone("tokens", false), false);
 });
 
 // --- aggregation and coverage -----------------------------------------------------------
@@ -796,4 +979,15 @@ test("D1: smooth chart curves never leave the plot, top or bottom", () => {
   assert.equal(Math.min(...pathYs(ceiling)), top);
   // Two points are a straight segment.
   assert.equal(U.smoothLinePath([[0, 50], [10, 60]], top, bottom), "M0.0 50.0 L10.0 60.0");
+});
+
+test("phone sheets wrap Tab and Shift+Tab inside, and take focus in at the right end", () => {
+  assert.equal(U.wrapFocusIndex(4, 5, false), 0, "Tab on the last control goes to the first");
+  assert.equal(U.wrapFocusIndex(0, 5, true), 4, "Shift+Tab on the first goes to the last");
+  assert.equal(U.wrapFocusIndex(2, 5, false), null, "in the middle the browser order is right");
+  assert.equal(U.wrapFocusIndex(2, 5, true), null);
+  assert.equal(U.wrapFocusIndex(-1, 5, false), 0, "from outside, Tab enters at the first");
+  assert.equal(U.wrapFocusIndex(-1, 5, true), 4, "from outside, Shift+Tab enters at the last");
+  assert.equal(U.wrapFocusIndex(0, 1, false), 0, "a single control keeps focus");
+  assert.equal(U.wrapFocusIndex(0, 0, false), null);
 });
