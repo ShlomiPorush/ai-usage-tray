@@ -171,6 +171,7 @@ if (typeof module !== "undefined" && module.exports) {
   var content = document.getElementById("content");
   var demoBadge = document.getElementById("demo-badge");
   var updatedEl = document.getElementById("updated");
+  var updatedAgeEl = document.getElementById("updated-age");
   var staleEl = document.getElementById("staleness");
   var connectionEl = document.getElementById("connection");
   var notificationEl = document.getElementById("notifications");
@@ -601,9 +602,19 @@ if (typeof module !== "undefined" && module.exports) {
     for (var i = 0; i < percentButtons.length; i++) {
       percentButtons[i].addEventListener("click", function () {
         var next = this.getAttribute("data-percent-mode");
+        var other = null;
+        for (var j = 0; j < percentButtons.length; j++) {
+          if (percentButtons[j] !== this) other = percentButtons[j];
+        }
+        // On a phone only the active option is shown, so tapping it flips
+        // the mode and focus moves to the option that takes its place.
+        var flip = next === percentMode && other && !other.getClientRects().length;
+        if (flip) next = other.getAttribute("data-percent-mode");
+        var hadFocus = document.activeElement === this;
         hasPercentModeOverride = true;
         applyPercentMode(next);
         writeStored(PERCENT_MODE_KEY, percentMode);
+        if (flip && hadFocus) other.focus();
       });
     }
   }
@@ -978,9 +989,9 @@ if (typeof module !== "undefined" && module.exports) {
     if (generatedAt) {
       var age = now - generatedAt.getTime();
       if (age < 0) age = 0;
-      show(updatedEl, age < 60000
-        ? "Updated just now"
-        : "Updated " + formatDuration(age) + " ago");
+      // "Updated " is its own span so a phone can drop the word.
+      setText(updatedAgeEl, age < 60000 ? "just now" : formatDuration(age) + " ago");
+      updatedEl.hidden = false;
 
       if (age > STALE_MS) {
         show(staleEl, "The app hasn't reported since " + formatWhen(generatedAt) + ".");
@@ -988,7 +999,7 @@ if (typeof module !== "undefined" && module.exports) {
         hide(staleEl);
       }
     } else {
-      hide(updatedEl);
+      updatedEl.hidden = true;
       hide(staleEl);
     }
 
@@ -1046,7 +1057,7 @@ if (typeof module !== "undefined" && module.exports) {
         if (error && error.code === 404) {
           payload = null;
           if (usageView) usageView.clear();
-          hide(updatedEl);
+          updatedEl.hidden = true;
           hide(staleEl);
           hide(connectionEl);
           renderMessage("No data", [
