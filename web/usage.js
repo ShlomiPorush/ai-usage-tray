@@ -707,17 +707,217 @@ var UsageView = (function () {
     });
   }
 
-  // A custom range from the date inputs: null when it can be applied, or a
-  // short reason. Ranges are limited to the shared daily coverage.
-  function validateCustomRange(data, from, to) {
-    if (!isFinite(from) || !isFinite(to)) return "Pick a first and a last day.";
-    var first = Math.min(from, to);
-    var last = Math.max(from, to);
-    if (first < data.dailyFrom || last > data.dailyTo) {
-      return "Pick days from " + rangeLabel(data.dailyFrom, data.dailyTo, data.dailyTo) + ".";
+  // --- date pickers (DateRangeSelection and the UsagePeriods limits) -----------
+
+  // How far back a custom range may start, in days before today.
+  var MAX_LOOKBACK_DAYS = 730;
+  var FULL_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August",
+    "September", "October", "November", "December"];
+
+  // What the custom range and comparison pickers offer, exactly as the
+  // desktop: no future day, no earlier than 730 days back, at most 366 days.
+  function customRangeLimits(today) {
+    return { min: today - MAX_LOOKBACK_DAYS, max: today, maxSpan: MAX_CUSTOM_DAYS };
+  }
+
+  // UsagePeriods.IsValidCustomRange.
+  function isValidCustomRange(from, to, today) {
+    return isFinite(from) && isFinite(to) && from <= to && to <= today &&
+      from >= today - MAX_LOOKBACK_DAYS && to - from + 1 <= MAX_CUSTOM_DAYS;
+  }
+
+  // The first day of the month a day falls in.
+  function monthStart(day) {
+    var parts = dayParts(day);
+    return Date.UTC(parts.year, parts.month, 1) / DAY_MS;
+  }
+
+  function addMonths(month, count) {
+    var parts = dayParts(month);
+    return Date.UTC(parts.year, parts.month + count, 1) / DAY_MS;
+  }
+
+  // "October 2026"
+  function monthTitle(month) {
+    var parts = dayParts(month);
+    return FULL_MONTHS[parts.month] + " " + parts.year;
+  }
+
+  // DateRangeSelection.MonthGrid: the 42 days a six-week grid shows for a
+  // month (1 to 12), starting on firstDayOfWeek (0 is Sunday).
+  function monthGrid(year, month, firstDayOfWeek) {
+    var first = Date.UTC(year, month - 1, 1) / DAY_MS;
+    var lead = (dayParts(first).weekday - firstDayOfWeek + 7) % 7;
+    var days = [];
+    for (var index = 0; index < 42; index++) days.push(first - lead + index);
+    return days;
+  }
+
+  // DateRangeSelection: the pending selection inside a date picker. Range
+  // mode picks with two plain clicks (the first sets the anchor and selects
+  // that day, the second closes the range on either side, a third starts
+  // over); a shift-click closes against the anchor; single mode picks one
+  // day per click. Days isAllowed refuses change nothing, and a range never
+  // grows past maxSpanDays: the far end is pulled back towards the anchor.
+  function createRangeSelection(singleDate, maxSpanDays, isAllowed, from, to) {
+    var selection = {
+      singleDate: Boolean(singleDate),
+      maxSpanDays: Math.max(1, maxSpanDays),
+      isAllowed: isAllowed,
+      from: null,
+      to: null,
+      anchor: null,
+      awaitingEnd: false
+    };
+    if (from !== null && from !== undefined && isFinite(from)) {
+      var end = selection.singleDate ? from : (to !== null && to !== undefined && isFinite(to) ? to : from);
+      selection.from = Math.min(from, end);
+      selection.to = Math.max(from, end);
+      selection.anchor = selection.from;
     }
-    if (last - first + 1 > MAX_CUSTOM_DAYS) return "A range can be at most " + MAX_CUSTOM_DAYS + " days.";
+
+    selection.contains = function (day) {
+      return selection.from !== null && day >= selection.from && day <= selection.to;
+    };
+
+    // Applies a click; false when the day cannot be picked and nothing changed.
+    selection.click = function (day, extend) {
+      if (!selection.isAllowed(day)) return false;
+      if (selection.singleDate) {
+        selection.from = selection.to = selection.anchor = day;
+        return true;
+      }
+      if ((extend || selection.awaitingEnd) && selection.anchor !== null) {
+        var anchor = selection.anchor;
+        var limit = selection.maxSpanDays - 1;
+        if (Math.abs(day - anchor) > limit) day = day > anchor ? anchor + limit : anchor - limit;
+        selection.from = Math.min(day, anchor);
+        selection.to = Math.max(day, anchor);
+        selection.awaitingEnd = false;
+        return true;
+      }
+      selection.from = selection.to = selection.anchor = day;
+      selection.awaitingEnd = true;
+      return true;
+    };
+
+    return selection;
+  }
+
+  function periodLength(period) {
+    return period ? period.to - period.from + 1 : 0;
+  }
+
+  // The desktop "Compare two periods" picker. A starts on the range on
+  // screen; B on the picked comparison, or the period just before A. One
+  // calendar edits whichever period is selected. A period changes only once
+  // both of its days are picked; once A is complete the calendar moves on to
+  // B. An untouched B that stands for "the period before" follows A.
+  // options: { a: {from, to}, b: {from, to}, bIsPrevious, today }.
+  function createCompareSession(options) {
+    var limits = customRangeLimits(options.today);
+    var session = {
+      a: options.a ? { from: options.a.from, to: options.a.to } : null,
+      b: options.b ? { from: options.b.from, to: options.b.to } : null,
+      aEdited: false,
+      bEdited: false,
+      bIsPrevious: Boolean(options.bIsPrevious),
+      editA: true,
+      limits: limits,
+      selection: null
+    };
+
+    function allowed(day) {
+      return day >= limits.min && day <= limits.max;
+    }
+
+    // Points the calendar at one period; the other one is the reference.
+    session.select = function (editA) {
+      session.editA = Boolean(editA);
+      var editing = session.editA ? session.a : session.b;
+      session.selection = createRangeSelection(false, limits.maxSpan, allowed,
+        editing ? editing.from : null, editing ? editing.to : null);
+    };
+
+    session.reference = function () {
+      return session.editA ? session.b : session.a;
+    };
+
+    // A click on the calendar: { changed, switched }.
+    session.click = function (day, extend) {
+      if (!session.selection.click(day, extend)) return { changed: false, switched: false };
+      if (session.selection.awaitingEnd) return { changed: true, switched: false };
+      var range = { from: session.selection.from, to: session.selection.to };
+      if (session.editA) {
+        session.a = range;
+        session.aEdited = true;
+        if (session.bIsPrevious && !session.bEdited) {
+          var length = periodLength(range);
+          session.b = { from: range.from - length, to: range.from - 1 };
+        }
+        session.select(false);
+        return { changed: true, switched: true };
+      }
+      session.b = range;
+      session.bEdited = true;
+      return { changed: true, switched: false };
+    };
+
+    session.bFollowsA = function () {
+      return session.bIsPrevious && !session.bEdited;
+    };
+
+    session.canApply = function () {
+      return Boolean(session.a && session.b) && !session.selection.awaitingEnd;
+    };
+
+    // What Apply hands over. Untouched defaults keep their meaning: the range
+    // on screen stays (so the past 24 hours stay rolling), and an untouched B
+    // stays "the period before", which follows the range.
+    session.result = function () {
+      return {
+        current: session.aEdited ? session.a : null,
+        comparison: session.bEdited || !session.bIsPrevious ? session.b : null
+      };
+    };
+
+    session.hint = function () {
+      var editing = session.editA ? "A" : "B";
+      return session.selection.awaitingEnd
+        ? "Now click the last day of period " + editing + "."
+        : "Editing period " + editing + ". Underlined days are period " + (session.editA ? "B" : "A") + ".";
+    };
+
+    session.select(true);
+    return session;
+  }
+
+  // The Custom picker's line under the calendar.
+  function rangeSelectionText(selection, today) {
+    if (selection.from === null || selection.to === null) return "No days picked";
+    var label = rangeLabel(selection.from, selection.to, today);
+    if (selection.awaitingEnd) return label + ", now pick the last day";
+    var days = selection.to - selection.from + 1;
+    return label + " (" + (days === 1 ? "by hour" : days + " days") + ")";
+  }
+
+  // Where Tab goes inside an overlay that keeps focus: wraps from the last
+  // control to the first (and back with Shift+Tab), comes in from outside at
+  // the matching end, and is null where the browser's own order is right.
+  function wrapFocusIndex(index, count, backwards) {
+    if (count <= 0) return null;
+    if (index < 0) return backwards ? count - 1 : 0;
+    if (backwards && index === 0) return count - 1;
+    if (!backwards && index === count - 1) return 0;
     return null;
+  }
+
+  // Columns a phone leaves out of the breakdown. A sort on one of them falls
+  // back to the default there, since its header cannot be reached.
+  function hiddenOnPhone(column, comparing) {
+    return comparing
+      ? column === "previousValue" || column === "tokens" || column === "previousTokens"
+      : column === "share";
   }
 
   // --- aggregation (UsageAggregator over payload rows) --------------------------
@@ -1797,6 +1997,7 @@ var UsageView = (function () {
 
     function selectView(name, fromUser) {
       var target = name === "usage" && data ? "usage" : "quotas";
+      if (target !== "usage") releaseOverlays();
       activeView = target;
       quotaPanel.hidden = target !== "quotas";
       panel.hidden = target !== "usage";
@@ -1868,7 +2069,7 @@ var UsageView = (function () {
       charts = [];
       if (dom && dom.dialog.open) dom.dialog.close();
       state.openModel = null;
-      pops = [];
+      closeAllPops();
       if (dom) {
         clear(panel);
         dom = null;
@@ -1966,45 +2167,269 @@ var UsageView = (function () {
       return dash;
     }
 
-    function dateField(labelText) {
-      var wrap = el("label", "usage-field");
-      wrap.appendChild(el("span", "usage-field-label", labelText));
-      var input = el("input", "usage-input");
-      input.type = "date";
-      wrap.appendChild(input);
-      return { wrap: wrap, input: input };
+    // --- the month calendar (the desktop DateRangePicker) -------------------
+    // A six-week grid of day buttons with one tab stop. Arrow keys move by a
+    // day or a week, Page Up and Page Down by a month, Home and End to the
+    // ends of the week; Enter or Space picks, and Escape is the popover's.
+
+    function weekStart() {
+      try {
+        var locale = new Intl.Locale(navigator.language || "en-US");
+        var info = typeof locale.getWeekInfo === "function" ? locale.getWeekInfo() : locale.weekInfo;
+        if (info && info.firstDay) return info.firstDay % 7;
+      } catch (error) { /* older engines: Sunday, as en-US */ }
+      return 0;
     }
 
-    // A date range popover. Escape is handled by the popover layer.
-    function buildPicker(title, help, onApply, onCancel) {
-      var box = el("div", "usage-picker usage-pop");
+    function buildCalendar(onPick) {
+      var root = el("div", "usage-cal");
+      var head = el("div", "usage-cal-head");
+      var cal = {
+        root: root,
+        month: 0,
+        today: 0,
+        min: 0,
+        max: 0,
+        selection: null,
+        reference: null,
+        focusDay: null,
+        days: [],
+        firstDay: weekStart()
+      };
+      var previous = button("usage-cal-nav", "‹", function () { cal.show(addMonths(cal.month, -1)); });
+      previous.setAttribute("aria-label", "Previous month");
+      var title = el("p", "usage-cal-title");
+      title.id = nextId("usage-cal-title");
+      title.setAttribute("aria-live", "polite");
+      var next = button("usage-cal-nav", "›", function () { cal.show(addMonths(cal.month, 1)); });
+      next.setAttribute("aria-label", "Next month");
+      head.appendChild(previous);
+      head.appendChild(title);
+      head.appendChild(next);
+      root.appendChild(head);
+      var grid = el("div", "usage-cal-grid");
+      grid.setAttribute("role", "grid");
+      grid.setAttribute("aria-labelledby", title.id);
+      root.appendChild(grid);
+
+      function allowed(day) {
+        return day >= cal.min && day <= cal.max;
+      }
+
+      function clampDay(day) {
+        return Math.max(cal.min, Math.min(cal.max, day));
+      }
+
+      function render() {
+        var parts = dayParts(cal.month);
+        setText(title, monthTitle(cal.month));
+        previous.disabled = cal.month <= monthStart(cal.min);
+        next.disabled = cal.month >= monthStart(cal.max);
+        var days = monthGrid(parts.year, parts.month + 1, cal.firstDay);
+        cal.days = days;
+        if (cal.focusDay === null || days.indexOf(cal.focusDay) === -1 || !allowed(cal.focusDay)) {
+          cal.focusDay = days.filter(function (day) { return allowed(day) && monthStart(day) === cal.month; })[0];
+          if (cal.focusDay === undefined) cal.focusDay = days[0];
+        }
+        clear(grid);
+        var header = el("div", "usage-cal-row");
+        header.setAttribute("role", "row");
+        for (var column = 0; column < 7; column++) {
+          var weekday = (cal.firstDay + column) % 7;
+          var name = el("span", "usage-cal-weekday", WEEKDAYS[weekday].charAt(0));
+          name.setAttribute("role", "columnheader");
+          name.setAttribute("aria-label", WEEKDAYS[weekday]);
+          header.appendChild(name);
+        }
+        grid.appendChild(header);
+        for (var week = 0; week < 6; week++) {
+          var row = el("div", "usage-cal-row");
+          row.setAttribute("role", "row");
+          for (var index = 0; index < 7; index++) row.appendChild(dayCell(days[week * 7 + index]));
+          grid.appendChild(row);
+        }
+      }
+
+      function dayCell(day) {
+        var cell = el("span", "usage-cal-cell");
+        cell.setAttribute("role", "gridcell");
+        var classes = ["usage-cal-day"];
+        if (monthStart(day) !== cal.month) classes.push("is-outside");
+        if (day === cal.today) classes.push("is-today");
+        if (!allowed(day)) classes.push("is-disabled");
+        var inRange = cal.selection && cal.selection.contains(day);
+        if (inRange) classes.push("is-range");
+        if (cal.selection && (day === cal.selection.from || day === cal.selection.to)) classes.push("is-end");
+        if (cal.reference && day >= cal.reference.from && day <= cal.reference.to) classes.push("is-reference");
+        var node = button(classes.join(" "), String(dayParts(day).date), function (event) { pick(day, event.shiftKey); });
+        node.setAttribute("data-day", String(day));
+        node.tabIndex = day === cal.focusDay ? 0 : -1;
+        var label = longDayLabel(day, -1);
+        if (cal.reference && classes.indexOf("is-reference") !== -1) label += ", in the other period";
+        node.setAttribute("aria-label", label);
+        node.setAttribute("aria-pressed", inRange ? "true" : "false");
+        if (!allowed(day)) node.setAttribute("aria-disabled", "true");
+        node.addEventListener("keydown", function (event) { onKey(event, day); });
+        cell.appendChild(node);
+        return cell;
+      }
+
+      function focusCurrent() {
+        var node = grid.querySelector('[data-day="' + cal.focusDay + '"]');
+        if (node) node.focus();
+      }
+
+      function moveTo(day) {
+        cal.focusDay = clampDay(day);
+        if (monthStart(cal.focusDay) !== cal.month) cal.month = monthStart(cal.focusDay);
+        render();
+        focusCurrent();
+      }
+
+      function onKey(event, day) {
+        var offset = (dayParts(day).weekday - cal.firstDay + 7) % 7;
+        var target;
+        switch (event.key) {
+          case "ArrowLeft": target = day - 1; break;
+          case "ArrowRight": target = day + 1; break;
+          case "ArrowUp": target = day - 7; break;
+          case "ArrowDown": target = day + 7; break;
+          case "Home": target = day - offset; break;
+          case "End": target = day + (6 - offset); break;
+          case "PageUp":
+          case "PageDown":
+            var month = addMonths(monthStart(day), event.key === "PageUp" ? -1 : 1);
+            var last = addMonths(month, 1) - 1;
+            target = Math.min(month + dayParts(day).date - 1, last);
+            break;
+          default: return;
+        }
+        event.preventDefault();
+        moveTo(target);
+      }
+
+      function pick(day, extend) {
+        if (!allowed(day)) return;
+        cal.focusDay = day;
+        var result = onPick(day, Boolean(extend));
+        if (!result || !result.changed) return;
+        if (result.reset) return;
+        if (monthStart(day) !== cal.month) cal.month = monthStart(day);
+        render();
+        focusCurrent();
+      }
+
+      // Starts over on a selection; the month shown holds its end.
+      cal.reset = function (options) {
+        cal.today = options.today;
+        cal.min = options.min;
+        cal.max = options.max;
+        cal.selection = options.selection;
+        cal.reference = options.reference || null;
+        var shown = cal.selection.to !== null ? cal.selection.to
+          : cal.selection.from !== null ? cal.selection.from : options.today;
+        cal.focusDay = null;
+        cal.month = monthStart(clampDay(shown));
+        render();
+      };
+
+      cal.show = function (month) {
+        var first = monthStart(cal.min);
+        var last = monthStart(cal.max);
+        cal.month = Math.max(first, Math.min(last, month));
+        render();
+      };
+
+      // Focus the selected day, or today, when the month shown has it;
+      // otherwise the first day of the month that can be picked.
+      cal.focusSelection = function () {
+        var target = cal.selection && cal.selection.from !== null ? cal.selection.from : cal.today;
+        cal.focusDay = cal.days.indexOf(target) !== -1 && allowed(target) ? target : null;
+        render();
+        focusCurrent();
+      };
+
+      return cal;
+    }
+
+    // The Custom popover: "Show a day or a range".
+    function buildRangePopover() {
+      var box = el("div", "usage-pop usage-cal-pop");
       box.hidden = true;
-      box.setAttribute("role", "group");
-      box.setAttribute("aria-label", title);
-      box.appendChild(el("p", "usage-picker-title", title));
-      box.appendChild(el("p", "usage-picker-help", help));
-      var fields = el("div", "usage-picker-fields");
-      var from = dateField("First day");
-      var to = dateField("Last day");
-      fields.appendChild(from.wrap);
-      fields.appendChild(to.wrap);
-      var actions = el("div", "usage-picker-actions");
-      var apply = button("usage-button usage-button-primary", "Apply", onApply);
-      var cancel = button("usage-button", "Cancel", onCancel);
-      actions.appendChild(apply);
-      actions.appendChild(cancel);
-      fields.appendChild(actions);
-      box.appendChild(fields);
-      var error = el("p", "usage-picker-error");
-      error.setAttribute("role", "alert");
-      error.hidden = true;
-      box.appendChild(error);
-      [from.input, to.input].forEach(function (input) {
-        input.addEventListener("keydown", function (event) {
-          if (event.key === "Enter") onApply();
-        });
+      box.id = nextId("usage-custom");
+      box.setAttribute("role", "dialog");
+      var heading = el("p", "usage-picker-title", "Show a day or a range");
+      heading.id = nextId("usage-custom-title");
+      box.setAttribute("aria-labelledby", heading.id);
+      box.appendChild(heading);
+      box.appendChild(el("p", "usage-picker-help", "Click the first day, then the last. A single day is shown by hour."));
+      var calendar = buildCalendar(function (day, extend) {
+        var changed = calendar.selection.click(day, extend);
+        updateRangeText();
+        return { changed: changed, reset: false };
       });
-      return { box: box, from: from.input, to: to.input, error: error, apply: apply };
+      box.appendChild(calendar.root);
+      var text = el("p", "usage-cal-selection");
+      text.setAttribute("aria-live", "polite");
+      box.appendChild(text);
+      var actions = el("div", "usage-picker-actions");
+      actions.appendChild(button("usage-button", "Cancel", function () { closePop(dom.popCustom, true); }));
+      var apply = button("usage-button usage-button-primary", "Apply", function () { applyCustomPicker(); });
+      actions.appendChild(apply);
+      box.appendChild(actions);
+      return { box: box, calendar: calendar, text: text, apply: apply };
+    }
+
+    function periodCard(label, onSelect) {
+      var card = button("usage-period-card", null, onSelect);
+      card.setAttribute("aria-pressed", "false");
+      card.appendChild(el("span", "usage-period-label", label));
+      var range = el("span", "usage-period-range");
+      var days = el("span", "usage-period-days");
+      card.appendChild(range);
+      card.appendChild(days);
+      return { node: card, range: range, days: days };
+    }
+
+    // The Compare popover: "Compare two periods".
+    function buildComparePopover() {
+      var box = el("div", "usage-pop usage-cal-pop usage-compare-pop");
+      box.hidden = true;
+      box.id = nextId("usage-compare");
+      box.setAttribute("role", "dialog");
+      var heading = el("p", "usage-picker-title", "Compare two periods");
+      heading.id = nextId("usage-compare-title");
+      box.setAttribute("aria-labelledby", heading.id);
+      box.appendChild(heading);
+      box.appendChild(el("p", "usage-picker-help", "Pick a period, then click the first day and the last."));
+      var cards = el("div", "usage-period-cards");
+      cards.setAttribute("role", "group");
+      cards.setAttribute("aria-label", "Period to edit");
+      var cardA = periodCard("PERIOD A", function () { selectComparePeriod(true); });
+      var cardB = periodCard("PERIOD B", function () { selectComparePeriod(false); });
+      cardA.node.setAttribute("aria-label", "Period A");
+      cardB.node.setAttribute("aria-label", "Period B");
+      cards.appendChild(cardA.node);
+      cards.appendChild(cardB.node);
+      box.appendChild(cards);
+      var calendar = buildCalendar(function (day, extend) { return pickComparisonDay(day, extend); });
+      box.appendChild(calendar.root);
+      var hint = el("p", "usage-picker-help usage-compare-hint");
+      hint.setAttribute("aria-live", "polite");
+      box.appendChild(hint);
+      var lengthNote = el("p", "usage-picker-help", "Different lengths: changes compare the average per day.");
+      lengthNote.hidden = true;
+      box.appendChild(lengthNote);
+      var footer = el("div", "usage-picker-footer");
+      var off = button("usage-link usage-compare-off", "Turn off", function () { turnComparisonOff(); });
+      footer.appendChild(off);
+      var actions = el("div", "usage-picker-actions");
+      actions.appendChild(button("usage-button", "Cancel", function () { closePop(dom.popCompare, true); }));
+      var apply = button("usage-button usage-button-primary", "Apply", function () { applyComparison(); });
+      actions.appendChild(apply);
+      footer.appendChild(actions);
+      box.appendChild(footer);
+      return { box: box, calendar: calendar, cardA: cardA, cardB: cardB, hint: hint, lengthNote: lengthNote, off: off, apply: apply };
     }
 
     // --- popovers -------------------------------------------------------------
@@ -2014,10 +2439,41 @@ var UsageView = (function () {
 
     var pops = [];
 
+    // --- background scroll lock ---------------------------------------------
+    // While any popover, the sheet, a picker or the model dialog is open the
+    // page behind stays put, on mobile Safari and Chrome too: the body is
+    // fixed at the current offset and the root cannot scroll. A counter keeps
+    // nested opens (a picker inside the sheet) from unlocking early.
+
+    var lockCount = 0;
+    // Each open of the model dialog has a generation; its cleanup (lock,
+    // state, charts, focus) runs once, from whichever close signal comes first.
+    var dialogGeneration = 0;
+    var dialogCleaned = 0;
+    var lockedY = 0;
+
+    function lockScroll() {
+      lockCount += 1;
+      if (lockCount !== 1) return;
+      lockedY = window.scrollY || window.pageYOffset || 0;
+      doc.body.style.top = -lockedY + "px";
+      doc.documentElement.classList.add("usage-scroll-locked");
+    }
+
+    function unlockScroll() {
+      if (lockCount === 0) return;
+      lockCount -= 1;
+      if (lockCount !== 0) return;
+      doc.documentElement.classList.remove("usage-scroll-locked");
+      doc.body.style.top = "";
+      window.scrollTo(0, lockedY);
+    }
+
     function isShown(node) {
       return Boolean(node && (node.offsetWidth || node.offsetHeight || node.getClientRects().length));
     }
 
+    // A box shown by the is-open class (the sheet).
     function popEntry(box, trigger) {
       return {
         box: box,
@@ -2027,15 +2483,13 @@ var UsageView = (function () {
       };
     }
 
-    function pickerEntry(picker, trigger) {
+    // A box shown by the hidden attribute (the calendar popovers).
+    function hiddenEntry(box, trigger) {
       return {
-        box: picker.box,
+        box: box,
         trigger: trigger,
-        show: function () { picker.box.hidden = false; },
-        hide: function () {
-          picker.box.hidden = true;
-          picker.error.hidden = true;
-        }
+        show: function () { box.hidden = false; },
+        hide: function () { box.hidden = true; }
       };
     }
 
@@ -2047,7 +2501,10 @@ var UsageView = (function () {
       pops.slice().reverse().forEach(function (open) {
         if (open !== entry && !open.box.contains(entry.box)) closePop(open, false);
       });
-      if (pops.indexOf(entry) === -1) pops.push(entry);
+      if (pops.indexOf(entry) === -1) {
+        pops.push(entry);
+        lockScroll();
+      }
       entry.show();
       entry.trigger.setAttribute("aria-expanded", "true");
     }
@@ -2061,22 +2518,53 @@ var UsageView = (function () {
       pops.splice(pops.indexOf(entry), 1);
       entry.hide();
       entry.trigger.setAttribute("aria-expanded", "false");
-      if (focusTrigger && isShown(entry.trigger)) entry.trigger.focus();
+      unlockScroll();
+      // Without scrolling: the page goes back to where the user left it.
+      if (focusTrigger && isShown(entry.trigger)) entry.trigger.focus({ preventScroll: true });
     }
 
     function closeAllPops() {
       pops.slice().reverse().forEach(function (entry) { closePop(entry, false); });
     }
 
-    function onDocumentKey(event) {
-      if (event.key !== "Escape" || pops.length === 0) return;
-      if (dom && dom.dialog.open) return;
-      event.preventDefault();
-      closePop(pops[pops.length - 1], true);
+    // Closes every popover, the sheet and the model dialog, and with them the
+    // scroll lock: used whenever the Usage panel is hidden.
+    function releaseOverlays() {
+      closeAllPops();
+      if (dom && dom.dialog.open) dom.dialog.close();
     }
 
-    function onDocumentPointer(event) {
-      var target = event.target;
+    // The keyboard-reachable controls inside an overlay, in order.
+    function focusablesIn(box) {
+      return Array.prototype.slice.call(box.querySelectorAll("button, select, input, textarea, a[href], [tabindex]"))
+        .filter(function (node) {
+          return node.tabIndex >= 0 && !node.disabled && isShown(node) &&
+            window.getComputedStyle(node).visibility !== "hidden";
+        });
+    }
+
+    function onDocumentKey(event) {
+      if (pops.length === 0 || (dom && dom.dialog.open)) return;
+      var top = pops[pops.length - 1];
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePop(top, true);
+        return;
+      }
+      // Phone sheets keep Tab and Shift+Tab inside: they cover the page.
+      if (event.key === "Tab" && isPhone()) {
+        var items = focusablesIn(top.box);
+        if (items.length === 0) return;
+        var next = wrapFocusIndex(items.indexOf(doc.activeElement), items.length, event.shiftKey);
+        if (next !== null) {
+          event.preventDefault();
+          items[next].focus();
+        }
+      }
+    }
+
+    // Closes the overlays a target lies outside of, top first.
+    function closeOutside(target) {
       for (var i = pops.length - 1; i >= 0; i--) {
         var entry = pops[i];
         if (!entry) continue;
@@ -2085,21 +2573,67 @@ var UsageView = (function () {
       }
     }
 
+    function onDocumentPointer(event) {
+      closeOutside(event.target);
+    }
+
+    // Focus never reaches the page behind an overlay: a desktop popover
+    // closes when focus leaves it (and frees the page), and a phone sheet
+    // takes focus back.
+    function onDocumentFocusIn(event) {
+      if (pops.length === 0) return;
+      var target = event.target;
+      var top = pops[pops.length - 1];
+      if (top.box.contains(target) || top.trigger.contains(target)) return;
+      if (isPhone()) {
+        var items = focusablesIn(top.box);
+        if (items.length) items[0].focus();
+        return;
+      }
+      closeOutside(target);
+    }
+
+    function isPhone() {
+      return Boolean(phoneQuery && phoneQuery.matches);
+    }
+
+    // Crossing the phone breakpoint closes whatever is open (the controls
+    // change place), which also releases the scroll lock, and focus goes to
+    // the visible control that stands for it. A breakdown sorted on a column
+    // the phone leaves out falls back to the default there.
     function onLayoutChange() {
-      if (!dom || pops.length === 0) return;
-      var root = pops[0];
-      var active = doc.activeElement;
-      var inside = pops.some(function (entry) { return entry.box.contains(active) || entry.trigger === active; });
-      closeAllPops();
-      if (!inside && isShown(active)) return;
-      var target = isShown(root.trigger) ? root.trigger
-        : isShown(dom.compareButton) ? dom.compareButton : dom.filtersButton;
-      if (isShown(target)) target.focus();
+      if (!dom) return;
+      if (pops.length) {
+        var root = pops[0];
+        var active = doc.activeElement;
+        var inside = pops.some(function (entry) { return entry.box.contains(active) || entry.trigger === active; });
+        closeAllPops();
+        if (inside || !isShown(active)) {
+          var target = isShown(root.trigger) ? root.trigger
+            : isShown(dom.compareButton) ? dom.compareButton : dom.filtersButton;
+          if (isShown(target)) target.focus({ preventScroll: true });
+        }
+      }
+      if (data && view && isPhone() && phoneSortFallback()) renderResults();
+    }
+
+    // Resets a sort the phone cannot show; true when it changed anything.
+    function phoneSortFallback() {
+      var changed = false;
+      if (hiddenOnPhone(state.modelSort.column, Boolean(view && view.previous))) {
+        state.modelSort = MODEL_DEFAULT_SORT;
+        changed = true;
+      }
+      if (hiddenOnPhone(state.timeSort.column, false)) {
+        state.timeSort = TIME_DEFAULT_SORT;
+        changed = true;
+      }
+      return changed;
     }
 
     function buildSkeleton() {
       clear(panel);
-      pops = [];
+      closeAllPops();
       var root = el("div", "usage");
 
       var stale = el("p", "notice notice-stale usage-stale");
@@ -2140,14 +2674,12 @@ var UsageView = (function () {
       });
       var customButton = rangeSegment(rangeGroup, "custom", "Custom", "⋯", "Custom dates", function () { toggleCustomPicker(); });
       customButton.querySelector(".usage-long").appendChild(chevron());
+      customButton.setAttribute("aria-haspopup", "dialog");
       customButton.setAttribute("aria-expanded", "false");
       rangeWrap.appendChild(rangeGroup);
-      var customPicker = buildPicker("Show a day or a range",
-        "A range of up to 3 days in the last week is shown by hour.",
-        applyCustomPicker, function () { closePop(dom.popCustom, true); });
-      customPicker.box.id = nextId("usage-custom");
-      customButton.setAttribute("aria-controls", customPicker.box.id);
-      rangeWrap.appendChild(customPicker.box);
+      var custom = buildRangePopover();
+      customButton.setAttribute("aria-controls", custom.box.id);
+      rangeWrap.appendChild(custom.box);
       controls.appendChild(rangeWrap);
 
       var filtersButton = button("usage-filters-button", null, function () { toggleFilters(); });
@@ -2178,35 +2710,18 @@ var UsageView = (function () {
       accountLabel.appendChild(accountSelect);
       filterPanel.appendChild(accountLabel);
 
+      // Compare opens the two-period picker straight away, as on the desktop.
       var compareWrap = el("div", "usage-anchor usage-compare");
-      var compareButton = button("usage-compare-button", null, function () { toggleCompareMenu(); });
+      var compareButton = button("usage-compare-button", null, function () { toggleComparePicker(); });
       var compareText = el("span", null, "Compare");
       compareButton.appendChild(compareText);
       compareButton.appendChild(chevron());
+      compareButton.setAttribute("aria-haspopup", "dialog");
       compareButton.setAttribute("aria-expanded", "false");
       compareWrap.appendChild(compareButton);
-      var compareMenu = el("div", "usage-menu");
-      compareMenu.id = nextId("usage-compare");
-      compareButton.setAttribute("aria-controls", compareMenu.id);
-      compareMenu.setAttribute("role", "group");
-      compareMenu.setAttribute("aria-label", "Comparison");
-      compareMenu.appendChild(el("p", "usage-sheet-label", "Comparison"));
-      var compareItems = [["off", "No comparison"], ["previous", "Previous period"], ["custom", "Pick dates…"]]
-        .map(function (entry) {
-          var item = button("usage-menu-item", null, function () { chooseCompare(entry[0], item); });
-          item.setAttribute("data-value", entry[0]);
-          item.setAttribute("aria-pressed", "false");
-          item.appendChild(el("span", "usage-menu-text", entry[1]));
-          item.appendChild(el("span", "usage-menu-detail"));
-          compareMenu.appendChild(item);
-          return item;
-        });
-      compareWrap.appendChild(compareMenu);
-      var comparePicker = buildPicker("Compare with other days",
-        "Different lengths compare the average per day.",
-        applyComparePicker, function () { closePop(dom.popCompareDates, true); });
-      comparePicker.box.id = nextId("usage-compare-dates");
-      compareWrap.appendChild(comparePicker.box);
+      var compare = buildComparePopover();
+      compareButton.setAttribute("aria-controls", compare.box.id);
+      compareWrap.appendChild(compare.box);
       filterPanel.appendChild(compareWrap);
 
       var sheetClear = button("usage-button usage-sheet-clear", "Clear filters", clearFilters);
@@ -2241,12 +2756,23 @@ var UsageView = (function () {
         if (event.clientX < bounds.left || event.clientX > bounds.right ||
             event.clientY < bounds.top || event.clientY > bounds.bottom) dialog.close();
       });
-      dialog.addEventListener("close", function () {
+      // The dialog closing is seen first by the open attribute going away;
+      // its close event can arrive a while later, even after the dialog was
+      // opened again. Both call the same cleanup, which ignores a closing
+      // that is not the current open's or that already ran.
+      function dialogClosed() {
+        if (dialog.open || dialogCleaned === dialogGeneration) return;
+        dialogCleaned = dialogGeneration;
+        unlockScroll();
         var open = state.openModel;
         state.openModel = null;
         charts = charts.filter(function (chart) { return !chart.inDialog; });
         if (open) focusByKey("model:" + open);
-      });
+      }
+      if (typeof MutationObserver === "function") {
+        new MutationObserver(dialogClosed).observe(dialog, { attributes: true, attributeFilter: ["open"] });
+      }
+      dialog.addEventListener("close", dialogClosed);
       root.appendChild(dialog);
 
       panel.appendChild(root);
@@ -2264,14 +2790,13 @@ var UsageView = (function () {
         accountSignature: "",
         compareButton: compareButton,
         compareText: compareText,
-        compareItems: compareItems,
         sheetClear: sheetClear,
-        customPicker: customPicker,
-        comparePicker: comparePicker,
-        popCustom: pickerEntry(customPicker, customButton),
-        popMenu: popEntry(compareMenu, compareButton),
+        custom: custom,
+        compare: compare,
+        popCustom: hiddenEntry(custom.box, customButton),
+        popCompare: hiddenEntry(compare.box, compareButton),
+        popCompareInline: hiddenEntry(compare.box, compareButton),
         popFilters: popEntry(filterPanel, filtersButton),
-        popCompareDates: null,
         results: results,
         live: live,
         dialog: dialog,
@@ -2317,38 +2842,6 @@ var UsageView = (function () {
       dom.rangeButtons[2].focus();
     }
 
-    function fillPicker(picker, from, to) {
-      var max = data.dailyTo;
-      [picker.from, picker.to].forEach(function (input) {
-        input.min = dayToIso(data.dailyFrom);
-        input.max = dayToIso(max);
-      });
-      picker.from.value = isFinite(from) ? dayToIso(Math.max(data.dailyFrom, Math.min(max, from))) : "";
-      picker.to.value = isFinite(to) ? dayToIso(Math.max(data.dailyFrom, Math.min(max, to))) : "";
-      picker.error.hidden = true;
-    }
-
-    function toggleCustomPicker() {
-      if (isOpen(dom.popCustom)) {
-        closePop(dom.popCustom, false);
-        return;
-      }
-      var shown = view ? view.primary : null;
-      fillPicker(dom.customPicker, shown ? shown.from : today(), shown ? shown.to : today());
-      openPop(dom.popCustom);
-      dom.customPicker.from.focus();
-    }
-
-    function toggleCompareMenu() {
-      if (isOpen(dom.popMenu)) {
-        closePop(dom.popMenu, false);
-        return;
-      }
-      openPop(dom.popMenu);
-      var current = dom.compareItems.filter(function (item) { return item.getAttribute("aria-pressed") === "true"; })[0];
-      (current || dom.compareItems[0]).focus();
-    }
-
     function toggleFilters() {
       if (isOpen(dom.popFilters)) {
         closePop(dom.popFilters, false);
@@ -2358,66 +2851,209 @@ var UsageView = (function () {
       dom.accountSelect.focus();
     }
 
-    function chooseCompare(value, item) {
-      if (value === "custom") {
-        openComparePicker(item);
+    // --- Custom: one day or a range of days ---
+
+    function toggleCustomPicker() {
+      if (isOpen(dom.popCustom)) {
+        closePop(dom.popCustom, false);
         return;
       }
-      state.compare = value;
-      if (isOpen(dom.popMenu)) closePop(dom.popMenu, true);
-      render();
+      var now = today();
+      var limits = customRangeLimits(now);
+      var shown = view ? view.primary : null;
+      var from = state.range === "custom" ? state.customFrom : shown ? shown.from : now;
+      var to = state.range === "custom" ? state.customTo : shown ? shown.to : now;
+      dom.custom.calendar.reset({
+        today: now,
+        min: limits.min,
+        max: limits.max,
+        selection: createRangeSelection(false, limits.maxSpan, function (day) {
+          return day >= limits.min && day <= limits.max;
+        }, from, to)
+      });
+      updateRangeText();
+      openPop(dom.popCustom);
+      dom.custom.calendar.focusSelection();
     }
 
-    function readPicker(picker) {
-      var from = parseDay(picker.from.value);
-      var to = parseDay(picker.to.value);
-      if (isFinite(from) && !isFinite(to)) to = from;
-      if (isFinite(to) && !isFinite(from)) from = to;
-      var problem = validateCustomRange(data, from, to);
-      if (problem) {
-        picker.error.textContent = problem;
-        picker.error.hidden = false;
-        return null;
-      }
-      return { from: Math.min(from, to), to: Math.max(from, to) };
+    function updateRangeText() {
+      var selection = dom.custom.calendar.selection;
+      setText(dom.custom.text, rangeSelectionText(selection, today()));
+      dom.custom.apply.disabled = selection.from === null || selection.to === null;
     }
 
     function applyCustomPicker() {
-      var range = readPicker(dom.customPicker);
-      if (!range) return;
+      var selection = dom.custom.calendar.selection;
+      if (selection.from === null || selection.to === null) return;
+      if (!isValidCustomRange(selection.from, selection.to, today())) return;
       state.range = "custom";
-      state.customFrom = range.from;
-      state.customTo = range.to;
+      state.customFrom = selection.from;
+      state.customTo = selection.to;
       state.back = null;
       closePop(dom.popCustom, true);
       render();
     }
 
-    function openComparePicker(item) {
-      var from = state.compareFrom;
-      var to = state.compareTo;
-      if (!isFinite(from) && view && !view.primary.rolling) {
-        var previous = previousPeriod({ kind: "days", from: view.primary.from, to: view.primary.to });
-        from = previous.from;
-        to = previous.to;
-      }
-      fillPicker(dom.comparePicker, isFinite(from) ? from : today() - 1, isFinite(to) ? to : today() - 1);
-      // The comparison button on wide screens, the menu item inside the sheet.
-      var trigger = isShown(dom.compareButton) ? dom.compareButton : item;
-      if (isOpen(dom.popMenu)) closePop(dom.popMenu, false);
-      if (isOpen(dom.popCompareDates)) closePop(dom.popCompareDates, false);
-      dom.popCompareDates = pickerEntry(dom.comparePicker, trigger);
-      openPop(dom.popCompareDates);
-      dom.comparePicker.from.focus();
+    // --- Compare: two periods, A against B ---
+
+    var compareSession = null;
+
+    // The days of the period just before the range on screen.
+    function previousDays() {
+      var resolved = resolvePeriod(data, previousPeriod(view.selection.period));
+      return { from: resolved.from, to: resolved.to };
     }
 
-    function applyComparePicker() {
-      var range = readPicker(dom.comparePicker);
-      if (!range) return;
-      state.compare = "custom";
-      state.compareFrom = range.from;
-      state.compareTo = range.to;
-      closePop(dom.popCompareDates, true);
+    function toggleComparePicker() {
+      if (isOpen(dom.popCompare)) {
+        closePop(dom.popCompare, false);
+        return;
+      }
+      var now = today();
+      var picked = state.compare === "custom" && isFinite(state.compareFrom)
+        ? { from: state.compareFrom, to: state.compareTo }
+        : null;
+      compareSession = createCompareSession({
+        a: view ? { from: view.primary.from, to: view.primary.to } : { from: now, to: now },
+        b: picked || (view ? previousDays() : { from: now - 1, to: now - 1 }),
+        bIsPrevious: picked === null,
+        today: now
+      });
+      dom.compare.off.hidden = state.compare === "off";
+      showComparePeriod();
+      if (isPhone() && isOpen(dom.popFilters)) {
+        handOffSheet();
+      } else {
+        dom.popCompare = dom.popCompareInline;
+        openPop(dom.popCompare);
+      }
+      dom.compare.calendar.focusSelection();
+    }
+
+    // On a phone the picker replaces the Filters sheet instead of stacking on
+    // it. The picker's element lives inside the sheet, so the sheet stays laid
+    // out but invisible until the picker closes. Its scroll lock passes to the
+    // picker without ever being released, so the page cannot jump. The
+    // Filters button is the visible trigger: focus returns there.
+    function handOffSheet() {
+      var sheet = dom.popFilters.box;
+      var box = dom.compare.box;
+      pops.splice(pops.indexOf(dom.popFilters), 1);
+      dom.popFilters.trigger.setAttribute("aria-expanded", "false");
+      sheet.classList.add("is-handoff");
+      sheet.classList.remove("is-open");
+      dom.popCompare = {
+        box: box,
+        trigger: dom.filtersButton,
+        show: function () { box.hidden = false; },
+        hide: function () {
+          box.hidden = true;
+          sheet.classList.remove("is-handoff");
+        }
+      };
+      openPop(dom.popCompare);
+      // The sheet's lock is the picker's now: drop the extra one openPop took.
+      unlockScroll();
+    }
+
+    function showComparePeriod() {
+      var limits = compareSession.limits;
+      dom.compare.calendar.reset({
+        today: today(),
+        min: limits.min,
+        max: limits.max,
+        selection: compareSession.selection,
+        reference: compareSession.reference()
+      });
+      updateCompareText();
+    }
+
+    function selectComparePeriod(editA) {
+      if (!compareSession) return;
+      compareSession.select(editA);
+      showComparePeriod();
+    }
+
+    function pickComparisonDay(day, extend) {
+      var result = compareSession.click(day, extend);
+      if (!result.changed) return { changed: false };
+      if (result.switched) {
+        // Period A is complete: the calendar moves on to period B.
+        showComparePeriod();
+        dom.compare.calendar.focusSelection();
+        return { changed: true, reset: true };
+      }
+      updateCompareText();
+      return { changed: true, reset: false };
+    }
+
+    function setCard(card, text) {
+      var lines = text.split("\n");
+      setText(card.range, lines[0]);
+      setText(card.days, lines[1] || "");
+    }
+
+    function describeDays(period) {
+      return period
+        ? rangeLabel(period.from, period.to, today()) + "\n" + dayCountText(periodLength(period))
+        : "Not picked";
+    }
+
+    // The two cards, the hint and Apply, as the desktop describes them.
+    function updateCompareText() {
+      var session = compareSession;
+      var selectedCount = view ? view.primary.dayCount : 1;
+      var bFollowsA = session.bFollowsA();
+      var textA = session.aEdited || !view
+        ? describeDays(session.a)
+        : describePeriod(view, view.primary) + "\n" + dayCountText(selectedCount);
+      var textB = bFollowsA && !session.aEdited && view
+        ? describePeriod(view, resolvePeriod(data, previousPeriod(view.selection.period))) + "\n" + dayCountText(selectedCount)
+        : describeDays(session.b);
+      if (session.selection.awaitingEnd && session.selection.from !== null) {
+        var pending = dayLabel(session.selection.from) + " to …\npick the last day";
+        if (session.editA) textA = pending;
+        else textB = pending;
+      }
+      setCard(dom.compare.cardA, textA);
+      setCard(dom.compare.cardB, textB);
+      dom.compare.cardA.node.setAttribute("aria-pressed", session.editA ? "true" : "false");
+      dom.compare.cardB.node.setAttribute("aria-pressed", session.editA ? "false" : "true");
+      setText(dom.compare.hint, session.hint());
+      var lengthA = session.aEdited ? periodLength(session.a) : selectedCount;
+      var lengthB = bFollowsA ? lengthA : periodLength(session.b);
+      dom.compare.lengthNote.hidden = !(lengthA > 0 && lengthB > 0 && lengthA !== lengthB);
+      dom.compare.apply.disabled = !session.canApply();
+    }
+
+    function applyComparison() {
+      if (!compareSession || !compareSession.canApply()) return;
+      var result = compareSession.result();
+      var now = today();
+      if ((result.current && !isValidCustomRange(result.current.from, result.current.to, now)) ||
+          (result.comparison && !isValidCustomRange(result.comparison.from, result.comparison.to, now))) {
+        return;
+      }
+      if (result.current) {
+        state.back = null;
+        state.range = "custom";
+        state.customFrom = result.current.from;
+        state.customTo = result.current.to;
+      }
+      if (result.comparison) {
+        state.compare = "custom";
+        state.compareFrom = result.comparison.from;
+        state.compareTo = result.comparison.to;
+      } else {
+        state.compare = "previous";
+      }
+      closePop(dom.popCompare, true);
+      render();
+    }
+
+    function turnComparisonOff() {
+      state.compare = "off";
+      closePop(dom.popCompare, true);
       render();
     }
 
@@ -2527,14 +3163,6 @@ var UsageView = (function () {
       var comparing = state.compare !== "off";
       setText(dom.compareText, comparing ? "Comparing" : "Compare");
       dom.compareButton.classList.toggle("is-active", comparing);
-      dom.compareItems.forEach(function (item) {
-        var value = item.getAttribute("data-value");
-        item.setAttribute("aria-pressed", value === state.compare ? "true" : "false");
-        var detail = value === "custom" && state.compare === "custom" && isFinite(state.compareFrom)
-          ? rangeLabel(state.compareFrom, state.compareTo, today())
-          : "";
-        setText(item.querySelector(".usage-menu-detail"), detail);
-      });
 
       // The phone Filters badge counts the account and the comparison.
       var active = (picked === null ? 0 : 1) + (comparing ? 1 : 0);
@@ -2750,8 +3378,7 @@ var UsageView = (function () {
       return grid;
     }
 
-    // extra: "is-secondary" marks a column phones leave out (the Sort menu
-    // above the table still reaches it).
+    // extra: "is-secondary" marks a column phones leave out (hiddenOnPhone).
     function sortHeader(text, column, sort, numeric, title, extra) {
       var th = el("th", [numeric ? "is-numeric" : "", extra || ""].join(" ").trim() || null);
       th.scope = "col";
@@ -2767,50 +3394,13 @@ var UsageView = (function () {
       return th;
     }
 
-    // The sortable columns of a table, for the phone Sort menu.
-    function sortColumns(table) {
-      var columns = [[table.labelHeader, "label"], [table.valueHeader, "value"]];
-      if (table.showComparison) {
-        columns.push(["API value B", "previousValue"], [table.tokensHeader, "tokens"], ["Tokens B", "previousTokens"], [table.changeHeader, "change"]);
-      } else {
-        columns.push(["Share", "share"], [table.tokensHeader, "tokens"]);
-      }
-      return columns;
-    }
-
-    function sortMenu(table) {
-      var wrap = el("label", "usage-sort-menu");
-      wrap.appendChild(el("span", "sr-only", "Sort by"));
-      var select = focusKey(el("select", "usage-select"), "sort-menu");
-      sortColumns(table).forEach(function (column) {
-        var label = column[1] !== "label" ? ["high to low", "low to high"]
-          : table.mode === "time" ? ["newest first", "oldest first"] : ["Z to A", "A to Z"];
-        [true, false].forEach(function (descending, index) {
-          var option = el("option", null, column[0] + ", " + label[index]);
-          option.value = column[1] + (descending ? ":d" : ":a");
-          select.appendChild(option);
-        });
-      });
-      select.value = table.sort.column + (table.sort.descending ? ":d" : ":a");
-      select.addEventListener("change", function () {
-        var parts = select.value.split(":");
-        var sort = { column: parts[0], descending: parts[1] === "d" };
-        if (state.breakdown === "time") state.timeSort = sort;
-        else state.modelSort = sort;
-        renderResults();
-        focusByKey("sort-menu");
-      });
-      wrap.appendChild(select);
-      return wrap;
-    }
-
     function renderBreakdown() {
+      if (isPhone()) phoneSortFallback();
       var table = buildBreakdown(view, state.breakdown, state.modelSort, state.timeSort);
       var section = el("section", "usage-breakdown");
       var head = el("div", "usage-breakdown-head");
       head.appendChild(el("h3", "usage-breakdown-title", "Breakdown"));
       if (table.hint) head.appendChild(el("p", "usage-breakdown-hint", table.hint));
-      if (table.rows.length) head.appendChild(sortMenu(table));
       head.appendChild(smallSegments("Breakdown by", [["model", "Model"], ["time", view.primary.hourly ? "Hour" : "Day"]],
         state.breakdown, "breakdown-", function (mode) {
           state.breakdown = mode;
@@ -2910,7 +3500,11 @@ var UsageView = (function () {
         state.openModel = null;
         return;
       }
-      if (!dom.dialog.open) dom.dialog.showModal();
+      if (!dom.dialog.open) {
+        dom.dialog.showModal();
+        dialogGeneration += 1;
+        lockScroll();
+      }
       redrawCharts();
       dom.dialog.querySelector(".usage-dialog-close").focus();
     }
@@ -3371,6 +3965,7 @@ var UsageView = (function () {
     setTabsVisible(false);
     doc.addEventListener("keydown", onDocumentKey);
     doc.addEventListener("pointerdown", onDocumentPointer, true);
+    doc.addEventListener("focusin", onDocumentFocusIn, true);
     var phoneQuery = typeof window.matchMedia === "function" ? window.matchMedia("(max-width: 719px)") : null;
     if (phoneQuery) {
       if (typeof phoneQuery.addEventListener === "function") phoneQuery.addEventListener("change", onLayoutChange);
@@ -3436,7 +4031,15 @@ var UsageView = (function () {
     resolvePeriod: resolvePeriod,
     previousPeriod: previousPeriod,
     selectionFor: selectionFor,
-    validateCustomRange: validateCustomRange,
+    customRangeLimits: customRangeLimits,
+    isValidCustomRange: isValidCustomRange,
+    monthGrid: monthGrid,
+    monthTitle: monthTitle,
+    createRangeSelection: createRangeSelection,
+    createCompareSession: createCompareSession,
+    rangeSelectionText: rangeSelectionText,
+    hiddenOnPhone: hiddenOnPhone,
+    wrapFocusIndex: wrapFocusIndex,
     accountSelection: accountSelection,
     resolveAccount: resolveAccount,
     accountOptions: accountOptions,
