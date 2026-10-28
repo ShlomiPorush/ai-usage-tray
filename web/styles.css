@@ -237,8 +237,12 @@ h1 {
   letter-spacing: -0.01em;
 }
 
+/* Inside the header row so a phone can share its line with the percent
+   toggle; here it takes a line of its own, 2px under the row above. */
 .updated {
-  margin: 2px 0 0;
+  order: 99;
+  flex-basis: 100%;
+  margin: -10px 0 0;
   color: var(--ink-3);
   font-size: 13px;
 }
@@ -2053,28 +2057,38 @@ th[aria-sort="descending"] .usage-sort { color: var(--ink); }
   .usage-dialog { padding: 16px; }
 }
 
-/* Phone header: title, tabs and theme on one row. Last in the file so it
-   wins over the header rules above and the Usage tab styles. */
+/* Phone header: one line. The title with its age under it, the tabs, and
+   the buttons on the right. Last in the file so it wins over the header
+   rules above and the Usage tab styles. */
 @media (max-width: 719px) {
-  .header-row { gap: 0 8px; }
-  .header-actions { display: contents; }
-  .title-group { order: 1; }
-  .view-tabs { order: 2; }
-  .notification-toggle,
-  .notification-test,
-  .theme-toggle { order: 3; }
-  .theme-toggle { margin-left: auto; }
-  .notification-toggle:not([hidden]) { margin-left: auto; }
-  .notification-toggle:not([hidden]) ~ .theme-toggle { margin-left: 0; }
-  /* Everything after this break sits on the line under the header. */
-  .header-row::after {
-    content: "";
-    order: 10;
-    flex-basis: 100%;
-    height: 0;
+  .page-header { margin-bottom: 12px; padding-bottom: 10px; }
+  .header-row {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: center;
+    gap: 0 8px;
   }
-  .demo-badge { order: 11; margin-top: 8px; }
-  .percent-toggle { order: 12; margin-top: 8px; margin-left: auto; }
+  .title-group { grid-area: 1 / 1 / 2 / 2; align-self: end; }
+  .updated {
+    grid-area: 2 / 1 / 3 / 2;
+    align-self: start;
+    margin: 1px 0 0;
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+  .updated-word { display: none; }
+  /* No age line (Usage tab, no report yet): centre the title alone. */
+  body[data-view="usage"] .title-group,
+  .header-row:has(> .updated[hidden]) .title-group {
+    grid-row: 1 / 3;
+    align-self: center;
+  }
+  .view-tabs { grid-area: 1 / 2 / 3 / 3; }
+  .header-actions { grid-area: 1 / 4 / 3 / 5; margin-left: 0; gap: 8px; }
+  .demo-badge { grid-area: 3 / 1 / 4 / -1; justify-self: start; margin-top: 8px; }
+  /* Only the active option shows; tapping it flips the mode (app.js). */
+  .percent-option[aria-pressed="false"] { display: none; }
   .version-badge { display: none; }
   h1 { font-size: 18px; }
   .view-tab { min-height: 30px; padding: 0 10px; font-size: 13.5px; }
@@ -2111,13 +2125,31 @@ th[aria-sort="descending"] .usage-sort { color: var(--ink); }
 @media (max-width: 379px) {
   body { padding-left: 12px; padding-right: 12px; }
   h1 { font-size: 17px; }
-  .header-row { column-gap: 6px; }
-  .view-tab { padding: 0 8px; font-size: 13px; }
+  .header-row,
+  .header-actions { column-gap: 5px; }
+  .view-tab { padding: 0 6px; font-size: 13px; }
+  .percent-option { padding: 0 6px; }
+  .notification-toggle,
+  .notification-test,
+  .theme-toggle,
+  .notification-toggle:hover,
+  .notification-toggle:focus-visible,
+  .notification-test:hover,
+  .notification-test:focus-visible {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    min-height: 30px;
+  }
 }
 
 /* 320 px with every header button: tighter still. */
 @media (max-width: 339px) {
+  body { padding-left: 10px; padding-right: 10px; }
   h1 { font-size: 16px; }
-  .header-row { column-gap: 4px; }
-  .view-tab { padding: 0 6px; }
+  .updated { font-size: 10.5px; }
+  .header-row,
+  .header-actions { column-gap: 3px; }
+  .view-tab { padding: 0 5px; font-size: 12.5px; }
+  .percent-option { padding: 0 5px; font-size: 11px; }
 }
