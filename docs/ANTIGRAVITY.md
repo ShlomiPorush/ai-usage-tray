@@ -40,6 +40,7 @@ Everything lives under `%LOCALAPPDATA%\AIUsageTray\antigravity-probe\`:
 
 - `probe.lock` makes sure only one check runs at a time.
 - `schedule.json` records when the last check ran, the time since the computer started and the Windows boot counter at that moment, how many checks failed in a row, and any back-off.
+- `last-quota.json` keeps the quota and plan of the last successful check, never the email. When the app starts again before the next check is due, it shows this quota with the time of that check. A window whose reset has passed is left out, a window without a reset time is shown for at most a day, and nothing is shown from it after a failed check.
 - Each check uses its own subfolder, which holds the status update and the `agy` log of that run. The folder is deleted when the check ends.
 
 If the app crashes during a check, or the folder cannot be deleted, that subfolder can stay behind. It contains the account email. After AI Usage Tray starts again, the first Antigravity check removes it, which happens only while the provider is enabled. Turning the provider off does not remove a leftover folder. You can safely delete `%LOCALAPPDATA%\AIUsageTray\antigravity-probe` yourself while the tray app is closed.

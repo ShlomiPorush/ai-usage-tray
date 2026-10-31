@@ -43,5 +43,14 @@ public interface IPulseOrchestrator
     /// <summary>Publishes the last state again without reading any provider.</summary>
     void RepublishLastState();
 
+    /// <summary>
+    /// Called once at startup after the observers have subscribed: publishes
+    /// the last real state again when one exists, otherwise the stored usage
+    /// as a display-only <see cref="RefreshTrigger.Cached"/> state.
+    /// </summary>
+    void PublishStartupState()
+    {
+    }
+
     void UpdateRefreshInterval(TimeSpan interval);
 }

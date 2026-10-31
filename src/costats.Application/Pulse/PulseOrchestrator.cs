@@ -15,12 +15,14 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
     private readonly IClock _clock;
     private readonly PulseBroadcaster _broadcaster;
     private readonly ILogger<PulseOrchestrator> _logger;
+    private readonly UsageStartupCache? _startupCache;
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly object _intervalLock = new();
 
     private TimeSpan _refreshInterval;
     private CancellationTokenSource? _timerCts;
     private PulseState? _lastState;
+    private PulseState? _startupState;
     private bool _hasSuccessfulLoad;
     private long _lastFullRefreshUtcTicks;
 
@@ -31,7 +33,8 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
         IClock clock,
         PulseBroadcaster broadcaster,
         IOptions<PulseOptions> options,
-        ILogger<PulseOrchestrator> logger)
+        ILogger<PulseOrchestrator> logger,
+        UsageStartupCache? startupCache = null)
     {
         _staticSources = sources;
         _accountSources = accountSources;
@@ -40,6 +43,7 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
         _broadcaster = broadcaster;
         _refreshInterval = options.Value.RefreshInterval;
         _logger = logger;
+        _startupCache = startupCache;
     }
 
     public IObservable<PulseState> PulseStream => _broadcaster;
@@ -79,6 +83,35 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
         {
             _broadcaster.Publish(state with { Trigger = RefreshTrigger.Silent });
         }
+    }
+
+    public void PublishStartupState()
+    {
+        // A first refresh that finished before the observers subscribed is
+        // delivered again; otherwise the stored usage is shown while it runs.
+        if (_lastState is { } live)
+        {
+            _broadcaster.Publish(live with { Trigger = RefreshTrigger.Silent });
+            return;
+        }
+
+        var cached = _startupCache?.BuildStartupState(AllSources().Select(source => source.Profile.ProviderId));
+        if (cached is null)
+        {
+            return;
+        }
+
+        _startupState = cached;
+        if (_lastState is { } liveNow)
+        {
+            _broadcaster.Publish(liveNow with { Trigger = RefreshTrigger.Silent });
+            return;
+        }
+
+        // Display only: it is never _lastState, so CurrentState stays null
+        // and nothing acts on it. A real state that arrives meanwhile wins in
+        // the observers, which ignore a Cached state once they have a live one.
+        _broadcaster.Publish(cached);
     }
 
     public async Task RefreshOnceAsync(RefreshTrigger trigger, CancellationToken cancellationToken)
@@ -178,6 +211,7 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
         CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
+        var cacheGeneration = _startupCache?.CaptureGeneration() ?? 0;
         var providerSources = AllSources()
             .Where(s => s.Profile.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase))
             .ToList();
@@ -204,6 +238,10 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
 
         var state = new PulseState(updatedProviders, _clock.UtcNow, Array.Empty<string>(), false, RefreshTrigger.Silent);
         _lastState = state;
+        _startupCache?.Observe(
+            cacheGeneration,
+            new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase) { [providerId] = reading },
+            fullRefresh: false);
         _broadcaster.Publish(state);
 
         _logger.LogDebug("Silent refresh completed for {ProviderId} in {ElapsedMs} ms", providerId, stopwatch.ElapsedMilliseconds);
@@ -261,6 +299,7 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
     {
         var stopwatch = Stopwatch.StartNew();
         _logger.LogDebug("Refresh started ({Trigger})", trigger);
+        var cacheGeneration = _startupCache?.CaptureGeneration() ?? 0;
         try
         {
             if (ShouldShowShimmer(trigger))
@@ -284,8 +323,10 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
 
             var state = new PulseState(providerReads, _clock.UtcNow, Array.Empty<string>(), false, trigger);
             _lastState = state;
+            _startupState = null;
             _hasSuccessfulLoad = true;
             Interlocked.Exchange(ref _lastFullRefreshUtcTicks, state.LastRefresh.UtcTicks);
+            _startupCache?.Observe(cacheGeneration, providerReads, fullRefresh: true);
             _broadcaster.Publish(state);
             _logger.LogDebug(
                 "Refresh finished ({Trigger}) in {ElapsedMs} ms for {ProviderCount} provider(s)",
@@ -328,6 +369,14 @@ public sealed class PulseOrchestrator : BackgroundService, IPulseOrchestrator
 
     private void PublishRefreshing(RefreshTrigger trigger)
     {
+        // Before the first real state, the stored usage is the last known one:
+        // show it as it is, with its own time, never as fresh data.
+        if (_lastState is null && _startupState is { } cached)
+        {
+            _broadcaster.Publish(cached);
+            return;
+        }
+
         // Show last known good state with loading indicator
         var baseState = _lastState ?? new PulseState(
             new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase),

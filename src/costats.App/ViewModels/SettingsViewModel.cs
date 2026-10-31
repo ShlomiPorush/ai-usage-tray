@@ -42,6 +42,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     private readonly IAccountSourceRegistry? _accountSources;
     private readonly RemoteViewUploader? _remoteViewUploader;
     private readonly DebugLoggingController? _debugLogging;
+    private readonly UsageStartupCache? _startupCache;
     private bool _suppressDebugLoggingChange;
     private bool _suppressHotkeyChange;
     private bool _isApplyingImport;
@@ -62,7 +63,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         IAccountSourceRegistry? accountSources = null,
         StartupUpdateCoordinator? updateCoordinator = null,
         RemoteViewUploader? remoteViewUploader = null,
-        DebugLoggingController? debugLogging = null)
+        DebugLoggingController? debugLogging = null,
+        UsageStartupCache? startupCache = null)
     {
         _settingsStore = settingsStore;
         _settings = settings;
@@ -75,6 +77,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         _updateCoordinator = updateCoordinator;
         _remoteViewUploader = remoteViewUploader;
         _debugLogging = debugLogging;
+        _startupCache = startupCache;
 
         refreshMinutes = settings.RefreshMinutes;
         startAtLogin = GetStartupRegistryValue();
@@ -819,6 +822,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     /// <summary>Persists account changes and applies them live (no restart needed).</summary>
     private void ApplyAccountsChanged(string message = "Saved and applied.")
     {
+        // The stored usage may belong to an account that was just changed.
+        _startupCache?.Clear();
         SaveSettingsInBackground();
         _accountSources?.Reload();
         _analytics.Invalidate();
@@ -1933,6 +1938,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         finally
         {
             _isApplyingImport = false;
+            // The import may have replaced accounts under the same ids.
+            _startupCache?.Clear();
         }
 
         try

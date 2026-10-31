@@ -41,6 +41,9 @@ namespace costats.App.Services
         private readonly AppSettings _settings;
         private string? _lastFloatingPanelPosition;
         private readonly UsageAlertTracker _usageAlertTracker = new();
+
+        /// <summary>A live state has been shown; UI thread only.</summary>
+        private bool _appliedLiveState;
         private readonly UsageResetAlertTracker _usageResetAlertTracker;
         private readonly IUsageResetStateStore _usageResetStateStore;
         private readonly AuthenticationAlertTracker _authenticationAlertTracker = new();
@@ -461,6 +464,13 @@ namespace costats.App.Services
 
         public void OnNext(PulseState state)
         {
+            // A refreshing state without providers has nothing to show; applying
+            // it would blank the icon and rows that are already on screen.
+            if (state.IsRefreshing && state.Providers.Count == 0)
+            {
+                return;
+            }
+
             var displayNames = _staticSources
                 .Concat(_accountSources.Current)
                 .Select(source => source.Profile)
@@ -513,14 +523,9 @@ namespace costats.App.Services
                     .Select(rule => new UsageAlertRule(rule.ProviderId, rule.ThresholdPercent))
                     .ToArray()
                 : [];
-            var usageAlerts = _usageAlertTracker.Observe(state, usageAlertRules);
-            var resetAlerts = _usageResetAlertTracker.Observe(
-                state,
-                _settings.UsageAlertsEnabled && _settings.UsageResetAlertsEnabled
-                    ? usageAlertRules.Select(rule => rule.ProviderId)
-                    : []);
-            _usageResetStateStore.Save(_usageResetAlertTracker.ExportCheckpoints());
-            var signInAlerts = _authenticationAlertTracker.Observe(state);
+            var resetAlertProviders = _settings.UsageAlertsEnabled && _settings.UsageResetAlertsEnabled
+                ? usageAlertRules.Select(rule => rule.ProviderId).ToArray()
+                : [];
             var accounts = accountEntries.Select(entry => entry.Account).ToArray();
             var status = TrayStatusComposer.Compose(
                 accounts,
@@ -588,10 +593,36 @@ namespace costats.App.Services
                 return;
             }
 
-            LogAlerts(usageAlerts, resetAlerts, signInAlerts);
             dispatcher.BeginInvoke(() =>
             {
+                // Decided here, on the UI thread, in the order the states are
+                // shown: the stored usage never replaces a live state.
+                var isCached = state.Trigger == RefreshTrigger.Cached;
+                if (isCached && _appliedLiveState)
+                {
+                    return;
+                }
+
+                if (!isCached && state.Providers.Count > 0)
+                {
+                    _appliedLiveState = true;
+                }
+
                 ApplyTrayStatus(status, rows, floatingRows);
+                if (isCached)
+                {
+                    return;
+                }
+
+                // The alert trackers run here, one state at a time, so a state
+                // published twice can never fire an alert twice. Readings read
+                // back from disk are never an observation.
+                var observed = RestoredUsage.WithoutRestoredReadings(state);
+                var usageAlerts = _usageAlertTracker.Observe(observed, usageAlertRules);
+                var resetAlerts = _usageResetAlertTracker.Observe(observed, resetAlertProviders);
+                _usageResetStateStore.Save(_usageResetAlertTracker.ExportCheckpoints());
+                var signInAlerts = _authenticationAlertTracker.Observe(observed);
+                LogAlerts(usageAlerts, resetAlerts, signInAlerts);
                 ShowUsageAlerts(usageAlerts, displayNames, showRemainingPercentages);
                 ShowUsageResetAlerts(resetAlerts, displayNames);
                 ShowSignInRequiredAlerts(signInAlerts, displayNames);

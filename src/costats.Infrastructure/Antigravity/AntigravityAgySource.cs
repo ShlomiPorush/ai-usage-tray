@@ -182,6 +182,12 @@ public sealed class AntigravityAgySource : ISignalSource
                     _lastAttemptReading = SuccessReading(result.Quota, result.CompletedAt ?? _time.GetUtcNow());
                     return _lastAttemptReading;
 
+                case AgyProbeStatus.Waiting when _lastAttemptReading is null && result.Quota is not null:
+                    // A fresh process with nothing of its own yet: show the
+                    // stored quota, marked restored so it never feeds an alert.
+                    // It is not kept as this process's reading.
+                    return SuccessReading(result.Quota, result.CompletedAt ?? _time.GetUtcNow()) with { IsRestored = true };
+
                 case AgyProbeStatus.Waiting:
                     return CurrentReadingLocked(result.NextAllowedAt);
 

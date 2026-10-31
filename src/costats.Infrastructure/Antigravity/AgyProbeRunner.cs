@@ -36,9 +36,14 @@ public enum AgyProbeStatus
     Cancelled
 }
 
-/// <param name="Quota">Set for <see cref="AgyProbeStatus.Success"/> only.</param>
+/// <param name="Quota">
+/// Set for <see cref="AgyProbeStatus.Success"/>, and for
+/// <see cref="AgyProbeStatus.Waiting"/> when the last successful quota is
+/// stored and still current (its windows have not reset, and the last check
+/// did not fail).
+/// </param>
 /// <param name="NextAllowedAt">Set for <see cref="AgyProbeStatus.Waiting"/>: the earliest next check (UTC).</param>
-/// <param name="CompletedAt">When the attempt finished, for outcomes that started one.</param>
+/// <param name="CompletedAt">When the attempt finished, for outcomes that started one, or when a stored quota was read.</param>
 public sealed record AgyProbeResult(
     AgyProbeStatus Status,
     AgyQuotaReading? Quota = null,
@@ -157,6 +162,8 @@ public sealed class AgyProbeRunner : IAgyProbeRunner
     public const string LockFileName = "probe.lock";
     public const string ScheduleFileName = "schedule.json";
     public const string ScheduleTempFileName = "schedule.json.tmp";
+    public const string LastQuotaFileName = "last-quota.json";
+    public const string LastQuotaTempFileName = "last-quota.json.tmp";
     public const string PayloadFileName = "payload.json";
     public const string LogFileName = "agy.log";
 
@@ -184,6 +191,8 @@ public sealed class AgyProbeRunner : IAgyProbeRunner
     /// record whose boot cannot be compared gets a full wait.
     /// </summary>
     private bool _bootVerifiedThisProcess;
+
+    private int _warnedStoredQuota;
 
     public AgyProbeRunner(ILogger<AgyProbeRunner> logger)
         : this(logger, new AgyProbeRunnerOptions())
@@ -260,7 +269,7 @@ public sealed class AgyProbeRunner : IAgyProbeRunner
         {
             case AgyScheduleVerdict.Wait:
                 _bootVerifiedThisProcess = true;
-                return new AgyProbeResult(AgyProbeStatus.Waiting, NextAllowedAt: decision.NextAllowedAt);
+                return WaitingResult(decision.NextAllowedAt, file.State?.ConsecutiveFailures ?? 0, now);
 
             case AgyScheduleVerdict.RecordWithoutLaunch:
                 _logger.LogDebug(
@@ -272,7 +281,7 @@ public sealed class AgyProbeRunner : IAgyProbeRunner
                 }
 
                 _bootVerifiedThisProcess = true;
-                return new AgyProbeResult(AgyProbeStatus.Waiting, NextAllowedAt: decision.NextAllowedAt);
+                return WaitingResult(decision.NextAllowedAt, decision.Rewrite!.ConsecutiveFailures, now);
         }
 
         var storedBackoff = AgyProbeSchedule.ClampBackoff(file.State?.BackoffUntil, now);
@@ -290,6 +299,10 @@ public sealed class AgyProbeRunner : IAgyProbeRunner
         var completedUptime = _options.Uptime.TickCount64;
         var result = new AgyProbeResult(status, quota, CompletedAt: completedAt);
         var succeeded = status == AgyProbeStatus.Success;
+        if (succeeded && quota is not null)
+        {
+            TryWriteStoredQuota(quota, completedAt);
+        }
 
         // The failure count lives in the shared schedule, so it survives an app
         // restart and is the same for every tray instance. A cancelled check
@@ -526,6 +539,55 @@ public sealed class AgyProbeRunner : IAgyProbeRunner
         {
             _logger.LogDebug("Antigravity schedule could not be read ({ErrorKind})", ex.GetType().Name);
             return AgyScheduleFile.Corrupt;
+        }
+    }
+
+    /// <summary>
+    /// A Waiting result, carrying the stored quota when it may be shown: the
+    /// last check did not fail, and some window is still current. Read under
+    /// the lock, like the schedule.
+    /// </summary>
+    private AgyProbeResult WaitingResult(DateTimeOffset nextAllowedAt, int consecutiveFailures, DateTimeOffset now)
+    {
+        var stored = consecutiveFailures == 0 ? ReadStoredQuota(now) : null;
+        return new AgyProbeResult(AgyProbeStatus.Waiting, stored?.Quota, nextAllowedAt, stored?.CompletedAt);
+    }
+
+    private AgyStoredQuotaReading? ReadStoredQuota(DateTimeOffset now)
+    {
+        try
+        {
+            return AgyStoredQuota.Parse(File.ReadAllText(Path.Combine(_directory, LastQuotaFileName), Encoding.UTF8), now);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            _logger.LogDebug("Antigravity stored quota could not be read ({ErrorKind})", ex.GetType().Name);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Keeps the quota of a successful check for a restarted app. A failure
+    /// only costs that: the check itself still succeeded.
+    /// </summary>
+    private void TryWriteStoredQuota(AgyQuotaReading quota, DateTimeOffset completedAt)
+    {
+        var temp = Path.Combine(_directory, LastQuotaTempFileName);
+        try
+        {
+            File.WriteAllText(temp, AgyStoredQuota.Serialize(quota, completedAt), new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            File.Move(temp, Path.Combine(_directory, LastQuotaFileName), overwrite: true);
+        }
+        catch (Exception ex)
+        {
+            if (Interlocked.Exchange(ref _warnedStoredQuota, 1) == 0)
+            {
+                _logger.LogWarning("Antigravity quota could not be stored for the next start ({ErrorKind})", ex.GetType().Name);
+            }
         }
     }
 

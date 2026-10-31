@@ -251,6 +251,106 @@ public sealed class AgyProbeRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task A_success_is_stored_and_shown_while_the_schedule_waits()
+    {
+        var (runner, time, _) = TimedRunner();
+
+        var first = await runner.RunAsync(new AgyProbeRequest(Fifteen), CancellationToken.None);
+        Assert.Equal(AgyProbeStatus.Success, first.Status);
+        var text = File.ReadAllText(Path.Combine(ProbeDirectory, AgyProbeRunner.LastQuotaFileName));
+        Assert.DoesNotContain("@", text, StringComparison.Ordinal);
+
+        time.Advance(TimeSpan.FromMinutes(5));
+        var waiting = await runner.RunAsync(new AgyProbeRequest(Fifteen), CancellationToken.None);
+
+        Assert.Equal(AgyProbeStatus.Waiting, waiting.Status);
+        Assert.Equal(100, waiting.Quota!.GeminiWeekly!.UsedPercent);
+        Assert.Equal("Google AI Plus", waiting.Quota.PlanTier);
+        Assert.Equal(first.CompletedAt, waiting.CompletedAt);
+    }
+
+    [Fact]
+    public async Task A_new_process_shows_the_stored_quota_while_it_waits()
+    {
+        var (runner, time, uptime) = TimedRunner();
+        Assert.Equal(AgyProbeStatus.Success, (await runner.RunAsync(new AgyProbeRequest(Fifteen), CancellationToken.None)).Status);
+
+        // The tray restarts: same boot, new runner.
+        time.Advance(TimeSpan.FromMinutes(3));
+        uptime.Advance(TimeSpan.FromMinutes(3));
+        var (restarted, _, _) = TimedRunner(time, uptime);
+        var waiting = await restarted.RunAsync(new AgyProbeRequest(Fifteen), CancellationToken.None);
+
+        Assert.Equal(AgyProbeStatus.Waiting, waiting.Status);
+        Assert.NotNull(waiting.Quota);
+    }
+
+    [Fact]
+    public async Task A_stored_quota_is_not_shown_after_a_failed_check()
+    {
+        var (runner, time, uptime) = TimedRunner();
+        Assert.Equal(AgyProbeStatus.Success, (await runner.RunAsync(new AgyProbeRequest(Fifteen), CancellationToken.None)).Status);
+
+        time.Advance(TimeSpan.FromMinutes(20));
+        uptime.Advance(TimeSpan.FromMinutes(20));
+        var failing = new AgyProbeRunner(null, new AgyProbeRunnerOptions
+        {
+            BasePath = _basePath,
+            ResolveExecutable = () => AgyFixtures.CmdExe,
+            CommandLine = (_, _) => Quote(AgyFixtures.CmdExe) + " /d /c exit 3",
+            Deadline = TimeSpan.FromSeconds(10),
+            PlanGrace = TimeSpan.Zero,
+            Time = time,
+            Uptime = uptime
+        });
+        Assert.Equal(AgyProbeStatus.NoQuota, (await failing.RunAsync(new AgyProbeRequest(Fifteen), CancellationToken.None)).Status);
+
+        time.Advance(TimeSpan.FromMinutes(1));
+        var waiting = await failing.RunAsync(new AgyProbeRequest(Fifteen), CancellationToken.None);
+
+        Assert.Equal(AgyProbeStatus.Waiting, waiting.Status);
+        Assert.Null(waiting.Quota);
+    }
+
+    [Fact]
+    public async Task A_stored_window_that_has_reset_is_not_shown()
+    {
+        var (runner, time, _) = TimedRunner();
+        Assert.Equal(AgyProbeStatus.Success, (await runner.RunAsync(new AgyProbeRequest(Fifteen), CancellationToken.None)).Status);
+
+        // Past the Gemini weekly reset in the payload (2026-11-04 12:58Z), and
+        // more than a day after the untouched Claude & GPT bucket was read.
+        time.Now = new DateTimeOffset(2026, 11, 4, 13, 0, 0, TimeSpan.Zero);
+        File.WriteAllText(
+            Path.Combine(ProbeDirectory, AgyProbeRunner.ScheduleFileName),
+            AgyProbeSchedule.Serialize(new AgyProbeScheduleState(
+                time.Now.AddMinutes(-1), 0, InProgress: false, null, ConsecutiveFailures: 0, BootId: 7)));
+        var waiting = await runner.RunAsync(new AgyProbeRequest(Fifteen), CancellationToken.None);
+
+        Assert.Equal(AgyProbeStatus.Waiting, waiting.Status);
+        Assert.Null(waiting.Quota);
+    }
+
+    private (AgyProbeRunner Runner, ManualTimeProvider Time, FakeUptime Uptime) TimedRunner(
+        ManualTimeProvider? time = null,
+        FakeUptime? uptime = null)
+    {
+        time ??= new ManualTimeProvider(new DateTimeOffset(2026, 10, 30, 8, 0, 0, TimeSpan.Zero));
+        uptime ??= new FakeUptime(50_000_000) { BootId = 7 };
+        var fixture = WriteFixture("payload.json", AgyFixtures.RealPayload);
+        var runner = new AgyProbeRunner(null, new AgyProbeRunnerOptions
+        {
+            BasePath = _basePath,
+            ResolveExecutable = () => AgyFixtures.CmdExe,
+            CommandLine = (_, _) => CopyThenWaitCommand(fixture),
+            PlanGrace = TimeSpan.Zero,
+            Time = time,
+            Uptime = uptime
+        });
+        return (runner, time, uptime);
+    }
+
+    [Fact]
     public async Task A_success_resets_the_stored_failure_count_and_backoff()
     {
         var start = new DateTimeOffset(2026, 10, 30, 8, 0, 0, TimeSpan.Zero);

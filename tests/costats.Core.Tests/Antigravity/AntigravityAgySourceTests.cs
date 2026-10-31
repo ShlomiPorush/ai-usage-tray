@@ -88,6 +88,50 @@ public sealed class AntigravityAgySourceTests
         Assert.Same(success, cached);
     }
 
+    [Fact]
+    public async Task A_fresh_process_shows_the_stored_quota_while_waiting_marked_restored()
+    {
+        var stored = Success().Quota!;
+        _runner.Enqueue(new AgyProbeResult(AgyProbeStatus.Waiting, stored, T0.AddMinutes(15), T0.AddMinutes(-5)));
+
+        var reading = await Source().ReadAsync(CancellationToken.None);
+
+        Assert.True(reading.IsRestored);
+        Assert.Equal(100, reading.Usage!.WeekUsed);
+        Assert.Equal("Updated 07:55", reading.StatusSummary);
+        Assert.Equal(T0.AddMinutes(-5), reading.CapturedAt);
+    }
+
+    [Fact]
+    public async Task This_process_own_success_wins_over_the_stored_quota_so_alerts_keep_their_baseline()
+    {
+        // 40% -> Waiting -> 80%: the reading in between must stay a live one,
+        // or the alert tracker would forget the 40% baseline.
+        var source = Source();
+        _runner.Enqueue(Success());
+        _runner.Enqueue(new AgyProbeResult(AgyProbeStatus.Waiting, Success().Quota, T0.AddMinutes(15), T0));
+
+        var live = await source.ReadAsync(CancellationToken.None);
+        var waiting = await source.ReadAsync(CancellationToken.None);
+
+        Assert.Same(live, waiting);
+        Assert.False(waiting.IsRestored);
+    }
+
+    [Fact]
+    public async Task This_process_own_failure_wins_over_the_stored_quota()
+    {
+        var source = Source();
+        _runner.Enqueue(new AgyProbeResult(AgyProbeStatus.NoQuota, CompletedAt: T0));
+        _runner.Enqueue(new AgyProbeResult(AgyProbeStatus.Waiting, Success().Quota, T0.AddMinutes(15), T0.AddMinutes(-30)));
+
+        var failure = await source.ReadAsync(CancellationToken.None);
+        var waiting = await source.ReadAsync(CancellationToken.None);
+
+        Assert.Same(failure, waiting);
+        Assert.Null(waiting.Usage);
+    }
+
     [Theory]
     [InlineData(AgyProbeStatus.AgyNotFound, "agy (Antigravity CLI) was not found.")]
     [InlineData(AgyProbeStatus.LaunchFailed, "agy could not be started.")]
