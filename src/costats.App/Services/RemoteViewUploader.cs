@@ -43,8 +43,13 @@ namespace costats.App.Services
 
         private DateTimeOffset _lastSuccessfulUpload = DateTimeOffset.MinValue;
         private int _consecutiveFailures;
-        private int _uploadInFlight;
-        private int _refreshAfterUpload;
+
+        // The upload slot and a pending publish request change together under
+        // _uploadGate: a request is cleared only by the claim that will satisfy
+        // it (it composes afterwards) or by the slot owner that republishes.
+        private readonly object _uploadGate = new();
+        private bool _uploadInFlight;
+        private bool _publishRequested;
         private long _snapshotGeneration;
         private int _warnedAboutRejectedUrl;
         private PulseState? _lastState;
@@ -136,15 +141,27 @@ namespace costats.App.Services
 
         public void OnNext(PulseState state)
         {
+            if (state.IsRefreshing || state.Providers.Count == 0)
+            {
+                return;
+            }
+
+            // Only real pulses replace the state; a republish never writes an
+            // older state back over a newer one.
+            Volatile.Write(ref _lastState, state);
+            TryUpload();
+        }
+
+        /// <summary>
+        /// Uploads the latest state when remote view is usable, the throttle
+        /// allows it and no upload is running. The state is read after the
+        /// slot is claimed, so the upload carries everything stored before it.
+        /// </summary>
+        private void TryUpload()
+        {
             var claimedSlot = false;
             try
             {
-                if (state.IsRefreshing || state.Providers.Count == 0)
-                {
-                    return;
-                }
-
-                _lastState = state;
                 var uploadUrl = ResolveUploadUrl();
                 if (!_settings.RemoteViewEnabled ||
                     !RemoteViewIds.IsValidId(_settings.RemoteViewId) ||
@@ -160,6 +177,14 @@ namespace costats.App.Services
                     return;
                 }
 
+                // Nothing to publish before the first pulse. The state only ever
+                // goes from null to a value, so after this check the claim below
+                // always has a state to compose.
+                if (Volatile.Read(ref _lastState) is null)
+                {
+                    return;
+                }
+
                 var now = DateTimeOffset.UtcNow;
                 if (now - _lastSuccessfulUpload < MinimumUploadInterval)
                 {
@@ -170,24 +195,42 @@ namespace costats.App.Services
                 }
 
                 // One upload at a time; a slow endpoint must not queue refreshes up.
-                if (Interlocked.Exchange(ref _uploadInFlight, 1) == 1)
+                lock (_uploadGate)
                 {
-                    Logger.Debug("Remote view upload skipped: the previous one is still running");
-                    return;
+                    if (_uploadInFlight)
+                    {
+                        Logger.Debug("Remote view upload skipped: the previous one is still running");
+                        return;
+                    }
+
+                    // This upload is composed after the claim, so it answers
+                    // every publish request made before it.
+                    _uploadInFlight = true;
+                    _publishRequested = false;
                 }
 
                 claimedSlot = true;
-                _ = EnqueueSnapshotUpload(PrepareSnapshotUpload(state, now));
+                _ = EnqueueSnapshotUpload(PrepareSnapshotUpload(Volatile.Read(ref _lastState)!, now));
             }
             catch (Exception ex)
             {
                 if (claimedSlot)
                 {
-                    Interlocked.Exchange(ref _uploadInFlight, 0);
+                    // No republish here: a snapshot that cannot be prepared
+                    // would fail the same way again.
+                    ReleaseSlot();
                 }
 
                 // OnNext must never throw: it would tear down the pulse stream.
                 Logger.Warning("Remote view snapshot could not be prepared: {ErrorKind}", ex.GetType().Name);
+            }
+        }
+
+        private void ReleaseSlot()
+        {
+            lock (_uploadGate)
+            {
+                _uploadInFlight = false;
             }
         }
 
@@ -233,17 +276,18 @@ namespace costats.App.Services
         /// </summary>
         private void PublishNow()
         {
-            if (Volatile.Read(ref _uploadInFlight) == 1)
+            lock (_uploadGate)
             {
-                Interlocked.Exchange(ref _refreshAfterUpload, 1);
-                return;
+                _publishRequested = true;
+                if (_uploadInFlight)
+                {
+                    // The running upload republishes when it ends.
+                    return;
+                }
             }
 
             RequestImmediateUpload();
-            if (_lastState is { } state)
-            {
-                OnNext(state);
-            }
+            TryUpload();
         }
 
         private RemoteSnapshot Compose(PulseState state, DateTimeOffset generatedAt)
@@ -272,8 +316,12 @@ namespace costats.App.Services
                 .OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            // The primary account is named only when it is published itself, so
+            // an account kept off the remote view (a provider turned off) never
+            // leaks its id through the "primary" field either.
+            var primary = _settings.PrimaryAccountId;
             return RemoteSnapshotComposer.Compose(
-                _settings.PrimaryAccountId,
+                !string.IsNullOrWhiteSpace(primary) && IsPublished(primary) ? primary : null,
                 entries,
                 generatedAt,
                 _settings.ShowRemainingPercentages,
@@ -282,10 +330,29 @@ namespace costats.App.Services
 
         /// <summary>
         /// Exactly the account filter the tray surfaces use. Shared so the two
-        /// cannot drift: what you see in the tray is what the phone sees.
+        /// cannot drift: what you see in the tray is what the phone sees. The
+        /// account must also still have a source, so a deleted Claude or Codex
+        /// account in an older state is not published again.
         /// </summary>
         private bool IsPublished(string providerId) =>
-            TrayAccountFilter.IsVisible(providerId, _settings.HasZaiKey, _settings.CopilotEnabled);
+            TrayAccountFilter.IsVisible(providerId, _settings.HasZaiKey, _settings.CopilotEnabled, _settings.AntigravityEnabled) &&
+            _staticSources.Concat(_accountSources.Current)
+                .Any(source => source.Profile.ProviderId.Equals(providerId, StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>
+        /// A snapshot built before an account change follows the settings at
+        /// send time: accounts the filter now rejects (a provider turned off)
+        /// are dropped, and so is a primary that is no longer published. It
+        /// only removes; it never adds an account.
+        /// </summary>
+        private RemoteSnapshot WithoutUnpublishedAccounts(RemoteSnapshot snapshot)
+        {
+            var accounts = snapshot.Accounts.Where(account => IsPublished(account.Id)).ToList();
+            var primary = snapshot.Primary is { } id && IsPublished(id) ? id : null;
+            return accounts.Count == snapshot.Accounts.Count && primary == snapshot.Primary
+                ? snapshot
+                : snapshot with { Accounts = accounts, Primary = primary };
+        }
 
         /// <summary>
         /// The upload endpoint, or null when none is configured or the user's
@@ -316,6 +383,13 @@ namespace costats.App.Services
         /// the freshly copied link showing nothing.
         /// </summary>
         public void RequestImmediateUpload() => _lastSuccessfulUpload = DateTimeOffset.MinValue;
+
+        /// <summary>
+        /// Publishes the snapshot again with the current account settings, so a
+        /// removed or turned-off account leaves the viewer without waiting for
+        /// the throttle. An upload already running is followed by one more.
+        /// </summary>
+        public void PublishAfterAccountChange() => PublishNow();
 
         /// <summary>
         /// Removes the snapshot stored under <paramref name="writeId"/>. Best
@@ -369,6 +443,8 @@ namespace costats.App.Services
                     return;
                 }
 
+                snapshot = WithoutUnpublishedAccounts(snapshot);
+
                 var json = JsonSerializer.Serialize(snapshot, _serializerOptions);
                 using var content = new StringContent(json, Encoding.UTF8);
                 content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
@@ -417,8 +493,15 @@ namespace costats.App.Services
             }
             finally
             {
-                Interlocked.Exchange(ref _uploadInFlight, 0);
-                if (Interlocked.Exchange(ref _refreshAfterUpload, 0) == 1)
+                bool publishAgain;
+                lock (_uploadGate)
+                {
+                    _uploadInFlight = false;
+                    publishAgain = _publishRequested;
+                    _publishRequested = false;
+                }
+
+                if (publishAgain)
                 {
                     PublishNow();
                 }

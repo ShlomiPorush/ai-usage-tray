@@ -989,6 +989,16 @@ function demoSnapshot(now) {
         plan: "",
         windows: [{ label: "Session", usedPercent: 8, resetsAt: at(3 * HOUR) }],
       },
+      {
+        id: "antigravity",
+        provider: "antigravity",
+        name: "Antigravity",
+        plan: "Google AI Plus",
+        windows: [
+          { label: "Weekly", usedPercent: 35, resetsAt: at(4 * DAY) },
+          { label: "Weekly", usedPercent: 10, resetsAt: at(6 * DAY), scope: "Claude & GPT" },
+        ],
+      },
     ],
   };
 }

@@ -29,6 +29,15 @@ public sealed class TrayAccountFilterTests
         Assert.True(TrayAccountFilter.IsVisible("Copilot:personal", hasZaiKey: false, copilotEnabled: true));
     }
 
+    [Fact]
+    public void Antigravity_is_visible_only_when_enabled()
+    {
+        Assert.False(TrayAccountFilter.IsVisible("antigravity", hasZaiKey: true, copilotEnabled: true));
+        Assert.False(TrayAccountFilter.IsVisible("antigravity", hasZaiKey: true, copilotEnabled: true, antigravityEnabled: false));
+        Assert.True(TrayAccountFilter.IsVisible("Antigravity", hasZaiKey: false, copilotEnabled: false, antigravityEnabled: true));
+        Assert.False(TrayAccountFilter.IsVisible("antigravity:extra", hasZaiKey: false, copilotEnabled: false, antigravityEnabled: true));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

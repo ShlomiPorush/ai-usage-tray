@@ -14,9 +14,15 @@ public static class TrayAccountFilter
     /// <summary>
     /// True when <paramref name="providerId"/> should be listed as an account.
     /// Per-account keys are prefixed ("claude:", "codex:"); the single-instance
-    /// providers use a bare key ("claude", "zai", "copilot").
+    /// providers use a bare key ("claude", "zai", "copilot", "antigravity").
+    /// Antigravity is shown, and published to the remote view, only when
+    /// <paramref name="antigravityEnabled"/>.
     /// </summary>
-    public static bool IsVisible(string providerId, bool hasZaiKey, bool copilotEnabled)
+    public static bool IsVisible(
+        string providerId,
+        bool hasZaiKey,
+        bool copilotEnabled,
+        bool antigravityEnabled = false)
     {
         if (string.IsNullOrWhiteSpace(providerId))
         {
@@ -28,6 +34,10 @@ public static class TrayAccountFilter
             || providerId.Equals("claude", StringComparison.OrdinalIgnoreCase)
             || (providerId.Equals("zai", StringComparison.OrdinalIgnoreCase) && hasZaiKey)
             || (providerId.StartsWith("copilot:", StringComparison.OrdinalIgnoreCase) && copilotEnabled)
-            || (providerId.Equals("copilot", StringComparison.OrdinalIgnoreCase) && copilotEnabled);
+            || (providerId.Equals("copilot", StringComparison.OrdinalIgnoreCase) && copilotEnabled)
+            || (providerId.Equals(AntigravityProviderId, StringComparison.OrdinalIgnoreCase) && antigravityEnabled);
     }
+
+    /// <summary>The bare provider key of Google Antigravity.</summary>
+    public const string AntigravityProviderId = "antigravity";
 }

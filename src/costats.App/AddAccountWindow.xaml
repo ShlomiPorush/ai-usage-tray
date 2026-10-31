@@ -72,6 +72,7 @@
                 <ComboBoxItem Content="OpenAI Codex" Tag="codex" />
                 <ComboBoxItem Content="Z.AI / GLM" Tag="zai" />
                 <ComboBoxItem Content="GitHub Copilot" Tag="copilot" />
+                <ComboBoxItem Content="Google Antigravity" Tag="antigravity" />
             </ComboBox>
 
             <StackPanel x:Name="NamePanel">
@@ -99,6 +100,16 @@
                            TextWrapping="Wrap" Margin="0,6,0,0" />
             </StackPanel>
 
+            <!-- Antigravity: the agy CLI, no secret -->
+            <StackPanel x:Name="AntigravityPanel" Visibility="Collapsed">
+                <TextBlock x:Name="AntigravityStatusText" FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                           TextWrapping="Wrap" Margin="0,10,0,0" />
+                <TextBlock Text="Check at most every (minutes)" Style="{StaticResource FieldLabel}" />
+                <TextBox x:Name="AntigravityIntervalBox" MaxLength="3" Width="80" HorizontalAlignment="Left"
+                         Style="{StaticResource FieldBox}" TextChanged="OnAntigravityIntervalChanged" />
+                <TextBlock Text="From 5 to 240 minutes. Each check runs agy for a few seconds."
+                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" Margin="0,6,0,0" />
+            </StackPanel>
             <TextBlock x:Name="ErrorText" FontSize="11" Foreground="#DC2626" Margin="0,10,0,0"
                        TextWrapping="Wrap" Visibility="Collapsed" />
 

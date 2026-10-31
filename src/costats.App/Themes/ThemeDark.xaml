@@ -32,6 +32,7 @@
     <SolidColorBrush x:Key="CodexAccent" Color="#34D399" />
     <SolidColorBrush x:Key="ClaudeAccent" Color="#FB923C" />
     <SolidColorBrush x:Key="CopilotAccent" Color="#94A3B8" />
+    <SolidColorBrush x:Key="AntigravityAccent" Color="#60A5FA" />
     <SolidColorBrush x:Key="SessionAccent" Color="#FBBF24" />
     <SolidColorBrush x:Key="WeeklyAccent" Color="#60A5FA" />
     <SolidColorBrush x:Key="CostTodayAccent" Color="#6EE7B7" />
@@ -39,4 +40,6 @@
     <SolidColorBrush x:Key="PlanCodexFgBrush" Color="#6EE7B7" />
     <SolidColorBrush x:Key="PlanClaudeFgBrush" Color="#FDBA74" />
     <SolidColorBrush x:Key="PlanCopilotFgBrush" Color="#CBD5E1" />
+    <SolidColorBrush x:Key="PlanAntigravityFgBrush" Color="#93C5FD" />
+    <SolidColorBrush x:Key="PlanAntigravityBgBrush" Color="#4285F4" Opacity="0.16" />
 </ResourceDictionary>

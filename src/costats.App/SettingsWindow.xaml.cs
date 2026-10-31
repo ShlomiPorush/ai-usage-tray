@@ -249,6 +249,9 @@ namespace costats.App
                 case "copilot":
                     viewModel.ConfigureCopilot(dialog.Secret);
                     break;
+                case "antigravity":
+                    viewModel.ConfigureAntigravity(dialog.AntigravityIntervalMinutes);
+                    break;
                 default:
                     viewModel.AddAccountFromDialog(dialog.ProviderType, dialog.AccountName, dialog.ConfigDir);
                     break;
@@ -264,7 +267,8 @@ namespace costats.App
             }
 
             var configDir = row.Kind is "claude" or "codex" ? row.Detail : null;
-            var dialog = new AddAccountWindow(row.Kind, row.Name, configDir) { Owner = this };
+            int? antigravityInterval = row.IsAntigravity ? viewModel.AntigravityMinIntervalMinutes : null;
+            var dialog = new AddAccountWindow(row.Kind, row.Name, configDir, antigravityInterval) { Owner = this };
             if (dialog.ShowDialog() != true)
             {
                 return;
@@ -277,6 +281,9 @@ namespace costats.App
                     break;
                 case "copilot":
                     viewModel.ConfigureCopilot(dialog.Secret);
+                    break;
+                case "antigravity":
+                    viewModel.ConfigureAntigravity(dialog.AntigravityIntervalMinutes);
                     break;
                 default:
                     viewModel.UpdateAccountFromDialog(row.AccountId!, dialog.AccountName, dialog.ConfigDir);

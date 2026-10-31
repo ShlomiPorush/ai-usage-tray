@@ -6,7 +6,7 @@
 // the update land.
 
 // v25: the desktop date pickers, one-row phone header, scroll lock.
-var CACHE = "ai-usage-tray-shell-v26";
+var CACHE = "ai-usage-tray-shell-v27";
 
 var SHELL = [
   "./",
@@ -30,9 +30,18 @@ var SHELL_PATHS = SHELL.reduce(function (paths, entry) {
 self.addEventListener("install", function (event) {
   event.waitUntil(
     caches.open(CACHE)
-      .then(function (cache) { return cache.addAll(SHELL); })
-      // A single missing file must not block installation.
-      .catch(function () { /* ignore */ })
+      // cache: "reload" skips the browser's HTTP cache. The shell is served
+      // with max-age, so a visit shortly before an update would otherwise
+      // fill the new cache with the old files and pin them until the next
+      // cache name.
+      .then(function (cache) {
+        return cache.addAll(SHELL.map(function (entry) {
+          return new Request(entry, { cache: "reload" });
+        }));
+      })
+      // Only a complete shell takes over. If a file fails (offline, a
+      // dropped connection), installation fails, the current worker and its
+      // cache stay in place, and the browser tries again on a later visit.
       .then(function () { return self.skipWaiting(); })
   );
 });
