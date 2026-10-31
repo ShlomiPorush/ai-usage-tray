@@ -106,6 +106,44 @@ public sealed class ClaudeOAuthUsageFetcherTests
         Assert.Null(expiresAt);
     }
 
+    [Fact]
+    public void A_null_session_window_still_reads_the_weekly_limit()
+    {
+        // Live shape when no five-hour window is open: the block is null, not absent.
+        var result = ClaudeOAuthUsageFetcher.ParseResponse(
+            """
+            {
+              "five_hour": null,
+              "seven_day": { "utilization": 4.0, "resets_at": "2026-11-06T12:00:00.378997+00:00" },
+              "extra_usage": null,
+              "cedar_ember": null,
+              "limits": null
+            }
+            """,
+            "max",
+            "default_claude_max_20x");
+
+        Assert.NotNull(result);
+        Assert.Null(result.FiveHourUsedPercent);
+        Assert.Null(result.FiveHourResetsAt);
+        Assert.Equal(4.0, result.SevenDayUsedPercent);
+        Assert.Equal(DateTimeOffset.Parse("2026-11-06T12:00:00.378997+00:00"), result.SevenDayResetsAt);
+        Assert.False(result.OverageEnabled);
+    }
+
+    [Fact]
+    public void Null_session_and_weekly_blocks_read_as_no_usage_rather_than_a_failure()
+    {
+        var result = ClaudeOAuthUsageFetcher.ParseResponse(
+            """{ "five_hour": null, "seven_day": null, "extra_usage": null }""",
+            null,
+            null);
+
+        Assert.NotNull(result);
+        Assert.Null(result.FiveHourUsedPercent);
+        Assert.Null(result.SevenDayUsedPercent);
+    }
+
     [Theory]
     [InlineData(false, false, false, false)]
     [InlineData(true, false, false, false)]
