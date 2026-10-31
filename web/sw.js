@@ -6,7 +6,7 @@
 // the update land.
 
 // v25: the desktop date pickers, one-row phone header, scroll lock.
-var CACHE = "ai-usage-tray-shell-v27";
+var CACHE = "ai-usage-tray-shell-v28";
 
 var SHELL = [
   "./",
