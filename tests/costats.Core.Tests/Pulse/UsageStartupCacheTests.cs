@@ -211,6 +211,18 @@ public sealed class UsageStartupCacheTests
     }
 
     [Fact]
+    public async Task ClearAsync_reports_failure_when_the_file_cannot_be_deleted()
+    {
+        var store = new MemoryStore { FailDeletes = true };
+        var cache = Cache(store);
+        cache.Observe(cache.CaptureGeneration(), Readings((Claude, Live(40))), fullRefresh: true);
+        await cache.WhenIdleAsync();
+
+        Assert.False(await cache.ClearAsync(TimeSpan.FromSeconds(30)));
+        Assert.NotNull(store.Text);
+    }
+
+    [Fact]
     public void Clear_returns_at_once_while_a_write_is_held()
     {
         var store = new MemoryStore { HoldWrites = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
@@ -333,8 +345,15 @@ public sealed class UsageStartupCacheTests
             Text = text;
         }
 
+        public bool FailDeletes { get; init; }
+
         public Task DeleteAsync()
         {
+            if (FailDeletes)
+            {
+                throw new UnauthorizedAccessException("locked");
+            }
+
             Text = null;
             return Task.CompletedTask;
         }

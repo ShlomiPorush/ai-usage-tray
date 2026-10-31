@@ -31,6 +31,7 @@ public sealed class UsageStartupCache
 
     private long _generation;
     private int _suspended;
+    private bool _deleteFailed;
     private string? _pendingText;
     private long _pendingGeneration;
     private bool _pendingDelete;
@@ -168,7 +169,11 @@ public sealed class UsageStartupCache
         }
         while (!ReferenceEquals(writer, WhenIdleAsync()));
 
-        return true;
+        // A file that could not be deleted is still there for the next start.
+        lock (_gate)
+        {
+            return !_deleteFailed;
+        }
     }
 
     /// <summary>
@@ -358,13 +363,29 @@ public sealed class UsageStartupCache
                 }
             }
 
-            try
+            if (delete)
             {
-                if (delete)
+                try
                 {
                     await _store.DeleteAsync().ConfigureAwait(false);
+                    lock (_gate)
+                    {
+                        _deleteFailed = false;
+                    }
                 }
+                catch (Exception ex)
+                {
+                    lock (_gate)
+                    {
+                        _deleteFailed = true;
+                    }
 
+                    _logger.LogWarning("Stored usage could not be removed ({ErrorKind})", ex.GetType().Name);
+                }
+            }
+
+            try
+            {
                 bool current;
                 lock (_gate)
                 {
