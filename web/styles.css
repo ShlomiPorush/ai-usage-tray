@@ -555,6 +555,77 @@ h1 {
   padding: 14px 16px;
 }
 
+/* Account order ------------------------------------------------------- */
+
+.order-handle {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  /* A larger target for a finger without making the card head taller. */
+  margin: -6px -10px -6px auto;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* The plan chip already takes the free space. */
+.chip + .order-handle { margin-left: 0; }
+
+.order-handle:hover {
+  color: var(--ink);
+  background: var(--chip-bg);
+}
+
+.order-handle svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: currentColor;
+}
+
+.card.is-dragging {
+  position: relative;
+  z-index: 2;
+  /* The pointer must reach the card underneath to find the drop spot. */
+  pointer-events: none;
+  border-color: var(--accent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+}
+
+body.is-sorting,
+body.is-sorting * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.order-reset {
+  display: flex;
+  justify-content: center;
+}
+
+.order-reset-button {
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.order-reset-button:hover { color: var(--ink); }
+
 .card-head {
   display: flex;
   align-items: center;
