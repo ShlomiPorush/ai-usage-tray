@@ -866,6 +866,13 @@
     "cache_read_input_token_cost": 0.000001,
     "cache_creation_input_token_cost": 0.0000125
   },
+  "gpt-6-astra-law": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00001,
+    "output_cost_per_token": 0.00005,
+    "cache_read_input_token_cost": 0.000001
+  },
   "gpt-6-luna": {
     "litellm_provider": "openai",
     "mode": "chat",
@@ -873,6 +880,14 @@
     "output_cost_per_token": 5e-7,
     "cache_read_input_token_cost": 1e-8,
     "cache_creation_input_token_cost": 1.25e-7
+  },
+  "gpt-6-rosalind": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000015,
+    "output_cost_per_token": 0.000075,
+    "cache_read_input_token_cost": 0.0000015,
+    "cache_creation_input_token_cost": 0.00001875
   },
   "gpt-6-sol": {
     "litellm_provider": "openai",
