@@ -15,8 +15,8 @@ public static class TrayAccountFilter
     /// True when <paramref name="providerId"/> should be listed as an account.
     /// Per-account keys are prefixed ("claude:", "codex:"); the single-instance
     /// providers use a bare key ("claude", "zai", "copilot", "antigravity").
-    /// Antigravity is shown only when <paramref name="antigravityEnabled"/>; the
-    /// remote uploader never passes it, because Antigravity is not published.
+    /// Antigravity is shown, and published to the remote view, only when
+    /// <paramref name="antigravityEnabled"/>.
     /// </summary>
     public static bool IsVisible(
         string providerId,

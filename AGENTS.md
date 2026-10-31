@@ -17,7 +17,7 @@ AI Usage Tray: a .NET 10 WPF Windows tray app (fork of fmdz387/costats, MIT) sho
 7. **Do not promise visible UI results without verifying** against live data first. Provider APIs change between calls (e.g. Codex `rateLimitsByLimitId` appears intermittently; Claude percentages move constantly).
 8. Keep replies to the owner short: outcome first, few lines, act instead of describing. Hebrew for chat, English for code/docs/commits.
 9. **Session activation is explicit opt-in and defaults off.** Do not enable or run live activation during automated tests or routine review: it creates provider activity and may start a real quota window. Test command construction, preflight and state handling with fakes. A live activation check requires explicit owner approval.
-10. **Antigravity (`AntigravityAgySource`) never reads Antigravity tokens** and never edits the agy settings file: it starts the official `agy` CLI with inline `--settings`, reads only the quota buckets and plan from the statusline payload, and drops the email. **Never run the real `agy` in automated tests or routine review**; tests use stand-in executables such as `cmd.exe`. Antigravity is never published to the remote view.
+10. **Antigravity (`AntigravityAgySource`) never reads Antigravity tokens** and never edits the agy settings file: it starts the official `agy` CLI with inline `--settings`, reads only the quota buckets and plan from the statusline payload, and drops the email. **Never run the real `agy` in automated tests or routine review**; tests use stand-in executables such as `cmd.exe`. When enabled, Antigravity is published to the remote view like any other account (quota and plan only, never the email).
 
 ## Build, test, verify (all local; do NOT use CI as your build machine)
 

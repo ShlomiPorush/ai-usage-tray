@@ -121,7 +121,7 @@ Self-hosting is optional: pull the published SQLite-backed container from GitHub
 - **Claude**: Anthropic's OAuth usage endpoint using the isolated profile's token. This is not a documented public API and may change.
 - **Z.AI**: `api.z.ai` usage endpoints with a Bearer token.
 - **Copilot**: unofficial GitHub endpoint; token stored in Windows Credential Manager.
-- **Google Antigravity**: the official `agy` CLI, started briefly in a hidden console at most once per the interval you choose; the app reads the quota from its statusline update and closes it. No token is read and the `agy` settings are not changed. Not published to the remote view. Details in [docs/ANTIGRAVITY.md](docs/ANTIGRAVITY.md).
+- **Google Antigravity**: the official `agy` CLI, started briefly in a hidden console at most once per the interval you choose; the app reads the quota from its statusline update and closes it. No token is read and the `agy` settings are not changed. When remote view is on, Antigravity is published like the other accounts: quota and plan, never the email. Details in [docs/ANTIGRAVITY.md](docs/ANTIGRAVITY.md).
 - **Optional window activation**: the app uses each provider's official CLI/profile only after you opt in. Codex starts through an isolated read-only prompt with web and shell tools disabled; Claude and GLM receive a minimal prompt. The schedule controls when these starts may happen.
 - No telemetry. Requests go only to the provider APIs above. Local credential files and the profile folders are git-ignored.
 

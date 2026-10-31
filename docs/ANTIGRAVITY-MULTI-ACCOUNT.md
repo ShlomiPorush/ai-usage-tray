@@ -36,6 +36,6 @@ In that mode, `agy` writes the sign-in to `<profile>\.gemini\antigravity-cli\ant
 - Probes reuse the existing runner, with the same lock, job object, deadline and schedule, and one schedule entry per account. Only one `agy` runs at a time.
 - **Fallback guard.** Keep a salted hash of the account email in memory and settings, never the email itself. If an extra account returns the same hash as the main account, or as another extra account, show an error instead of duplicate data. This catches the silent fallback if `agy` drops the SSH behaviour.
 - **Remove account** deletes that account's profile folder, after a confirmation that names the folder.
-- Antigravity data stays local and is never published to the remote view.
+- Each account follows the same remote view rules as the main account: quota and plan only, never the email.
 
 This touches tokens on disk, so it needs a full plan review and a result review before implementation.

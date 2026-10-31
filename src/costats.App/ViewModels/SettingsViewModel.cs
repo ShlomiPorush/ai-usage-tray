@@ -824,7 +824,22 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         _analytics.Invalidate();
         RebuildProviderRows();
         AccountsRestartMessage = message;
-        _ = _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+        // A removed or turned-off account leaves the remote view right away,
+        // and the refreshed readings follow as soon as they are in.
+        _remoteViewUploader?.PublishAfterAccountChange();
+        _ = RefreshAndPublishAsync();
+    }
+
+    private async Task RefreshAndPublishAsync()
+    {
+        try
+        {
+            await _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None);
+        }
+        finally
+        {
+            _remoteViewUploader?.PublishAfterAccountChange();
+        }
     }
 
     /// <summary>Adds a Claude/Codex account from the Add-account dialog.</summary>

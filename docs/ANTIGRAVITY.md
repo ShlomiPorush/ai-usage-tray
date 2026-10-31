@@ -28,7 +28,11 @@ The dialog says whether it found `agy`. The app looks for `%LOCALAPPDATA%\agy\bi
 - It never reads, copies or stores Antigravity tokens. `agy` keeps its own sign-in.
 - It never changes the `agy` settings file. The statusline command is passed only for that one run, on the command line.
 - It never lets the check update `agy`: auto-update is turned off for the run (`AGY_CLI_DISABLE_AUTO_UPDATE=true`).
-- It never sends Antigravity data to the remote viewer.
+- It never sends the account email anywhere, including the remote view.
+
+## Remote view
+
+When remote view is on, Antigravity is published like the other accounts: its name, plan, the Gemini windows and the "Claude & GPT" rows, with their usage and reset times. When you remove Antigravity or turn it off, the app uploads a snapshot without it right away. The viewer stops showing it after that upload succeeds. If uploads keep failing, the last stored snapshot stays on the relay until it expires after 7 days without updates, or until you turn remote view off, which deletes it.
 
 ## Files
 
@@ -46,5 +50,4 @@ If the app crashes during a check, or the folder cannot be deleted, that subfold
 - The headline colour of the account reflects the Gemini windows only. The "Claude & GPT" rows have their own colours.
 - Only one Antigravity account is supported: the one `agy` is signed in to for your Windows account. A possible design for more accounts is kept in [ANTIGRAVITY-MULTI-ACCOUNT.md](ANTIGRAVITY-MULTI-ACCOUNT.md).
 - Each check also refreshes a few of `agy`'s own state files, such as `cache\onboarding.json` and an empty crash log under `~\.gemini\antigravity-cli`. These files do not grow, and `agy` adds no logs or conversations.
-- Antigravity is not shown in the remote viewer yet.
 - Each check starts `agy` for a few seconds, so it uses a little CPU and network every interval.

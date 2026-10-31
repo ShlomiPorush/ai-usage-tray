@@ -361,6 +361,7 @@ test("serves the viewer, same-origin config, demo, and health endpoint", async (
   assert.equal(demoPayload.usage.shared, true);
   assert.ok(Number.isSafeInteger(demoPayload.usage.seq));
   assert.equal(validatePayload(demoPayload), null);
+  assert.ok(demoPayload.accounts.some((account) => account.provider === "antigravity"));
   assert.equal((await fetch(`${fixture.baseUrl}/u/demo`, { method: "DELETE" })).status, 405);
 
   const health = await fetch(`${fixture.baseUrl}/health`);
