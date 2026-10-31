@@ -263,6 +263,9 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
         IsOverview = true;
     }
 
+    /// <summary>A live state has been shown; UI thread only.</summary>
+    private bool _appliedLiveState;
+
     [ObservableProperty]
     private bool isRefreshing = true; // Start true to show spinner on initial load
 
@@ -293,6 +296,19 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
         // This allows window deactivation to work even during data updates
         System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
         {
+            // The stored usage shown at startup never replaces a live state,
+            // whichever of the two this thread happens to receive first.
+            var isCached = value.Trigger == RefreshTrigger.Cached;
+            if (isCached && _appliedLiveState)
+            {
+                return;
+            }
+
+            if (!isCached && value.Providers.Count > 0)
+            {
+                _appliedLiveState = true;
+            }
+
             ApplySettings();
             IsRefreshing = value.IsRefreshing;
 
@@ -377,8 +393,13 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                 }
             }
 
-            LastUpdated = value.LastRefresh.ToLocalTime().ToString("g");
-            UpdatedLabel = $"Updated {value.LastRefresh.ToLocalTime():t}";
+            // A state without providers (an empty loading state) says nothing
+            // about when the numbers on screen were read.
+            if (value.Providers.Count > 0)
+            {
+                LastUpdated = value.LastRefresh.ToLocalTime().ToString("g");
+                UpdatedLabel = $"Updated {value.LastRefresh.ToLocalTime():t}";
+            }
         });
     }
 

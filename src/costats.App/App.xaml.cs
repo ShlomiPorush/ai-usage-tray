@@ -16,6 +16,7 @@ using costats.Infrastructure.Analytics;
 using costats.Infrastructure.Antigravity;
 using costats.Infrastructure.Storage;
 using costats.Infrastructure.Providers;
+using costats.Infrastructure.Pulse;
 using costats.Infrastructure.Security;
 using costats.Infrastructure.SessionActivation;
 using costats.Infrastructure.Settings;
@@ -190,6 +191,9 @@ namespace costats.App
         {
             Log.Information("Application exiting (ExitCode={ExitCode})", e.ApplicationExitCode);
             _updateLoopCts?.Cancel();
+            // Synchronously, before the first await: WPF does not wait for the rest
+            // of this method, so a queued reset-checkpoint save must finish here.
+            (_host?.Services.GetService(typeof(TrayHost)) as TrayHost)?.FlushPendingSaves();
             try
             {
                 if (_host is not null)
@@ -866,6 +870,9 @@ namespace costats.App
                         () => settings.ZAiCodingApiKey,
                         () => settings.ZAiApiKey,
                         () => settings.ZAiDisplayName));
+                    // Startup usage cache: the last good usage, shown while the first refresh runs.
+                    services.AddSingleton<IUsageSnapshotStore>(_ => new JsonUsageSnapshotStore());
+                    services.AddSingleton<UsageStartupCache>();
                     services.AddSingleton<IPulseOrchestrator, PulseOrchestrator>();
                     services.AddHostedService(sp => (PulseOrchestrator)sp.GetRequiredService<IPulseOrchestrator>());
 
@@ -939,7 +946,12 @@ namespace costats.App
                 _host.Services.GetRequiredService<TrayHost>().ToggleWidget();
             // Resolved eagerly: it subscribes to the pulse stream in its constructor.
             _ = _host.Services.GetRequiredService<RemoteViewUploader>();
-            return _host.Services.GetRequiredService<TrayHost>();
+            var trayHost = _host.Services.GetRequiredService<TrayHost>();
+
+            // The tray, the widget and the uploader have all subscribed: show the
+            // last known usage now (or a first refresh they may have missed).
+            _host.Services.GetRequiredService<IPulseOrchestrator>().PublishStartupState();
+            return trayHost;
         }
 
         private async Task StartListenerAsync(TrayHost tray)

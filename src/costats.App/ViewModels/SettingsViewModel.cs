@@ -42,6 +42,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     private readonly IAccountSourceRegistry? _accountSources;
     private readonly RemoteViewUploader? _remoteViewUploader;
     private readonly DebugLoggingController? _debugLogging;
+    private readonly UsageStartupCache? _startupCache;
     private bool _suppressDebugLoggingChange;
     private bool _suppressHotkeyChange;
     private bool _isApplyingImport;
@@ -62,7 +63,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         IAccountSourceRegistry? accountSources = null,
         StartupUpdateCoordinator? updateCoordinator = null,
         RemoteViewUploader? remoteViewUploader = null,
-        DebugLoggingController? debugLogging = null)
+        DebugLoggingController? debugLogging = null,
+        UsageStartupCache? startupCache = null)
     {
         _settingsStore = settingsStore;
         _settings = settings;
@@ -75,6 +77,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         _updateCoordinator = updateCoordinator;
         _remoteViewUploader = remoteViewUploader;
         _debugLogging = debugLogging;
+        _startupCache = startupCache;
 
         refreshMinutes = settings.RefreshMinutes;
         startAtLogin = GetStartupRegistryValue();
@@ -773,6 +776,18 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
             return;
         }
 
+        // Another person may sign in to this folder. Until the sign-in is over,
+        // nothing is stored (a refresh meanwhile may still read the previous
+        // person), and the stored usage is removed from disk before the window
+        // opens, so even a crash during the sign-in cannot show it again.
+        using var storingPaused = _startupCache?.Suspend();
+        if (_startupCache is not null &&
+            !await _startupCache.ClearAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(true))
+        {
+            AccountsRestartMessage = $"Could not prepare {row.Name} sign-in because saved usage could not be removed. Try again.";
+            return;
+        }
+
         var command = row.IsCodex
             ? CodexSignInCommand.Create(row.Detail, "Complete Codex sign-in. This window closes by itself when it is done.")
             : $"$env:CLAUDE_CONFIG_DIR={PowerShellLiteral.Quote(row.Detail)}; Write-Host 'If needed, type /login in Claude Code, then /exit to finish.' -ForegroundColor Cyan; claude";
@@ -787,6 +802,10 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         try
         {
             await process.WaitForExitAsync().ConfigureAwait(true);
+            // Another account may now be signed in under the same folder: drop
+            // refreshes that started during the sign-in, then store again.
+            _startupCache?.Clear();
+            storingPaused?.Dispose();
             _accountSources?.Reload();
             await _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None)
                 .ConfigureAwait(true);
@@ -819,6 +838,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     /// <summary>Persists account changes and applies them live (no restart needed).</summary>
     private void ApplyAccountsChanged(string message = "Saved and applied.")
     {
+        // The stored usage may belong to an account that was just changed.
+        _startupCache?.Clear();
         SaveSettingsInBackground();
         _accountSources?.Reload();
         _analytics.Invalidate();
@@ -1933,6 +1954,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         finally
         {
             _isApplyingImport = false;
+            // The import may have replaced accounts under the same ids.
+            _startupCache?.Clear();
         }
 
         try

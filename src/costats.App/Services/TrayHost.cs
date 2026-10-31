@@ -41,6 +41,12 @@ namespace costats.App.Services
         private readonly AppSettings _settings;
         private string? _lastFloatingPanelPosition;
         private readonly UsageAlertTracker _usageAlertTracker = new();
+
+        /// <summary>A live state has been shown; UI thread only.</summary>
+        private bool _appliedLiveState;
+
+        /// <summary>The last queued reset-checkpoint save; UI thread only.</summary>
+        private Task _resetCheckpointSave = Task.CompletedTask;
         private readonly UsageResetAlertTracker _usageResetAlertTracker;
         private readonly IUsageResetStateStore _usageResetStateStore;
         private readonly AuthenticationAlertTracker _authenticationAlertTracker = new();
@@ -461,6 +467,13 @@ namespace costats.App.Services
 
         public void OnNext(PulseState state)
         {
+            // A refreshing state without providers has nothing to show; applying
+            // it would blank the icon and rows that are already on screen.
+            if (state.IsRefreshing && state.Providers.Count == 0)
+            {
+                return;
+            }
+
             var displayNames = _staticSources
                 .Concat(_accountSources.Current)
                 .Select(source => source.Profile)
@@ -513,14 +526,9 @@ namespace costats.App.Services
                     .Select(rule => new UsageAlertRule(rule.ProviderId, rule.ThresholdPercent))
                     .ToArray()
                 : [];
-            var usageAlerts = _usageAlertTracker.Observe(state, usageAlertRules);
-            var resetAlerts = _usageResetAlertTracker.Observe(
-                state,
-                _settings.UsageAlertsEnabled && _settings.UsageResetAlertsEnabled
-                    ? usageAlertRules.Select(rule => rule.ProviderId)
-                    : []);
-            _usageResetStateStore.Save(_usageResetAlertTracker.ExportCheckpoints());
-            var signInAlerts = _authenticationAlertTracker.Observe(state);
+            var resetAlertProviders = _settings.UsageAlertsEnabled && _settings.UsageResetAlertsEnabled
+                ? usageAlertRules.Select(rule => rule.ProviderId).ToArray()
+                : [];
             var accounts = accountEntries.Select(entry => entry.Account).ToArray();
             var status = TrayStatusComposer.Compose(
                 accounts,
@@ -588,14 +596,54 @@ namespace costats.App.Services
                 return;
             }
 
-            LogAlerts(usageAlerts, resetAlerts, signInAlerts);
             dispatcher.BeginInvoke(() =>
             {
+                // Decided here, on the UI thread, in the order the states are
+                // shown: the stored usage never replaces a live state.
+                var isCached = state.Trigger == RefreshTrigger.Cached;
+                if (isCached && _appliedLiveState)
+                {
+                    return;
+                }
+
+                if (!isCached && state.Providers.Count > 0)
+                {
+                    _appliedLiveState = true;
+                }
+
                 ApplyTrayStatus(status, rows, floatingRows);
+                if (isCached)
+                {
+                    return;
+                }
+
+                // The alert trackers run here, one state at a time, so a state
+                // published twice can never fire an alert twice. Readings read
+                // back from disk are never an observation.
+                var observed = RestoredUsage.WithoutRestoredReadings(state);
+                var usageAlerts = _usageAlertTracker.Observe(observed, usageAlertRules);
+                var resetAlerts = _usageResetAlertTracker.Observe(observed, resetAlertProviders);
+                SaveResetCheckpoints(_usageResetAlertTracker.ExportCheckpoints());
+                var signInAlerts = _authenticationAlertTracker.Observe(observed);
+                LogAlerts(usageAlerts, resetAlerts, signInAlerts);
                 ShowUsageAlerts(usageAlerts, displayNames, showRemainingPercentages);
                 ShowUsageResetAlerts(resetAlerts, displayNames);
                 ShowSignInRequiredAlerts(signInAlerts, displayNames);
             });
+        }
+
+        /// <summary>
+        /// Saves the reset checkpoints off the UI thread, one save after another,
+        /// so a slow disk never holds up the tray and an older save never lands
+        /// after a newer one. Called on the UI thread only.
+        /// </summary>
+        private void SaveResetCheckpoints(IReadOnlyCollection<UsageResetCheckpoint> checkpoints)
+        {
+            _resetCheckpointSave = _resetCheckpointSave.ContinueWith(
+                _ => _usageResetStateStore.Save(checkpoints),
+                CancellationToken.None,
+                TaskContinuationOptions.None,
+                TaskScheduler.Default);
         }
 
         private static void LogAlerts(
@@ -787,8 +835,26 @@ namespace costats.App.Services
             }
         }
 
+        /// <summary>
+        /// Lets a queued reset-checkpoint save finish (for up to two seconds), so a
+        /// reset alert already shown is not shown again after the next start.
+        /// Called on exit before anything is awaited, and again from Dispose.
+        /// </summary>
+        public void FlushPendingSaves()
+        {
+            try
+            {
+                _resetCheckpointSave.Wait(TimeSpan.FromSeconds(2));
+            }
+            catch (AggregateException)
+            {
+                // The store reports its own failures; nothing more to do on exit.
+            }
+        }
+
         public void Dispose()
         {
+            FlushPendingSaves();
             _hoverHideTimer?.Stop();
             _hoverTooltipWindow?.Close();
             _pulseSubscription.Dispose();

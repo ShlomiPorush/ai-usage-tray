@@ -12,5 +12,13 @@ public enum RefreshTrigger
     Scheduled,
 
     /// <summary>Silent refresh when panel opens (no loading indicator).</summary>
-    Silent
+    Silent,
+
+    /// <summary>
+    /// The usage stored by the previous run, shown at startup while the first
+    /// refresh runs. Display only: never the current state, never uploaded,
+    /// never an alert observation, and ignored by a view that already shows a
+    /// live state.
+    /// </summary>
+    Cached
 }
