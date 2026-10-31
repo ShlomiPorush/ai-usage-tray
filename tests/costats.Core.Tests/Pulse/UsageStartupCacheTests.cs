@@ -159,6 +159,22 @@ public sealed class UsageStartupCacheTests
     }
 
     [Fact]
+    public async Task ClearAsync_returns_only_once_the_stored_usage_is_gone_from_disk()
+    {
+        var store = new MemoryStore { HoldWrites = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var cache = Cache(store);
+        cache.Observe(cache.CaptureGeneration(), Readings((Claude, Live(40))), fullRefresh: true);
+        await store.WriteStarted.Task;
+
+        var clearing = cache.ClearAsync();
+        Assert.False(clearing.IsCompleted);
+        store.HoldWrites.SetResult();
+        await clearing.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Null(store.Text);
+    }
+
+    [Fact]
     public void Clear_returns_at_once_while_a_write_is_held()
     {
         var store = new MemoryStore { HoldWrites = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };

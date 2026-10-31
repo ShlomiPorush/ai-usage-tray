@@ -137,6 +137,23 @@ public sealed class UsageStartupCache
     }
 
     /// <summary>
+    /// <see cref="Clear"/>, then waits until the file is gone from disk (or its
+    /// removal failed and was logged). For a change that must hold even if the
+    /// app stops right after it.
+    /// </summary>
+    public async Task ClearAsync()
+    {
+        Clear();
+        Task writer;
+        do
+        {
+            writer = WhenIdleAsync();
+            await writer.ConfigureAwait(false);
+        }
+        while (!ReferenceEquals(writer, WhenIdleAsync()));
+    }
+
+    /// <summary>
     /// The stored usage as a display-only refreshing state, or null when
     /// nothing current is stored. Only providers among
     /// <paramref name="currentProviderIds"/> that the tray would show now are

@@ -776,6 +776,14 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
             return;
         }
 
+        // Another person may sign in to this folder: the stored usage is removed
+        // from disk before the sign-in window opens, so even a crash during the
+        // sign-in cannot show the previous person's usage at the next start.
+        if (_startupCache is not null)
+        {
+            await _startupCache.ClearAsync().ConfigureAwait(true);
+        }
+
         var command = row.IsCodex
             ? CodexSignInCommand.Create(row.Detail, "Complete Codex sign-in. This window closes by itself when it is done.")
             : $"$env:CLAUDE_CONFIG_DIR={PowerShellLiteral.Quote(row.Detail)}; Write-Host 'If needed, type /login in Claude Code, then /exit to finish.' -ForegroundColor Cyan; claude";

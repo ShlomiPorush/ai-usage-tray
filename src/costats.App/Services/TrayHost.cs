@@ -837,6 +837,17 @@ namespace costats.App.Services
 
         public void Dispose()
         {
+            // Let a queued reset-checkpoint save finish, so a reset alert already
+            // shown is not shown again after the next start.
+            try
+            {
+                _resetCheckpointSave.Wait(TimeSpan.FromSeconds(2));
+            }
+            catch (AggregateException)
+            {
+                // The store reports its own failures; nothing more to do on exit.
+            }
+
             _hoverHideTimer?.Stop();
             _hoverTooltipWindow?.Close();
             _pulseSubscription.Dispose();
