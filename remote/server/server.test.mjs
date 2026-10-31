@@ -28,6 +28,8 @@ import {
 
 const require = createRequire(import.meta.url);
 const {
+  applyAccountOrder,
+  parseAccountOrder,
   resetExpiryInfo,
   resetExpiryNotice,
   describeNotificationError,
@@ -141,6 +143,24 @@ test("viewer defaults to the desktop percentage preference without a browser ove
 test("viewer keeps an explicit browser percentage override", () => {
   assert.equal(resolvePercentMode("used", "remaining"), "used");
   assert.equal(resolvePercentMode("left", "used"), "left");
+});
+
+test("viewer reads a saved account order and ignores unusable values", () => {
+  assert.deepEqual(parseAccountOrder('["codex:b","claude:a"]'), ["codex:b", "claude:a"]);
+  assert.deepEqual(parseAccountOrder('["a",3,"","a","b"]'), ["a", "b"]);
+  assert.equal(parseAccountOrder(null), null);
+  assert.equal(parseAccountOrder("not json"), null);
+  assert.equal(parseAccountOrder('{"a":1}'), null);
+  assert.equal(parseAccountOrder("[]"), null);
+});
+
+test("viewer applies a saved account order and appends accounts it has not seen", () => {
+  const accounts = [{ id: "a" }, { id: "b" }, { id: "c" }, { name: "no id" }, { id: "d" }];
+  const ordered = applyAccountOrder(accounts, ["c", "gone", "a"]);
+  assert.deepEqual(ordered.map((account) => account.id ?? account.name), ["c", "a", "b", "no id", "d"]);
+  assert.deepEqual(applyAccountOrder(accounts, null), accounts);
+  assert.notEqual(applyAccountOrder(accounts, null), accounts);
+  assert.deepEqual(applyAccountOrder([{ id: "__proto__" }, { id: "x" }], ["x", "__proto__"]).map((a) => a.id), ["x", "__proto__"]);
 });
 
 test("viewer presents notification actions from the real subscription state", () => {

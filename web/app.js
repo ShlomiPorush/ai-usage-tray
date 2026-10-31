@@ -118,8 +118,46 @@ function resetExpiryNotice(source, now) {
   return count === 0 ? "" : count === 1 ? "1 reset expires within 7 days." : count + " resets expire within 7 days.";
 }
 
+// A browser's own account order for one shared view, stored as a JSON list of
+// account ids. Anything unusable reads as "no saved order".
+function parseAccountOrder(raw) {
+  if (typeof raw !== "string" || !raw) return null;
+  var parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  var ids = parsed.filter(function (value, index) {
+    return typeof value === "string" && value && parsed.indexOf(value) === index;
+  });
+  return ids.length ? ids : null;
+}
+
+// Saved ids lead in their saved order. Accounts this browser has not ordered
+// yet keep the default order after them, so a new account appears at the end.
+function applyAccountOrder(accounts, savedIds) {
+  var list = Array.isArray(accounts) ? accounts.slice() : [];
+  if (!Array.isArray(savedIds) || savedIds.length === 0) return list;
+  var rank = Object.create(null);
+  savedIds.forEach(function (value, index) {
+    if (typeof value === "string" && !(value in rank)) rank[value] = index;
+  });
+  var known = [];
+  var unknown = [];
+  list.forEach(function (account) {
+    if (account && typeof account.id === "string" && account.id in rank) known.push(account);
+    else unknown.push(account);
+  });
+  known.sort(function (a, b) { return rank[a.id] - rank[b.id]; });
+  return known.concat(unknown);
+}
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    applyAccountOrder: applyAccountOrder,
+    parseAccountOrder: parseAccountOrder,
     resetExpiryInfo: resetExpiryInfo,
     resetExpiryNotice: resetExpiryNotice,
     describeNotificationError: describeNotificationError,
@@ -148,6 +186,12 @@ if (typeof module !== "undefined" && module.exports) {
   var THEME_KEY = "aiUsageTray.theme";
   var PERCENT_MODE_KEY = "aiUsageTray.percentMode";
   var LAST_ID_KEY = "aiUsageTray.lastId";
+  // Followed by the read id: each shared view keeps its own order.
+  var ACCOUNT_ORDER_KEY_PREFIX = "aiUsageTray.accountOrder.";
+  // Pointer travel before a press on the handle becomes a drag.
+  var DRAG_THRESHOLD_PX = 4;
+  // Distance from the viewport edge where a drag scrolls the page.
+  var DRAG_SCROLL_EDGE_PX = 56;
 
   var RELEASES_URL = "https://github.com/ShlomiPorush/ai-usage-tray/releases/latest";
   var REPO_URL = "https://github.com/ShlomiPorush/ai-usage-tray";
@@ -196,6 +240,12 @@ if (typeof module !== "undefined" && module.exports) {
   var pushSubscription = null;
   var notificationBusy = false;
   var associatedPushReadId = null;
+  var drag = null; // the card being dragged, while a drag is in progress
+  var renderPending = false; // a render arrived during a drag
+  var orderStatusEl = null;
+  // This page's account order. It is read from storage once and stays in
+  // memory, so blocked or full storage only loses it on the next visit.
+  var savedOrder; // undefined until first read, then an id list or null
 
   // --- small helpers ---------------------------------------------------
 
@@ -261,6 +311,12 @@ if (typeof module !== "undefined" && module.exports) {
     try {
       window.localStorage.setItem(key, value);
     } catch (error) { /* nothing we can do, and nothing depends on it */ }
+  }
+
+  function removeStored(key) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch (error) { /* best-effort, like writeStored */ }
   }
 
   function pushSupported() {
@@ -696,6 +752,9 @@ if (typeof module !== "undefined" && module.exports) {
   // --- rendering -------------------------------------------------------
 
   function renderMessage(heading, paragraphs) {
+    // The cards are about to go. Ending the drag now releases its listeners;
+    // the list would not see the pointer again once it leaves the page.
+    if (drag) finishDrag(false);
     clear(content);
     var box = el("section", "message");
     box.appendChild(el("h2", null, heading));
@@ -855,9 +914,269 @@ if (typeof module !== "undefined" && module.exports) {
     return box;
   }
 
-  function renderCard(account, isPrimary, now) {
+  // --- account order -----------------------------------------------------
+
+  function accountIds(accounts) {
+    return accounts
+      .filter(function (account) { return account && typeof account.id === "string" && account.id; })
+      .map(function (account) { return account.id; });
+  }
+
+  function sameIds(a, b) {
+    return a.length === b.length && a.every(function (value, index) { return value === b[index]; });
+  }
+
+  function orderKey() {
+    return ACCOUNT_ORDER_KEY_PREFIX + id;
+  }
+
+  function currentOrder() {
+    if (savedOrder === undefined) savedOrder = parseAccountOrder(readStored(orderKey()));
+    return savedOrder;
+  }
+
+  function clearOrder() {
+    savedOrder = null;
+    removeStored(orderKey());
+  }
+
+  function cardIds() {
+    return Array.from(content.querySelectorAll(".card[data-account-id]")).map(function (card) {
+      return card.dataset.accountId;
+    });
+  }
+
+  // An order equal to the default is not saved, so "Reset order" stays hidden
+  // and the primary account keeps leading for accounts added later.
+  function saveOrder(ids) {
+    if (payload && sameIds(ids, accountIds(orderAccounts(payload)))) {
+      clearOrder();
+      return;
+    }
+    savedOrder = ids;
+    writeStored(orderKey(), JSON.stringify(ids));
+  }
+
+  function announceOrder(text) {
+    if (!orderStatusEl) {
+      orderStatusEl = el("p", "sr-only");
+      orderStatusEl.setAttribute("role", "status");
+      document.body.appendChild(orderStatusEl);
+    }
+    // Clear first so the same sentence twice is still announced twice.
+    orderStatusEl.textContent = "";
+    window.setTimeout(function () { orderStatusEl.textContent = text; }, 50);
+  }
+
+  function nameOfCard(accountId) {
+    var account = payload && (payload.accounts || []).find(function (item) { return item && item.id === accountId; });
+    return account && typeof account.name === "string" && account.name ? account.name : "Account";
+  }
+
+  function focusHandle(accountId) {
+    var handle = Array.from(content.querySelectorAll("[data-order-handle]")).find(function (button) {
+      return button.dataset.orderHandle === accountId;
+    });
+    if (handle) handle.focus();
+  }
+
+  function onHandleKey(event) {
+    var accountId = event.currentTarget.dataset.orderHandle;
+    var ids = cardIds();
+    var from = ids.indexOf(accountId);
+    if (from < 0) return;
+    var to;
+    if (event.key === "ArrowUp" || event.key === "ArrowLeft") to = from - 1;
+    else if (event.key === "ArrowDown" || event.key === "ArrowRight") to = from + 1;
+    else if (event.key === "Home") to = 0;
+    else if (event.key === "End") to = ids.length - 1;
+    else return;
+    event.preventDefault();
+    to = Math.max(0, Math.min(ids.length - 1, to));
+    if (to === from) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    saveOrder(ids);
+    render();
+    announceOrder("Moved " + nameOfCard(accountId) + " to position " + (to + 1) + " of " + ids.length + ".");
+  }
+
+  function renderOrderHandle(account, name) {
+    var button = el("button", "order-handle");
+    button.type = "button";
+    button.dataset.orderHandle = account.id;
+    button.title = "Drag to reorder";
+    button.setAttribute("aria-label", "Reorder " + name + ". Use the arrow keys to move it.");
+    var svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    svg.setAttribute("focusable", "false");
+    [[5.5, 3], [10.5, 3], [5.5, 8], [10.5, 8], [5.5, 13], [10.5, 13]].forEach(function (point) {
+      var circle = document.createElementNS(SVG_NS, "circle");
+      circle.setAttribute("cx", point[0]);
+      circle.setAttribute("cy", point[1]);
+      circle.setAttribute("r", "1.5");
+      svg.appendChild(circle);
+    });
+    button.appendChild(svg);
+    button.addEventListener("pointerdown", startDrag);
+    button.addEventListener("keydown", onHandleKey);
+    return button;
+  }
+
+  // Pointer Events cover mouse, pen and touch alike. The handle has
+  // touch-action: none, so a touch on it drags while the rest of the card
+  // still scrolls the page.
+  function startDrag(event) {
+    if (drag || !event.isPrimary || event.button !== 0) return;
+    var handle = event.currentTarget;
+    var card = handle.closest(".card");
+    var list = card && card.parentNode;
+    if (!card || !list) return;
+    event.preventDefault();
+    // Capture on the list, not the handle: moving the card through the list
+    // detaches the handle for a moment, and that would release the capture.
+    try { list.setPointerCapture(event.pointerId); } catch (error) { /* drag still works without capture on most pointers */ }
+    var rect = card.getBoundingClientRect();
+    drag = {
+      pointerId: event.pointerId,
+      card: card,
+      list: list,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      startIds: cardIds(),
+      moved: false,
+      scrollSpeed: 0,
+      scrollFrame: 0
+    };
+    list.addEventListener("pointermove", onDragMove);
+    list.addEventListener("pointerup", onDragEnd);
+    list.addEventListener("pointercancel", onDragCancel);
+    list.addEventListener("lostpointercapture", onDragCancel);
+    document.addEventListener("keydown", onDragKey, true);
+  }
+
+  function onDragMove(event) {
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+    if (!drag.moved) {
+      if (Math.hypot(drag.x - drag.startX, drag.y - drag.startY) < DRAG_THRESHOLD_PX) return;
+      drag.moved = true;
+      drag.card.classList.add("is-dragging");
+      document.body.classList.add("is-sorting");
+    }
+    followPointer();
+    updateDragScroll();
+  }
+
+  // Move the card in the list to where the pointer is, then draw it under the
+  // pointer. Its natural slot is left empty, which shows where it will land.
+  function followPointer() {
+    var card = drag.card;
+    var under = document.elementFromPoint(drag.x, drag.y);
+    var target = under && under.closest(".card");
+    if (target && target !== card && target.parentNode === drag.list) {
+      var bounds = target.getBoundingClientRect();
+      var after = drag.y > bounds.top + bounds.height / 2;
+      var reference = after ? target.nextSibling : target;
+      if (reference !== card && card.nextSibling !== reference) drag.list.insertBefore(card, reference);
+    }
+    card.style.transform = "";
+    var natural = card.getBoundingClientRect();
+    card.style.transform = "translate(" + (drag.x - drag.offsetX - natural.left) + "px, " +
+      (drag.y - drag.offsetY - natural.top) + "px)";
+  }
+
+  // Near the top or bottom edge the page scrolls, faster the closer it gets.
+  function updateDragScroll() {
+    var edge = DRAG_SCROLL_EDGE_PX;
+    var height = window.innerHeight;
+    var speed = 0;
+    if (drag.y < edge) speed = -Math.ceil((edge - drag.y) / 3);
+    else if (drag.y > height - edge) speed = Math.ceil((drag.y - (height - edge)) / 3);
+    drag.scrollSpeed = speed;
+    if (speed && !drag.scrollFrame) drag.scrollFrame = window.requestAnimationFrame(scrollStep);
+  }
+
+  function scrollStep() {
+    if (!drag) return;
+    drag.scrollFrame = 0;
+    if (!drag.scrollSpeed) return;
+    var before = window.scrollY;
+    window.scrollBy(0, drag.scrollSpeed);
+    if (window.scrollY === before) return;
+    followPointer();
+    drag.scrollFrame = window.requestAnimationFrame(scrollStep);
+  }
+
+  function onDragKey(event) {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    finishDrag(false);
+  }
+
+  function onDragEnd(event) {
+    if (drag && event.pointerId === drag.pointerId) finishDrag(true);
+  }
+
+  function onDragCancel(event) {
+    if (drag && event.pointerId === drag.pointerId) finishDrag(false);
+  }
+
+  function finishDrag(commit) {
+    var state = drag;
+    drag = null;
+    var list = state.list;
+    list.removeEventListener("pointermove", onDragMove);
+    list.removeEventListener("pointerup", onDragEnd);
+    list.removeEventListener("pointercancel", onDragCancel);
+    list.removeEventListener("lostpointercapture", onDragCancel);
+    document.removeEventListener("keydown", onDragKey, true);
+    if (state.scrollFrame) window.cancelAnimationFrame(state.scrollFrame);
+    try { list.releasePointerCapture(state.pointerId); } catch (error) { /* already released */ }
+    state.card.classList.remove("is-dragging");
+    state.card.style.transform = "";
+    document.body.classList.remove("is-sorting");
+
+    var ids = cardIds();
+    var changed = commit && state.moved && state.card.isConnected && !sameIds(ids, state.startIds);
+    if (changed) {
+      saveOrder(ids);
+      var accountId = state.card.dataset.accountId;
+      announceOrder("Moved " + nameOfCard(accountId) + " to position " + (ids.indexOf(accountId) + 1) + " of " + ids.length + ".");
+    }
+    // A cancelled drag re-renders from the saved order, which puts the card back.
+    if (state.moved || renderPending) {
+      renderPending = false;
+      render();
+    }
+  }
+
+  function renderOrderReset() {
+    var row = el("div", "order-reset");
+    var button = el("button", "order-reset-button", "Reset order");
+    button.type = "button";
+    button.addEventListener("click", function () {
+      clearOrder();
+      render();
+      var first = content.querySelector("[data-order-handle]");
+      if (first) first.focus();
+      announceOrder("Restored the default account order.");
+    });
+    row.appendChild(button);
+    return row;
+  }
+
+  function renderCard(account, isPrimary, now, reorderable) {
     var name = typeof account.name === "string" && account.name ? account.name : "Account";
     var card = el("article", "card");
+    var canMove = reorderable && typeof account.id === "string" && account.id;
+    if (canMove) card.dataset.accountId = account.id;
 
     var head = el("div", "card-head");
     var worst = worstState(account);
@@ -879,6 +1198,7 @@ if (typeof module !== "undefined" && module.exports) {
     if (typeof account.plan === "string" && account.plan) {
       head.appendChild(el("span", "chip", account.plan));
     }
+    if (canMove) head.appendChild(renderOrderHandle(account, name));
     card.appendChild(head);
 
     // The provider is refusing requests right now. That is a different fact
@@ -982,6 +1302,12 @@ if (typeof module !== "undefined" && module.exports) {
 
   function render() {
     if (!payload) return;
+    // Rebuilding the cards would pull the dragged one out from under the
+    // pointer. The drag renders once it ends.
+    if (drag) {
+      renderPending = true;
+      return;
+    }
 
     var now = Date.now();
     if (resetDialog && resetDialog.open) {
@@ -1008,7 +1334,8 @@ if (typeof module !== "undefined" && module.exports) {
       hide(staleEl);
     }
 
-    var accounts = orderAccounts(payload);
+    var defaultAccounts = orderAccounts(payload);
+    var accounts = applyAccountOrder(defaultAccounts, currentOrder());
     if (accounts.length === 0) {
       renderMessage("No accounts yet", [
         "The app is connected but hasn't reported any accounts."
@@ -1017,14 +1344,21 @@ if (typeof module !== "undefined" && module.exports) {
     }
 
     var list = el("div", "cards");
+    var reorderable = accountIds(accounts).length > 1;
     accounts.forEach(function (account) {
       if (!account || typeof account !== "object") return;
       var isPrimary = typeof payload.primary === "string" && account.id === payload.primary;
-      list.appendChild(renderCard(account, isPrimary, now));
+      list.appendChild(renderCard(account, isPrimary, now, reorderable));
     });
 
+    var active = document.activeElement;
+    var focusedHandle = active && content.contains(active) && active.dataset ? active.dataset.orderHandle : null;
     clear(content);
     content.appendChild(list);
+    if (focusedHandle) focusHandle(focusedHandle);
+    if (reorderable && !sameIds(accountIds(accounts), accountIds(defaultAccounts))) {
+      content.appendChild(renderOrderReset());
+    }
   }
 
   // --- data ------------------------------------------------------------
