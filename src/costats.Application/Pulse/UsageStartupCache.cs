@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
 using costats.Application.Abstractions;
 using costats.Application.Settings;
 using costats.Core.Pulse;
@@ -35,12 +37,29 @@ public sealed class UsageStartupCache
     private Task _writer = Task.CompletedTask;
     private int _warnedWrite;
 
+    // What the previous run stored, read once before any refresh can run.
+    private readonly IReadOnlyList<UsageSnapshotEntry> _seed;
+    private readonly DateTimeOffset _seedSavedAt;
+
     public UsageStartupCache(IUsageSnapshotStore store, AppSettings settings, IClock clock, ILogger<UsageStartupCache>? logger = null)
     {
         _store = store;
         _settings = settings;
         _clock = clock;
         _logger = (ILogger?)logger ?? NullLogger.Instance;
+
+        // Loaded before the first refresh, so a first refresh that fails for a
+        // provider keeps that provider's stored usage instead of writing a
+        // file without it. Usage stored for an account whose configuration
+        // has changed since (another folder under the same id, or a change
+        // made by another instance or before a crash) is dropped here.
+        var stored = UsageSnapshot.Parse(_store.Read(), _clock.UtcNow);
+        _seed = stored?.Entries.Where(entry => entry.AccountKey == AccountKey(entry.ProviderId)).ToList() ?? [];
+        _seedSavedAt = stored?.SavedAt ?? default;
+        foreach (var entry in _seed)
+        {
+            _lastGood[entry.ProviderId] = entry;
+        }
     }
 
     /// <summary>Taken before a refresh reads its sources; see <see cref="Observe"/>.</summary>
@@ -81,7 +100,7 @@ public sealed class UsageStartupCache
                 }
                 else if (UsageSnapshot.EntryFor(providerId, reading) is { } entry)
                 {
-                    _lastGood[providerId] = entry;
+                    _lastGood[providerId] = entry with { AccountKey = AccountKey(providerId) };
                 }
             }
 
@@ -126,17 +145,20 @@ public sealed class UsageStartupCache
     public PulseState? BuildStartupState(IEnumerable<string> currentProviderIds)
     {
         ArgumentNullException.ThrowIfNull(currentProviderIds);
-        var now = _clock.UtcNow;
-        var snapshot = UsageSnapshot.Parse(_store.Read(), now);
-        if (snapshot is null)
+        lock (_gate)
         {
-            return null;
+            // After an account change nothing from the previous run is shown.
+            if (_generation != 0)
+            {
+                return null;
+            }
         }
+
+        var now = _clock.UtcNow;
 
         var current = new HashSet<string>(currentProviderIds, StringComparer.OrdinalIgnoreCase);
         var providers = new Dictionary<string, ProviderReading>(StringComparer.OrdinalIgnoreCase);
-        var kept = new List<UsageSnapshotEntry>();
-        foreach (var entry in snapshot.Entries)
+        foreach (var entry in _seed)
         {
             if (!current.Contains(entry.ProviderId) ||
                 !TrayAccountFilter.IsVisible(entry.ProviderId, _settings.HasZaiKey, _settings.CopilotEnabled, _settings.AntigravityEnabled) ||
@@ -145,9 +167,8 @@ public sealed class UsageStartupCache
                 continue;
             }
 
-            kept.Add(entry);
             providers[entry.ProviderId] = new ProviderReading(
-                usage,
+                usage with { ProviderId = entry.ProviderId },
                 new IdentityCard(entry.ProviderId, null, null, null, entry.Plan, null),
                 $"Updated {TimeZoneInfo.ConvertTime(entry.CapturedAt, TimeZoneInfo.Local).ToString("HH:mm", CultureInfo.InvariantCulture)}",
                 entry.CapturedAt,
@@ -163,17 +184,68 @@ public sealed class UsageStartupCache
             return null;
         }
 
-        // The stored entries stay the last good ones until a refresh replaces
-        // them, so a first refresh that fails for a provider does not drop it.
-        lock (_gate)
+        return new PulseState(providers, _seedSavedAt, [], IsRefreshing: true, RefreshTrigger.Cached);
+    }
+
+    /// <summary>
+    /// Which account configuration a provider id stands for now: for a Claude or
+    /// Codex account a hash of its type and folder, so the same id pointing at
+    /// another folder is another account; for the single providers the id.
+    /// </summary>
+    private string AccountKey(string providerId)
+    {
+        try
         {
-            foreach (var entry in kept)
-            {
-                _lastGood.TryAdd(entry.ProviderId, entry);
-            }
+            return AccountKeyCore(providerId);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            // The account list changed while it was read: a key that matches
+            // nothing, so this entry is simply not shown at the next start.
+            return "?";
+        }
+    }
+
+    private string AccountKeyCore(string providerId)
+    {
+        var separator = providerId.IndexOf(':');
+        if (separator <= 0)
+        {
+            return providerId.ToLowerInvariant();
         }
 
-        return new PulseState(providers, snapshot.SavedAt, [], IsRefreshing: true, RefreshTrigger.Cached);
+        var type = providerId[..separator];
+        var id = providerId[(separator + 1)..];
+        var account = _settings.GetEffectiveAccounts().FirstOrDefault(candidate =>
+            string.Equals(candidate.Type, type, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(candidate.Id, id, StringComparison.OrdinalIgnoreCase));
+        if (account is null)
+        {
+            return string.Empty;
+        }
+
+        var folder = NormalizeFolder(account.ConfigDir);
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(type.ToLowerInvariant() + "\n" + folder));
+        return Convert.ToHexString(bytes, 0, 16);
+    }
+
+    private static string NormalizeFolder(string? folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            return string.Empty;
+        }
+
+        try
+        {
+            folder = Path.GetFullPath(folder);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            // An unusable path still identifies the account as written.
+        }
+
+        return folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToUpperInvariant();
     }
 
     /// <summary>Completes when the writer has nothing left to do; for tests.</summary>

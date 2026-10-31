@@ -62,7 +62,7 @@ public static class AgyStoredQuota
         var weekly = Current(file.GeminiWeekly, completedAt, now);
         var fiveHour = Current(file.GeminiFiveHour, completedAt, now);
         var others = (file.Other ?? [])
-            .Where(other => other.Label is not null && other.Group is not null &&
+            .Where(other => other is { Label: not null, Group: not null } &&
                             other.UsedPercent is >= 0 and <= 100 &&
                             RestoredUsage.IsCurrent(other.ResetsAt, completedAt, now))
             .Select(other => new ScopedQuota(other.Label!, other.Group!, other.UsedPercent, other.ResetsAt, other.IsActive))

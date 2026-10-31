@@ -62,7 +62,7 @@ public static class RestoredUsage
         var week = pulse.WeekUsed is not null && IsCurrent(pulse.WeekWindow?.ResetsAt, capturedAt, now);
         // A stored file may carry null where the record defaults to empty.
         var scoped = (pulse.ScopedQuotas ?? [])
-            .Where(quota => quota is not null && IsCurrent(quota.ResetsAt, capturedAt, now))
+            .Where(quota => quota is { Label: not null, Group: not null } && IsCurrent(quota.ResetsAt, capturedAt, now))
             .ToList();
 
         if (!session && !week && scoped.Count == 0)

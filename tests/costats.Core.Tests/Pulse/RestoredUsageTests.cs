@@ -102,6 +102,19 @@ public sealed class RestoredUsageTests
     }
 
     [Fact]
+    public void A_null_scoped_row_in_the_stored_antigravity_quota_is_skipped_not_thrown()
+    {
+        const string text = "{\"version\":1,\"completedAt\":\"2026-10-31T19:00:00Z\"," +
+            "\"geminiWeekly\":{\"family\":\"gemini\",\"window\":\"weekly\",\"usedPercent\":5,\"resetsAt\":\"2026-11-04T00:00:00Z\"}," +
+            "\"other\":[null,{\"label\":null,\"group\":\"Weekly\",\"usedPercent\":1,\"resetsAt\":null,\"isActive\":false}]}";
+
+        var read = AgyStoredQuota.Parse(text, Now)!;
+
+        Assert.Equal(5, read.Quota.GeminiWeekly!.UsedPercent);
+        Assert.Empty(read.Quota.OtherQuotas);
+    }
+
+    [Fact]
     public void The_usage_snapshot_keeps_usage_and_plan_but_no_identity_or_reset_credits()
     {
         var reading = new ProviderReading(

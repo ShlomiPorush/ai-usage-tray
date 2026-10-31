@@ -44,6 +44,9 @@ namespace costats.App.Services
 
         /// <summary>A live state has been shown; UI thread only.</summary>
         private bool _appliedLiveState;
+
+        /// <summary>The last queued reset-checkpoint save; UI thread only.</summary>
+        private Task _resetCheckpointSave = Task.CompletedTask;
         private readonly UsageResetAlertTracker _usageResetAlertTracker;
         private readonly IUsageResetStateStore _usageResetStateStore;
         private readonly AuthenticationAlertTracker _authenticationAlertTracker = new();
@@ -620,13 +623,27 @@ namespace costats.App.Services
                 var observed = RestoredUsage.WithoutRestoredReadings(state);
                 var usageAlerts = _usageAlertTracker.Observe(observed, usageAlertRules);
                 var resetAlerts = _usageResetAlertTracker.Observe(observed, resetAlertProviders);
-                _usageResetStateStore.Save(_usageResetAlertTracker.ExportCheckpoints());
+                SaveResetCheckpoints(_usageResetAlertTracker.ExportCheckpoints());
                 var signInAlerts = _authenticationAlertTracker.Observe(observed);
                 LogAlerts(usageAlerts, resetAlerts, signInAlerts);
                 ShowUsageAlerts(usageAlerts, displayNames, showRemainingPercentages);
                 ShowUsageResetAlerts(resetAlerts, displayNames);
                 ShowSignInRequiredAlerts(signInAlerts, displayNames);
             });
+        }
+
+        /// <summary>
+        /// Saves the reset checkpoints off the UI thread, one save after another,
+        /// so a slow disk never holds up the tray and an older save never lands
+        /// after a newer one. Called on the UI thread only.
+        /// </summary>
+        private void SaveResetCheckpoints(IReadOnlyCollection<UsageResetCheckpoint> checkpoints)
+        {
+            _resetCheckpointSave = _resetCheckpointSave.ContinueWith(
+                _ => _usageResetStateStore.Save(checkpoints),
+                CancellationToken.None,
+                TaskContinuationOptions.None,
+                TaskScheduler.Default);
         }
 
         private static void LogAlerts(

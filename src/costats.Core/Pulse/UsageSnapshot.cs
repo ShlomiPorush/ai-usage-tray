@@ -7,13 +7,19 @@ namespace costats.Core.Pulse;
 /// the first refresh. Only usage and the plan name: no display name, email,
 /// organisation, reset credits or sign-in state.
 /// </summary>
+/// <param name="AccountKey">
+/// Identifies the account configuration the usage belongs to (a hash, never
+/// a path), so usage stored for an account that has since changed under the
+/// same id is never shown.
+/// </param>
 public sealed record UsageSnapshotEntry(
     string ProviderId,
     UsagePulse Usage,
     string? Plan,
     DateTimeOffset CapturedAt,
     ReadingSource Source,
-    ReadingConfidence Confidence);
+    ReadingConfidence Confidence,
+    string? AccountKey = null);
 
 /// <summary>The startup cache file (<c>last-usage.json</c>).</summary>
 public sealed record UsageSnapshot(DateTimeOffset SavedAt, IReadOnlyList<UsageSnapshotEntry> Entries)

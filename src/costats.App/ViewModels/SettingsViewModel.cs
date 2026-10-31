@@ -790,6 +790,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         try
         {
             await process.WaitForExitAsync().ConfigureAwait(true);
+            // Another account may now be signed in under the same folder.
+            _startupCache?.Clear();
             _accountSources?.Reload();
             await _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None)
                 .ConfigureAwait(true);

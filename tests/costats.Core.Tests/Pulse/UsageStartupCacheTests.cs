@@ -70,6 +70,64 @@ public sealed class UsageStartupCacheTests
     }
 
     [Fact]
+    public async Task A_first_refresh_that_fails_before_the_startup_display_keeps_the_stored_usage()
+    {
+        var store = new MemoryStore();
+        var seed = Cache(store);
+        seed.Observe(seed.CaptureGeneration(), Readings((Claude, Live(40))), fullRefresh: true);
+        await seed.WhenIdleAsync();
+
+        // The next run: its first refresh fails for Claude before anything is shown.
+        var next = Cache(store);
+        next.Observe(next.CaptureGeneration(), Readings((Claude, Live(null))), fullRefresh: true);
+        await next.WhenIdleAsync();
+
+        Assert.Equal(40, Cache(store).BuildStartupState([Claude])!.Providers[Claude].Usage!.WeekUsed);
+    }
+
+    [Fact]
+    public async Task Usage_stored_for_another_folder_under_the_same_account_id_is_not_shown()
+    {
+        var store = new MemoryStore();
+        var settings = new AppSettings { Accounts = [new MonitoredAccountSettings { Id = "claude-1", Type = "claude", ConfigDir = @"C:\profiles\one" }] };
+        var cache = Cache(store, settings);
+        cache.Observe(cache.CaptureGeneration(), Readings((Claude, Live(40))), fullRefresh: true);
+        await cache.WhenIdleAsync();
+        Assert.NotNull(Cache(store, settings).BuildStartupState([Claude]));
+
+        // Changed by another instance, or before a crash: same id, other folder.
+        settings.Accounts[0].ConfigDir = @"C:\profiles\two";
+
+        Assert.Null(Cache(store, settings).BuildStartupState([Claude]));
+    }
+
+    [Fact]
+    public async Task A_stored_scoped_row_without_a_group_or_label_is_dropped_not_shown()
+    {
+        var store = new MemoryStore();
+        var settings = new AppSettings { Accounts = [new MonitoredAccountSettings { Id = "claude-1", Type = "claude", ConfigDir = @"C:\profiles\one" }] };
+        var cache = Cache(store, settings);
+        var live = Live(40);
+        cache.Observe(
+            cache.CaptureGeneration(),
+            Readings((Claude, live with { Usage = live.Usage! with { ScopedQuotas = [new ScopedQuota("Fable", "Weekly", 5, Now.AddDays(3), true)] } })),
+            fullRefresh: true);
+        await cache.WhenIdleAsync();
+
+        // A damaged file: a row without its group, a null row, no provider id.
+        store.Seed(store.Text!
+            .Replace("\"group\":\"Weekly\"", "\"group\":null", StringComparison.Ordinal)
+            .Replace("\"scopedQuotas\":[", "\"scopedQuotas\":[null,", StringComparison.Ordinal)
+            .Replace("\"usage\":{\"providerId\":\"claude:claude-1\"", "\"usage\":{\"providerId\":null", StringComparison.Ordinal));
+
+        var usage = Cache(store, settings).BuildStartupState([Claude])!.Providers[Claude].Usage!;
+
+        Assert.Empty(usage.ScopedQuotas);
+        Assert.Equal(Claude, usage.ProviderId);
+        Assert.Equal(40, usage.WeekUsed);
+    }
+
+    [Fact]
     public async Task A_refresh_that_started_before_Clear_cannot_refill_the_cache()
     {
         var store = new MemoryStore();
@@ -108,9 +166,16 @@ public sealed class UsageStartupCacheTests
         cache.Observe(cache.CaptureGeneration(), Readings((Claude, Live(40))), fullRefresh: true);
         Assert.True(store.WriteStarted.Task.Wait(TimeSpan.FromSeconds(5)));
 
-        var clear = Task.Run(cache.Clear);
+        // Timed from inside the task, so a slow thread pool cannot fail the test.
+        var elapsed = Task.Run(() =>
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            cache.Clear();
+            return watch.Elapsed;
+        });
 
-        Assert.True(clear.Wait(TimeSpan.FromSeconds(2)));
+        Assert.True(elapsed.Wait(TimeSpan.FromSeconds(30)));
+        Assert.True(elapsed.Result < TimeSpan.FromSeconds(1));
         store.HoldWrites.SetResult();
     }
 
@@ -202,6 +267,8 @@ public sealed class UsageStartupCacheTests
         public TaskCompletionSource WriteStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public string? Read() => Text;
+
+        public void Seed(string text) => Text = text;
 
         public async Task WriteAsync(string text)
         {
