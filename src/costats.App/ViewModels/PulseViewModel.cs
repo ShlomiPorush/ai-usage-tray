@@ -307,6 +307,7 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                 {
                     var displayName = displayNames.TryGetValue(providerId, out var name) ? name : providerId;
                     var vm = ProviderPulseViewModel.FromReading(
+                        providerId,
                         reading,
                         displayName,
                         _settings.ShowRemainingPercentages);

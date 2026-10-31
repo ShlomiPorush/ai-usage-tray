@@ -206,14 +206,20 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
     [ObservableProperty]
     private string monthTokensText = "--";
 
+    /// <param name="providerId">
+    /// The account's provider id ("claude:claude-1"). A reading without usage
+    /// or identity carries no id of its own, and the id picks the row's icon,
+    /// order and Relogin button, so it never falls back to the display name.
+    /// </param>
     public static ProviderPulseViewModel FromReading(
+        string providerId,
         ProviderReading reading,
         string displayNameFallback,
         bool showRemainingPercentages = false)
     {
         var vm = new ProviderPulseViewModel
         {
-            ProviderId = reading.Usage?.ProviderId ?? reading.Identity?.ProviderId ?? displayNameFallback,
+            ProviderId = providerId,
             DisplayName = displayNameFallback,
             StatusSummary = FormatStatusSummary(reading),
             PlanText = reading.Identity?.Plan ?? string.Empty,

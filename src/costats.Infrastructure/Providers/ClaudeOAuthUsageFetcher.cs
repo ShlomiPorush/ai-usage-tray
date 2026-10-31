@@ -688,7 +688,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
         ClaudeCredentialFile.LoadAsync(configDir);
 
     //  Response parsing
-    private static ClaudeOAuthUsageResult? ParseResponse(string json, string? subscriptionType, string? rateLimitTier)
+    internal static ClaudeOAuthUsageResult? ParseResponse(string json, string? subscriptionType, string? rateLimitTier)
     {
         try
         {
@@ -700,7 +700,10 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             double? sevenDayPercent = null;
             DateTimeOffset? sevenDayResetsAt = null;
 
-            if (root.TryGetProperty("five_hour", out var fiveHour))
+            // Each block is null, not absent, while it has nothing to report
+            // (five_hour between session windows), so check for an object
+            // before reading into it: one null block must not lose the rest.
+            if (root.TryGetProperty("five_hour", out var fiveHour) && fiveHour.ValueKind == JsonValueKind.Object)
             {
                 if (fiveHour.TryGetProperty("utilization", out var util))
                 {
@@ -715,7 +718,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
                 }
             }
 
-            if (root.TryGetProperty("seven_day", out var sevenDay))
+            if (root.TryGetProperty("seven_day", out var sevenDay) && sevenDay.ValueKind == JsonValueKind.Object)
             {
                 if (sevenDay.TryGetProperty("utilization", out var util))
                 {
@@ -733,7 +736,7 @@ public sealed class ClaudeOAuthUsageFetcher : IClaudeSubscriptionUsageClient, ID
             double? extraUsed = null;
             double? extraLimit = null;
             bool overageEnabled = false;
-            if (root.TryGetProperty("extra_usage", out var extra))
+            if (root.TryGetProperty("extra_usage", out var extra) && extra.ValueKind == JsonValueKind.Object)
             {
                 if (extra.TryGetProperty("is_enabled", out var enabled) && enabled.ValueKind == JsonValueKind.True)
                 {
