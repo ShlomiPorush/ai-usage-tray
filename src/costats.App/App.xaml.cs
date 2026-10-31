@@ -191,6 +191,9 @@ namespace costats.App
         {
             Log.Information("Application exiting (ExitCode={ExitCode})", e.ApplicationExitCode);
             _updateLoopCts?.Cancel();
+            // Synchronously, before the first await: WPF does not wait for the rest
+            // of this method, so a queued reset-checkpoint save must finish here.
+            (_host?.Services.GetService(typeof(TrayHost)) as TrayHost)?.FlushPendingSaves();
             try
             {
                 if (_host is not null)

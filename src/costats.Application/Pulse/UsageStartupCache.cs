@@ -30,6 +30,7 @@ public sealed class UsageStartupCache
     private readonly Dictionary<string, UsageSnapshotEntry> _lastGood = new(StringComparer.OrdinalIgnoreCase);
 
     private long _generation;
+    private int _suspended;
     private string? _pendingText;
     private long _pendingGeneration;
     private bool _pendingDelete;
@@ -82,7 +83,7 @@ public sealed class UsageStartupCache
         ArgumentNullException.ThrowIfNull(readings);
         lock (_gate)
         {
-            if (generation != _generation)
+            if (generation != _generation || _suspended > 0)
             {
                 return;
             }
@@ -141,16 +142,64 @@ public sealed class UsageStartupCache
     /// removal failed and was logged). For a change that must hold even if the
     /// app stops right after it.
     /// </summary>
-    public async Task ClearAsync()
+    /// <returns>False when the file was not removed within <paramref name="timeout"/>.</returns>
+    public async Task<bool> ClearAsync(TimeSpan timeout)
     {
         Clear();
+        var deadline = DateTimeOffset.UtcNow + timeout;
         Task writer;
         do
         {
             writer = WhenIdleAsync();
-            await writer.ConfigureAwait(false);
+            var left = deadline - DateTimeOffset.UtcNow;
+            if (left <= TimeSpan.Zero)
+            {
+                return false;
+            }
+
+            try
+            {
+                await writer.WaitAsync(left).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                return false;
+            }
         }
         while (!ReferenceEquals(writer, WhenIdleAsync()));
+
+        return true;
+    }
+
+    /// <summary>
+    /// Stops recording refreshes until the returned handle is disposed, for an
+    /// account change in progress (a sign-in): nothing read meanwhile, which
+    /// may still be the previous person's usage, is stored.
+    /// </summary>
+    public IDisposable Suspend()
+    {
+        lock (_gate)
+        {
+            _suspended++;
+        }
+
+        return new Suspension(this);
+    }
+
+    private sealed class Suspension(UsageStartupCache owner) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                lock (owner._gate)
+                {
+                    owner._suspended--;
+                }
+            }
+        }
     }
 
     /// <summary>

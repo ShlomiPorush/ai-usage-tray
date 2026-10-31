@@ -776,12 +776,16 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
             return;
         }
 
-        // Another person may sign in to this folder: the stored usage is removed
-        // from disk before the sign-in window opens, so even a crash during the
-        // sign-in cannot show the previous person's usage at the next start.
-        if (_startupCache is not null)
+        // Another person may sign in to this folder. Until the sign-in is over,
+        // nothing is stored (a refresh meanwhile may still read the previous
+        // person), and the stored usage is removed from disk before the window
+        // opens, so even a crash during the sign-in cannot show it again.
+        using var storingPaused = _startupCache?.Suspend();
+        if (_startupCache is not null &&
+            !await _startupCache.ClearAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(true))
         {
-            await _startupCache.ClearAsync().ConfigureAwait(true);
+            AccountsRestartMessage = $"Could not prepare {row.Name} sign-in because saved usage could not be removed. Try again.";
+            return;
         }
 
         var command = row.IsCodex
@@ -798,8 +802,10 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         try
         {
             await process.WaitForExitAsync().ConfigureAwait(true);
-            // Another account may now be signed in under the same folder.
+            // Another account may now be signed in under the same folder: drop
+            // refreshes that started during the sign-in, then store again.
             _startupCache?.Clear();
+            storingPaused?.Dispose();
             _accountSources?.Reload();
             await _pulseOrchestrator.RefreshOnceAsync(RefreshTrigger.Silent, CancellationToken.None)
                 .ConfigureAwait(true);

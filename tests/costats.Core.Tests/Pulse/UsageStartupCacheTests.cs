@@ -166,12 +166,48 @@ public sealed class UsageStartupCacheTests
         cache.Observe(cache.CaptureGeneration(), Readings((Claude, Live(40))), fullRefresh: true);
         await store.WriteStarted.Task;
 
-        var clearing = cache.ClearAsync();
+        var clearing = cache.ClearAsync(TimeSpan.FromSeconds(30));
         Assert.False(clearing.IsCompleted);
         store.HoldWrites.SetResult();
         await clearing.WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Null(store.Text);
+    }
+
+    [Fact]
+    public async Task Nothing_read_during_a_sign_in_is_stored_even_by_a_refresh_that_starts_after_the_clear()
+    {
+        var store = new MemoryStore();
+        var cache = Cache(store);
+        cache.Observe(cache.CaptureGeneration(), Readings((Claude, Live(40))), fullRefresh: true);
+        await cache.WhenIdleAsync();
+
+        using (cache.Suspend())
+        {
+            Assert.True(await cache.ClearAsync(TimeSpan.FromSeconds(30)));
+
+            // A refresh during the sign-in still reads the previous person.
+            cache.Observe(cache.CaptureGeneration(), Readings((Claude, Live(70))), fullRefresh: true);
+            await cache.WhenIdleAsync();
+            Assert.Null(store.Text);
+        }
+
+        // After the sign-in, the new account's usage is stored again.
+        cache.Observe(cache.CaptureGeneration(), Readings((Claude, Live(5))), fullRefresh: true);
+        await cache.WhenIdleAsync();
+        Assert.Equal(5, Cache(store).BuildStartupState([Claude])!.Providers[Claude].Usage!.WeekUsed);
+    }
+
+    [Fact]
+    public async Task ClearAsync_gives_up_after_its_time_limit_when_the_disk_is_stuck()
+    {
+        var store = new MemoryStore { HoldWrites = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
+        var cache = Cache(store);
+        cache.Observe(cache.CaptureGeneration(), Readings((Claude, Live(40))), fullRefresh: true);
+        await store.WriteStarted.Task;
+
+        Assert.False(await cache.ClearAsync(TimeSpan.FromMilliseconds(200)));
+        store.HoldWrites.SetResult();
     }
 
     [Fact]
