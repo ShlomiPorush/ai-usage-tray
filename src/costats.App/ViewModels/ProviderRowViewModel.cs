@@ -17,7 +17,7 @@ public sealed record ProviderRowViewModel(
     int UsageAlertThreshold = 90,
     bool KeepSessionActive = false)
 {
-    /// <summary>The pulse provider id this row maps to ("claude:x", "codex:x", "zai", "copilot").</summary>
+    /// <summary>The pulse provider id this row maps to ("claude:x", "codex:x", "zai", "copilot", "antigravity").</summary>
     public string ProviderId => AccountId is null ? Kind : $"{Kind}:{AccountId}";
 
     public string PrimaryGlyph => IsPrimary ? "★" : "☆";
@@ -29,11 +29,15 @@ public sealed record ProviderRowViewModel(
 
     public bool CanRelogin => CanKeepSessionActive;
 
+    public bool IsAntigravity => string.Equals(Kind, "antigravity", StringComparison.OrdinalIgnoreCase);
+
     public string KindLabel => Kind switch
     {
         "claude" => "Claude",
         "codex" => "Codex",
         "zai" => "Z.AI",
-        _ => "Copilot"
+        "copilot" => "Copilot",
+        "antigravity" => "Antigravity",
+        _ => Kind
     };
 }

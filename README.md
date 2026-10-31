@@ -6,6 +6,7 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 - **Any number of OpenAI / ChatGPT Codex accounts**, each with its own `CODEX_HOME`
 - **Z.AI / GLM** coding plan (optional, API key)
 - **GitHub Copilot** (optional, experimental, personal access token)
+- **Google Antigravity** (optional, through the official `agy` CLI; see [docs/ANTIGRAVITY.md](docs/ANTIGRAVITY.md))
 
 > **This is a fork of [fmdz387/costats](https://github.com/fmdz387/costats)** (MIT).
 > It keeps costats' architecture and UI but changes what is monitored and how.
@@ -60,7 +61,7 @@ iwr -useb https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/scri
 Then follow **[docs/WINDOWS-SETUP.md](docs/WINDOWS-SETUP.md)** for the step-by-step account setup:
 
 1. Out of the box the app monitors the standard `~/.claude` (Claude Code login) and `~/.codex` (Codex CLI login) profiles. If you use both tools, it shows data immediately.
-2. To monitor more accounts, open Settings → Accounts → **+ Add account**, pick the provider and fill in the fields it asks for: a display name and profile folder (with a folder picker) for Claude/Codex, an API key or token for Z.AI/Copilot. Sign in to extra accounts with the official CLI inside their folder (`CLAUDE_CONFIG_DIR=<dir> claude` / `CODEX_HOME=<dir> codex login`).
+2. To monitor more accounts, open Settings → Accounts → **+ Add account**, pick the provider and fill in the fields it asks for: a display name and profile folder (with a folder picker) for Claude/Codex, an API key or token for Z.AI/Copilot, and the check interval for Antigravity. Sign in to extra accounts with the official CLI inside their folder (`CLAUDE_CONFIG_DIR=<dir> claude` / `CODEX_HOME=<dir> codex login`).
 3. Changes apply immediately, no restart needed. Each row has **Edit**, **✕** (remove) and a star to mark the primary account.
 
 ## Configuration
@@ -81,6 +82,7 @@ The export file (`ai-usage-tray-settings.json`) carries the same settings minus 
 | `Accounts[]` | one Claude (`~/.claude`) + one Codex (`~/.codex`) | Any mix of accounts: `Id`, `Type` (`claude`/`codex`), `DisplayName`, `ConfigDir`. Editable in Settings (add/remove). Legacy `OpenAiAccounts`/`ClaudeConfigDir` settings are migrated automatically. |
 | Z.AI keys | empty | Coding-plan / pay-as-you-go keys. Set them in Settings → Accounts; they are stored in Windows Credential Manager, never in `settings.json`. |
 | `CopilotEnabled` | `false` | Enable the Copilot provider |
+| `AntigravityEnabled` / `AntigravityMinIntervalMinutes` | `false` / `15` | Enable the Google Antigravity provider, and the minimum minutes (5 to 240) between two checks, each of which starts `agy` briefly |
 | `Theme` | `system` | `system` / `light` / `dark` |
 | `PrimaryAccountId` | empty | Provider id whose status drives the tray icon |
 | `ShowOverviewResetTimes` | `false` | Reset countdowns on overview cards |
@@ -119,6 +121,7 @@ Self-hosting is optional: pull the published SQLite-backed container from GitHub
 - **Claude**: Anthropic's OAuth usage endpoint using the isolated profile's token. This is not a documented public API and may change.
 - **Z.AI**: `api.z.ai` usage endpoints with a Bearer token.
 - **Copilot**: unofficial GitHub endpoint; token stored in Windows Credential Manager.
+- **Google Antigravity**: the official `agy` CLI, started briefly in a hidden console at most once per the interval you choose; the app reads the quota from its statusline update and closes it. No token is read and the `agy` settings are not changed. Not published to the remote view. Details in [docs/ANTIGRAVITY.md](docs/ANTIGRAVITY.md).
 - **Optional window activation**: the app uses each provider's official CLI/profile only after you opt in. Codex starts through an isolated read-only prompt with web and shell tools disabled; Claude and GLM receive a minimal prompt. The schedule controls when these starts may happen.
 - No telemetry. Requests go only to the provider APIs above. Local credential files and the profile folders are git-ignored.
 

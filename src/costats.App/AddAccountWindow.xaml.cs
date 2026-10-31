@@ -1,7 +1,10 @@
+using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using costats.Application.Settings;
+using costats.Infrastructure.Antigravity;
 
 namespace costats.App;
 
@@ -28,9 +31,13 @@ public partial class AddAccountWindow : Window
     }
 
     /// <summary>Creates the dialog in edit mode, prefilled and locked to one provider.</summary>
-    public AddAccountWindow(string providerType, string name, string? configDir) : this()
+    public AddAccountWindow(string providerType, string name, string? configDir, int? antigravityIntervalMinutes = null) : this()
     {
         _isEditMode = true;
+        if (antigravityIntervalMinutes is { } minutes)
+        {
+            AntigravityIntervalBox.Text = minutes.ToString(CultureInfo.InvariantCulture);
+        }
         TitleText.Text = "Edit account";
         ConfirmButton.Content = "Save";
 
@@ -52,8 +59,15 @@ public partial class AddAccountWindow : Window
         UpdateFieldsForProvider();
     }
 
-    /// <summary>"claude", "codex", "zai" or "copilot".</summary>
+    /// <summary>"claude", "codex", "zai", "copilot" or "antigravity".</summary>
     public string ProviderType { get; private set; } = "claude";
+
+    /// <summary>The Antigravity check interval the user entered, or null when it is not a valid number of minutes.</summary>
+    public int? AntigravityIntervalMinutes =>
+        int.TryParse(AntigravityIntervalBox.Text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes) &&
+        minutes is >= AppSettings.MinAntigravityIntervalMinutes and <= AppSettings.MaxAntigravityIntervalMinutes
+            ? minutes
+            : null;
 
     public string AccountName => NameBox.Text.Trim();
     public string ConfigDir => FolderBox.Text.Trim();
@@ -73,6 +87,7 @@ public partial class AddAccountWindow : Window
         ProviderType = (ProviderBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "claude";
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
+        AntigravityPanel.Visibility = Visibility.Collapsed;
         switch (ProviderType)
         {
             case "claude":
@@ -110,6 +125,7 @@ public partial class AddAccountWindow : Window
             case "zai":
                 FolderPanel.Visibility = Visibility.Collapsed;
                 SecretPanel.Visibility = Visibility.Visible;
+                AntigravityPanel.Visibility = Visibility.Collapsed;
                 NamePanel.Visibility = Visibility.Visible;
                 SecretLabel.Text = "API key";
                 SecretHint.Text = _isEditMode
@@ -119,6 +135,19 @@ public partial class AddAccountWindow : Window
                 {
                     NameBox.Text = "GLM";
                 }
+                break;
+
+            case "antigravity":
+                FolderPanel.Visibility = Visibility.Collapsed;
+                SecretPanel.Visibility = Visibility.Collapsed;
+                NamePanel.Visibility = Visibility.Collapsed;
+                AntigravityPanel.Visibility = Visibility.Visible;
+                if (string.IsNullOrWhiteSpace(AntigravityIntervalBox.Text))
+                {
+                    AntigravityIntervalBox.Text = AppSettings.DefaultAntigravityMinIntervalMinutes.ToString(CultureInfo.InvariantCulture);
+                }
+                _agyFound ??= AgyExecutableResolver.Resolve() is not null;
+                UpdateAntigravityStatus();
                 break;
 
             default: // copilot
@@ -131,6 +160,30 @@ public partial class AddAccountWindow : Window
                     : "Classic GitHub token with the copilot and read:user scopes. Stored in Windows Credential Manager, not in settings.json.";
                 break;
         }
+    }
+
+    /// <summary>Whether agy was found; looked up once, the first time the Antigravity panel is shown.</summary>
+    private bool? _agyFound;
+
+    private void OnAntigravityIntervalChanged(object sender, TextChangedEventArgs e) => UpdateAntigravityStatus();
+
+    private void UpdateAntigravityStatus()
+    {
+        if (AntigravityStatusText is null || _agyFound is null)
+        {
+            return;
+        }
+
+        if (_agyFound == false)
+        {
+            AntigravityStatusText.Text = "agy (Antigravity CLI) was not found. Install it from antigravity.google/cli, then sign in by running agy once.";
+            return;
+        }
+
+        var minutes = AntigravityIntervalMinutes ?? AppSettings.DefaultAntigravityMinIntervalMinutes;
+        AntigravityStatusText.Text = string.Create(
+            CultureInfo.InvariantCulture,
+            $"Found agy. AI Usage Tray starts it briefly in the background on the first refresh after at least {minutes} minutes since the last check, reads the quota, and closes it.");
     }
 
     private void OnBrowseClick(object sender, RoutedEventArgs e)
@@ -155,6 +208,7 @@ public partial class AddAccountWindow : Window
         {
             "zai" when Secret.Length == 0 && !_isEditMode => "Enter the Z.AI API key.",
             "copilot" when Secret.Length == 0 && !_isEditMode => "Enter the GitHub personal access token.",
+            "antigravity" when AntigravityIntervalMinutes is null => "Enter a number of minutes from 5 to 240.",
             "claude" or "codex" when ConfigDir.Length == 0 => "Choose a profile folder.",
             _ => null
         };

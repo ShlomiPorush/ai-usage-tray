@@ -655,6 +655,19 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
                 UsageAlertThreshold: _settings.GetUsageAlertThreshold("copilot")));
         }
 
+        if (_settings.AntigravityEnabled)
+        {
+            rows.Add(new ProviderRowViewModel(
+                AntigravityKind,
+                null,
+                "Antigravity",
+                $"agy, checked at most every {_settings.AntigravityMinIntervalMinutes} min",
+                IsPrimaryProvider(AntigravityKind),
+                _settings.IsFloatingPanelProviderVisible(AntigravityKind),
+                UsageAlertsEnabled: _settings.IsUsageAlertProviderEnabled(AntigravityKind),
+                UsageAlertThreshold: _settings.GetUsageAlertThreshold(AntigravityKind)));
+        }
+
         if (_settings.EnsureFloatingPanelHasVisibleProvider(rows.Select(row => row.ProviderId)))
         {
             rows = rows.Select(row => row with { IsShownInFloatingPanel = true }).ToList();
@@ -872,6 +885,27 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         ApplyAccountsChanged("Copilot configured.");
     }
 
+    private const string AntigravityKind = "antigravity";
+
+    /// <summary>The minimum minutes between two Antigravity checks, for the Edit dialog.</summary>
+    public int AntigravityMinIntervalMinutes => _settings.AntigravityMinIntervalMinutes;
+
+    /// <summary>
+    /// Enables Antigravity with the given minimum check interval. A null
+    /// interval keeps the current one. No secret is involved: agy keeps its
+    /// own sign-in.
+    /// </summary>
+    public void ConfigureAntigravity(int? intervalMinutes)
+    {
+        _settings.AntigravityEnabled = true;
+        if (intervalMinutes is { } minutes)
+        {
+            _settings.AntigravityMinIntervalMinutes = minutes;
+        }
+
+        ApplyAccountsChanged("Antigravity configured.");
+    }
+
     private string NextAccountId(string type)
     {
         for (var index = 1; ; index++)
@@ -910,6 +944,15 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
                 CopilotEnabled = false;
                 _ = ClearCopilotTokenAsync();
                 ApplyAccountsChanged("Copilot removed.");
+                break;
+
+            case AntigravityKind:
+                _settings.AntigravityEnabled = false;
+                if (string.Equals(_settings.PrimaryAccountId, AntigravityKind, StringComparison.OrdinalIgnoreCase))
+                {
+                    _settings.PrimaryAccountId = null;
+                }
+                ApplyAccountsChanged("Antigravity removed.");
                 break;
 
             default:

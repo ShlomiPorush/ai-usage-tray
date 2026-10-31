@@ -30,6 +30,8 @@ public sealed class SettingsTransferTests
             nameof(AppSettings.AutomaticUpdateChecksEnabled),
             nameof(AppSettings.UsageHistoryRetentionDays),
             nameof(AppSettings.CopilotEnabled),
+            nameof(AppSettings.AntigravityEnabled),
+            nameof(AppSettings.AntigravityMinIntervalMinutes),
             nameof(AppSettings.ShowOverviewResetTimes),
             nameof(AppSettings.ShowRemainingPercentages),
             nameof(AppSettings.ShowWeeklyBeforeSession),
@@ -363,6 +365,8 @@ public sealed class SettingsTransferTests
         Assert.True(target.StartAtLogin);
         Assert.False(target.AutomaticUpdateChecksEnabled);
         Assert.True(target.CopilotEnabled);
+        Assert.True(target.AntigravityEnabled);
+        Assert.Equal(45, target.AntigravityMinIntervalMinutes);
         Assert.True(target.ShowOverviewResetTimes);
         Assert.True(target.ShowRemainingPercentages);
         Assert.False(target.ShowWeeklyBeforeSession);
@@ -412,6 +416,8 @@ public sealed class SettingsTransferTests
             StartAtLogin = true,
             AutomaticUpdateChecksEnabled = false,
             CopilotEnabled = true,
+            AntigravityEnabled = true,
+            AntigravityMinIntervalMinutes = 45,
             ShowOverviewResetTimes = true,
             ShowRemainingPercentages = true,
             ShowWeeklyBeforeSession = false,

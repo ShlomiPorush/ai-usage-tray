@@ -49,6 +49,17 @@
                 <Path Data="{StaticResource CopilotIconPath}" Fill="{DynamicResource TextSecondaryBrush}" />
             </Viewbox>
         </DataTemplate>
+        <!-- Antigravity: a simple rising arch, drawn in the theme text colour -->
+        <DataTemplate x:Key="AntigravityProviderIconTemplate">
+            <Viewbox Stretch="Uniform">
+                <Grid Width="16" Height="16">
+                    <Path Data="M2.5,13.5 C4,4.5 6,2.5 8,2.5 C10,2.5 12,4.5 13.5,13.5" Stroke="{DynamicResource TextSecondaryBrush}"
+                          StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                    <Path Data="M5.5,13.5 C6.3,9.5 7.1,8.5 8,8.5 C8.9,8.5 9.7,9.5 10.5,13.5" Stroke="{DynamicResource TextSecondaryBrush}"
+                          StrokeThickness="1.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                </Grid>
+            </Viewbox>
+        </DataTemplate>
         <DataTemplate x:Key="ZaiProviderIconTemplate">
             <Border BorderBrush="{DynamicResource TextMutedBrush}" BorderThickness="1" CornerRadius="4">
                 <TextBlock Text="Z" FontSize="10" FontWeight="SemiBold"
@@ -72,6 +83,9 @@
                 </DataTrigger>
                 <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
                     <Setter Property="ContentTemplate" Value="{StaticResource CopilotProviderIconTemplate}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ProviderKind}" Value="antigravity">
+                    <Setter Property="ContentTemplate" Value="{StaticResource AntigravityProviderIconTemplate}" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -394,6 +408,9 @@
                                                         <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
                                                             <Setter Property="Background" Value="#1F64748B" />
                                                         </DataTrigger>
+                                                        <DataTrigger Binding="{Binding ProviderKind}" Value="antigravity">
+                                                            <Setter Property="Background" Value="{DynamicResource PlanAntigravityBgBrush}" />
+                                                        </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
                                             </Border.Style>
@@ -651,6 +668,11 @@
                                             </Setter.Value>
                                         </Setter>
                                     </DataTrigger>
+                                    <!-- Antigravity: blue -->
+                                    <DataTrigger Binding="{Binding ProviderKind}" Value="antigravity">
+                                        <Setter Property="BorderBrush" Value="{DynamicResource AntigravityAccent}" />
+                                        <Setter Property="Background" Value="{DynamicResource PlanAntigravityBgBrush}" />
+                                    </DataTrigger>
                                 </Style.Triggers>
                             </Style>
                         </Border.Style>
@@ -667,6 +689,9 @@
                                         <!-- Copilot: dark slate for contrast -->
                                         <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
                                             <Setter Property="Foreground" Value="{DynamicResource PlanCopilotFgBrush}" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding ProviderKind}" Value="antigravity">
+                                            <Setter Property="Foreground" Value="{DynamicResource PlanAntigravityFgBrush}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -688,6 +713,9 @@
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
                                         <Setter Property="Text" Value="Premium requests" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding ProviderKind}" Value="antigravity">
+                                        <Setter Property="Text" Value="Gemini 5-hour" />
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
@@ -714,6 +742,9 @@
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
                                         <Setter Property="Text" Value="Chat requests" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding ProviderKind}" Value="antigravity">
+                                        <Setter Property="Text" Value="Gemini weekly" />
                                     </DataTrigger>
                                 </Style.Triggers>
                             </Style>
@@ -856,6 +887,9 @@
                             <Setter Property="Visibility" Value="Visible" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding ProviderKind}" Value="copilot">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding ProviderKind}" Value="antigravity">
                                     <Setter Property="Visibility" Value="Collapsed" />
                                 </DataTrigger>
                                 <!-- Stays hidden until the usage engine answers, so the

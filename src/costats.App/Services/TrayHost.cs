@@ -471,7 +471,11 @@ namespace costats.App.Services
 
             var accountEntries = state.Providers
                 .Where(pair =>
-                    TrayAccountFilter.IsVisible(pair.Key, _settings.HasZaiKey, _settings.CopilotEnabled) ||
+                    TrayAccountFilter.IsVisible(
+                        pair.Key,
+                        _settings.HasZaiKey,
+                        _settings.CopilotEnabled,
+                        _settings.AntigravityEnabled) ||
                     // The primary account drives the icon, so it must never be
                     // missing from the list the tooltip is built from.
                     (!string.IsNullOrWhiteSpace(primaryId) &&

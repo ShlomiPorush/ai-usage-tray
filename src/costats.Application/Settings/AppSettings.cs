@@ -86,6 +86,41 @@ public sealed class AppSettings
     /// </summary>
     public bool CopilotEnabled { get; set; } = false;
 
+    /// <summary>Default minimum time between two Antigravity checks, in minutes.</summary>
+    public const int DefaultAntigravityMinIntervalMinutes = 15;
+
+    /// <summary>Shortest allowed time between two Antigravity checks, in minutes.</summary>
+    public const int MinAntigravityIntervalMinutes = 5;
+
+    /// <summary>Longest allowed time between two Antigravity checks, in minutes.</summary>
+    public const int MaxAntigravityIntervalMinutes = 240;
+
+    /// <summary>
+    /// Whether the Google Antigravity provider is enabled. When on, the app
+    /// starts the official agy CLI briefly in the background to read the quota.
+    /// </summary>
+    public bool AntigravityEnabled { get; set; } = false;
+
+    private int antigravityMinIntervalMinutes = DefaultAntigravityMinIntervalMinutes;
+
+    /// <summary>
+    /// Minimum minutes between two Antigravity checks (each one starts agy
+    /// briefly), clamped to 5 through 240.
+    /// </summary>
+    public int AntigravityMinIntervalMinutes
+    {
+        get => antigravityMinIntervalMinutes;
+        set => antigravityMinIntervalMinutes = Math.Clamp(value, MinAntigravityIntervalMinutes, MaxAntigravityIntervalMinutes);
+    }
+
+    /// <summary>
+    /// Runtime only: set for preview and screenshot runs so they never start
+    /// agy. Never written to settings.json, so a preview cannot turn the
+    /// provider off for real.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool AntigravityProbeSuppressed { get; set; }
+
     /// <summary>
     /// When true, the widget overview cards also show each window's reset
     /// countdown. Off by default to keep the overview compact.

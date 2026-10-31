@@ -316,6 +316,11 @@ public sealed partial class PulseViewModel : ObservableObject, IObserver<PulseSt
                         continue;
                     }
 
+                    if (providerId.Equals("antigravity", StringComparison.OrdinalIgnoreCase) && !_settings.AntigravityEnabled)
+                    {
+                        continue;
+                    }
+
                     // Z.AI without an API key is just noise - hide it entirely.
                     if (providerId.Equals("zai", StringComparison.OrdinalIgnoreCase) && !_settings.HasZaiKey)
                     {

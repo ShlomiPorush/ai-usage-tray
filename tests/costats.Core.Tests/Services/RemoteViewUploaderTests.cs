@@ -58,6 +58,50 @@ public sealed class RemoteViewUploaderTests
         Assert.Equal([$"PUT /u/{WriteId}"], requests);
     }
 
+    [Fact]
+    public void Antigravity_is_never_published_not_even_as_the_primary_account()
+    {
+        var (uploader, settings, _) = Uploader();
+        using var _ = uploader;
+        settings.AntigravityEnabled = true;
+        settings.PrimaryAccountId = "antigravity";
+
+        var now = DateTimeOffset.UtcNow;
+        var providers = new Dictionary<string, ProviderReading>(State().Providers)
+        {
+            ["antigravity"] = new ProviderReading(
+                new UsagePulse("antigravity", now, null, null, 40, 100, null, new QuotaWindow(TimeSpan.FromDays(7), now.AddDays(3))),
+                new IdentityCard("antigravity", "Antigravity", null, null, "Google AI Plus", "agy"),
+                "Updated 08:00",
+                now,
+                ReadingConfidence.High,
+                ReadingSource.Cli)
+        };
+        var state = new PulseState(providers, now, [], false, RefreshTrigger.Scheduled);
+
+        var snapshot = uploader.PrepareSnapshotUpload(state, now).Snapshot;
+        var json = System.Text.Json.JsonSerializer.Serialize(
+            snapshot,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+
+        Assert.Equal(["claude:claude-1"], snapshot.Accounts.Select(account => account.Id));
+        Assert.Null(snapshot.Primary);
+        Assert.DoesNotContain("antigravity", json, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Google AI Plus", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_published_primary_account_is_still_named()
+    {
+        var (uploader, settings, _) = Uploader();
+        using var _ = uploader;
+        settings.PrimaryAccountId = "claude:claude-1";
+
+        var snapshot = uploader.PrepareSnapshotUpload(State(), DateTimeOffset.UtcNow).Snapshot;
+
+        Assert.Equal("claude:claude-1", snapshot.Primary);
+    }
+
     private static (RemoteViewUploader Uploader, AppSettings Settings, List<string> Requests) Uploader()
     {
         var settings = new AppSettings

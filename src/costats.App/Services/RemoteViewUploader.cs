@@ -272,8 +272,12 @@ namespace costats.App.Services
                 .OrderBy(entry => entry.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            // The primary account is named only when it is published itself, so
+            // an account kept off the remote view (Antigravity) never leaks its
+            // id through the "primary" field either.
+            var primary = _settings.PrimaryAccountId;
             return RemoteSnapshotComposer.Compose(
-                _settings.PrimaryAccountId,
+                !string.IsNullOrWhiteSpace(primary) && IsPublished(primary) ? primary : null,
                 entries,
                 generatedAt,
                 _settings.ShowRemainingPercentages,
@@ -282,10 +286,13 @@ namespace costats.App.Services
 
         /// <summary>
         /// Exactly the account filter the tray surfaces use. Shared so the two
-        /// cannot drift: what you see in the tray is what the phone sees.
+        /// cannot drift: what you see in the tray is what the phone sees. The
+        /// one deliberate exception is Antigravity, which is never published:
+        /// the remote viewer does not support it yet.
         /// </summary>
         private bool IsPublished(string providerId) =>
-            TrayAccountFilter.IsVisible(providerId, _settings.HasZaiKey, _settings.CopilotEnabled);
+            !providerId.Equals(TrayAccountFilter.AntigravityProviderId, StringComparison.OrdinalIgnoreCase) &&
+            TrayAccountFilter.IsVisible(providerId, _settings.HasZaiKey, _settings.CopilotEnabled, antigravityEnabled: false);
 
         /// <summary>
         /// The upload endpoint, or null when none is configured or the user's

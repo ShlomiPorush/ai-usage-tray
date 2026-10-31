@@ -13,6 +13,7 @@ using costats.Application.SessionActivation;
 using costats.Application.Settings;
 using costats.Application.Storage;
 using costats.Infrastructure.Analytics;
+using costats.Infrastructure.Antigravity;
 using costats.Infrastructure.Storage;
 using costats.Infrastructure.Providers;
 using costats.Infrastructure.Security;
@@ -533,6 +534,9 @@ namespace costats.App
             settings.AutoStartClaudeFiveHourWindow = false;
             settings.AutoStartCodexFiveHourWindow = false;
             settings.AutoStartZaiFiveHourWindow = false;
+            // Runtime only, never saved: a preview run must not start agy, and
+            // must not turn the provider off in the user's settings either.
+            settings.AntigravityProbeSuppressed = true;
 
             if (ReadOptionalArgument(args, "--preview-update-version") is not null)
             {
@@ -846,6 +850,14 @@ namespace costats.App
                         sp.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>()));
 
                     services.AddSingleton<ISignalSource, CopilotPersonalSource>();
+                    // Google Antigravity: starts the official agy CLI briefly, at most
+                    // once per the user's minimum interval, and reads its statusline quota.
+                    services.AddSingleton<IAgyProbeRunner>(sp => new AgyProbeRunner(
+                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<AgyProbeRunner>>()));
+                    services.AddSingleton<ISignalSource>(sp => new AntigravityAgySource(
+                        settings,
+                        sp.GetRequiredService<IAgyProbeRunner>(),
+                        sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<AntigravityAgySource>>()));
                     // Z.AI / GLM coding-plan monitor (Bearer-token auth).
                     services.AddSingleton<IZaiUsageClient>(sp => new ZaiUsageFetcher(
                         sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ZaiUsageFetcher>>()));

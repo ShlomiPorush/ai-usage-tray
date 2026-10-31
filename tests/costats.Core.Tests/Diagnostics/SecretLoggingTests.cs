@@ -404,6 +404,55 @@ public sealed class SecretLoggingTests : IDisposable
     }
 
     [Fact]
+    public async Task Antigravity_runner_and_source_never_log_the_email_or_payload_text()
+    {
+        // Stand-in for agy: cmd.exe copies a payload that holds an email, the
+        // way agy's statusline would. The real agy is never started.
+        const string email = "secret.person@example.com";
+        const string modelName = "Gemini 3.8 Flash (High) private-model-marker";
+        var cmd = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+        var success = Path.Combine(_root, "agy success.json");
+        var unsupported = Path.Combine(_root, "agy unsupported.json");
+        await File.WriteAllTextAsync(success, """
+            {"agent_state":"idle","plan_tier":"Google AI Plus","email":"EMAIL","model":{"id":"MODEL"},
+             "quota":{"gemini-weekly":{"remaining_fraction":0.4,"reset_time":"2026-11-04T12:58:07Z","reset_in_seconds":478030}}}
+            """.Replace("EMAIL", email, StringComparison.Ordinal).Replace("MODEL", modelName, StringComparison.Ordinal));
+        await File.WriteAllTextAsync(unsupported, """
+            {"agent_state":"idle","email":"EMAIL","model":{"id":"MODEL"},
+             "quota":{"3p-weekly":{"remaining_fraction":0.4,"reset_time":"2026-11-04T12:58:07Z"}}}
+            """.Replace("EMAIL", email, StringComparison.Ordinal).Replace("MODEL", modelName, StringComparison.Ordinal));
+
+        var logger = new CapturingLogger();
+        var payload = success;
+        var runner = new costats.Infrastructure.Antigravity.AgyProbeRunner(logger, new costats.Infrastructure.Antigravity.AgyProbeRunnerOptions
+        {
+            BasePath = Path.Combine(_root, "antigravity"),
+            ResolveExecutable = () => cmd,
+            CommandLine = (_, _) => $"\"{cmd}\" /d /c copy /y \"{payload}\" payload.json >nul & ping -n 30 127.0.0.1 >nul",
+            Deadline = TimeSpan.FromSeconds(2)
+        });
+        var settings = new AppSettings { AntigravityEnabled = true, AntigravityMinIntervalMinutes = 5 };
+        var sourceLogger = new CapturingLogger<costats.Infrastructure.Antigravity.AntigravityAgySource>();
+        var source = new costats.Infrastructure.Antigravity.AntigravityAgySource(settings, runner, sourceLogger);
+
+        var read = await source.ReadAsync(CancellationToken.None);
+        Assert.NotNull(read.Usage);
+
+        // Unsupported and failure paths warn; run them through the runner directly.
+        payload = unsupported;
+        var request = new costats.Infrastructure.Antigravity.AgyProbeRequest(TimeSpan.FromMinutes(5));
+        var schedule = Path.Combine(_root, "antigravity", "AIUsageTray", "antigravity-probe", "schedule.json");
+        File.Delete(schedule);
+        Assert.Equal(costats.Infrastructure.Antigravity.AgyProbeStatus.UnsupportedFormat, (await runner.RunAsync(request, CancellationToken.None)).Status);
+        File.Delete(schedule);
+        Assert.Equal(costats.Infrastructure.Antigravity.AgyProbeStatus.UnsupportedFormat, (await runner.RunAsync(request, CancellationToken.None)).Status);
+
+        Assert.Contains(logger.Entries, entry => entry.Level == LogLevel.Warning);
+        AssertNoSecrets(logger.AllText + "\n" + sourceLogger.AllText, email, modelName, "remaining_fraction", "Google AI Plus");
+        Assert.DoesNotContain(email, read.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Redaction_masks_long_token_runs_and_ids_in_urls()
     {
         var writeId = RemoteViewIds.MintWriteId();
