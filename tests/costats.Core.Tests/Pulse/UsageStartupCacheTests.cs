@@ -223,23 +223,22 @@ public sealed class UsageStartupCacheTests
     }
 
     [Fact]
-    public void Clear_returns_at_once_while_a_write_is_held()
+    public async Task Clear_returns_at_once_while_a_write_is_held()
     {
         var store = new MemoryStore { HoldWrites = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously) };
         var cache = Cache(store);
         cache.Observe(cache.CaptureGeneration(), Readings((Claude, Live(40))), fullRefresh: true);
-        Assert.True(store.WriteStarted.Task.Wait(TimeSpan.FromSeconds(5)));
+        await store.WriteStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         // Timed from inside the task, so a slow thread pool cannot fail the test.
-        var elapsed = Task.Run(() =>
+        var elapsed = await Task.Run(() =>
         {
             var watch = System.Diagnostics.Stopwatch.StartNew();
             cache.Clear();
             return watch.Elapsed;
-        });
+        }).WaitAsync(TimeSpan.FromSeconds(30));
 
-        Assert.True(elapsed.Wait(TimeSpan.FromSeconds(30)));
-        Assert.True(elapsed.Result < TimeSpan.FromSeconds(1));
+        Assert.True(elapsed < TimeSpan.FromSeconds(1));
         store.HoldWrites.SetResult();
     }
 
