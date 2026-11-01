@@ -41,8 +41,10 @@
   /* Usage tab: one accent per agent, as in the desktop Usage window. */
   --claude: #EA580C;
   --codex: #059669;
+  --antigravity: #1D4ED8;
   --claude-fill: rgba(234, 88, 12, 0.20);
   --codex-fill: rgba(5, 150, 105, 0.16);
+  --antigravity-fill: rgba(29, 78, 216, 0.16);
 
   /* Controls and quiet text shared by the header and the Usage tab. */
   --faint: #706659;
@@ -109,8 +111,10 @@
 
     --claude: #FB923C;
     --codex: #34D399;
+    --antigravity: #60A5FA;
     --claude-fill: rgba(251, 146, 60, 0.22);
     --codex-fill: rgba(52, 211, 153, 0.18);
+    --antigravity-fill: rgba(96, 165, 250, 0.18);
 
     --faint: #8996AC;
     --input: #273246;
@@ -155,8 +159,10 @@
 
   --claude: #FB923C;
   --codex: #34D399;
+  --antigravity: #60A5FA;
   --claude-fill: rgba(251, 146, 60, 0.22);
   --codex-fill: rgba(52, 211, 153, 0.18);
+  --antigravity-fill: rgba(96, 165, 250, 0.18);
 
   --faint: #8996AC;
   --input: #273246;
@@ -1590,6 +1596,7 @@ html.usage-scroll-locked body {
 .usage-share-track { fill: var(--track); }
 .usage-share-fill.is-claude { fill: var(--claude); }
 .usage-share-fill.is-codex { fill: var(--codex); }
+.usage-share-fill.is-antigravity { fill: var(--antigravity); }
 
 .usage-provider-bottom {
   display: flex;
@@ -1611,6 +1618,7 @@ html.usage-scroll-locked body {
 .usage-provider-icon { width: 15px; height: 15px; }
 .usage-provider-icon.is-claude { color: var(--claude); }
 .usage-provider-icon.is-codex { color: var(--codex); }
+.usage-provider-icon.is-antigravity { color: var(--antigravity); }
 
 .usage-dot {
   width: 10px;
@@ -1621,6 +1629,7 @@ html.usage-scroll-locked body {
 
 .usage-dot.is-claude { background: var(--claude); }
 .usage-dot.is-codex { background: var(--codex); }
+.usage-dot.is-antigravity { background: var(--antigravity); }
 
 .usage-chart-head {
   display: flex;
@@ -1709,11 +1718,14 @@ html.usage-scroll-locked body {
 .usage-area { stroke: none; }
 .usage-area.is-claude { fill: var(--claude-fill); }
 .usage-area.is-codex { fill: var(--codex-fill); }
+.usage-area.is-antigravity { fill: var(--antigravity-fill); }
 
 .usage-line.is-claude, .usage-line-cmp.is-claude, .usage-ring.is-claude, .usage-dot-cmp.is-claude { stroke: var(--claude); }
 .usage-line.is-codex, .usage-line-cmp.is-codex, .usage-ring.is-codex, .usage-dot-cmp.is-codex { stroke: var(--codex); }
+.usage-line.is-antigravity, .usage-line-cmp.is-antigravity, .usage-ring.is-antigravity, .usage-dot-cmp.is-antigravity { stroke: var(--antigravity); }
 .usage-point.is-claude, .usage-point-cmp.is-claude, .usage-dot-active.is-claude, .usage-tip-dot.is-claude { fill: var(--claude); }
 .usage-point.is-codex, .usage-point-cmp.is-codex, .usage-dot-active.is-codex, .usage-tip-dot.is-codex { fill: var(--codex); }
+.usage-point.is-antigravity, .usage-point-cmp.is-antigravity, .usage-dot-active.is-antigravity, .usage-tip-dot.is-antigravity { fill: var(--antigravity); }
 
 .usage-ring { fill: var(--page); stroke-width: 2; }
 .usage-dot-active { stroke: var(--page); stroke-width: 2; }
@@ -1966,6 +1978,7 @@ th[aria-sort="descending"] .usage-sort { color: var(--ink); }
 
 .usage-split-part.is-claude { fill: var(--claude); }
 .usage-split-part.is-codex { fill: var(--codex); }
+.usage-split-part.is-antigravity { fill: var(--antigravity); }
 .usage-split-part.is-part-0 { opacity: 0.2; }
 .usage-split-part.is-part-1 { opacity: 0.42; }
 .usage-split-part.is-part-2 { opacity: 0.68; }

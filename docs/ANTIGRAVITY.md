@@ -30,6 +30,18 @@ The dialog says whether it found `agy`. The app looks for `%LOCALAPPDATA%\agy\bi
 - It never lets the check update `agy`: auto-update is turned off for the run (`AGY_CLI_DISABLE_AUTO_UPDATE=true`).
 - It never sends the account email anywhere, including the remote view.
 
+## Usage dashboard
+
+While Antigravity is enabled, the Usage dashboard also counts the tokens Antigravity used, next to Claude Code and Codex, and prices them at the published Gemini API rates.
+
+- **Where it reads**: the conversation databases of `agy` itself (`~\.gemini\antigravity-cli\conversations\*.db`) and of every profile T3 Code runs `agy` under (`~\.t3\userdata\providers\antigravity\<profile>\antigravity-acp\conversations\*.db`). All of them are shown as one account, **Antigravity (all sources)**, because a conversation file does not say which Google account ran it. The Antigravity desktop app keeps its conversations in another format and is not counted.
+- **What it reads**: only the `gen_metadata` table, one record per model call. From each record it takes the model id, the time of the call, a hash of the request id (so a call is counted once), and the input, cached input, output and thinking token counts. The same records also hold prompt text and tool output; those parts are skipped without being decoded, and nothing from them is stored, cached or logged.
+- **How it opens the files**: read-only, one at a time per file, without keeping them open. SQLite may create the small `-shm` file next to a database, as any reader does. A database that cannot be opened, or that has more than 200,000 model calls, is reported as unreadable instead of being counted in part.
+- **The field layout is inferred.** Antigravity does not document this format. The mapping was worked out from real records, and it holds on every record checked (output always equals thinking plus response, and every request id is unique), but no second source confirms it. An update of `agy` can change the format; records that no longer fit are skipped and counted, never guessed at.
+- **Prices**: a model id such as `gemini-3.8-flash-medium` carries the thinking level at the end. Google prices a model the same at every thinking level, so it is priced as `gemini-3.8-flash`. A model the price list does not cover is shown as unpriced.
+- **History**: Antigravity usage is kept in the usage history like Claude and Codex usage, so it stays after `agy` deletes a conversation. Deleting the history and the retention setting apply to it the same way. An older version of AI Usage Tray does not know Antigravity: if you install one, it drops the Antigravity rows from every month of history it saves. When you return to a current version, it counts again what the conversation databases still hold; usage whose database was deleted in the meantime is lost.
+- **Shared usage**: the shared usage report includes Antigravity only when the relay is version 1.9.0 or later. An older relay gets the report without it, and the app asks again every 6 hours.
+
 ## Remote view
 
 When remote view is on, Antigravity is published like the other accounts: its name, plan, the Gemini windows and the "Claude & GPT" rows, with their usage and reset times. When you remove Antigravity or turn it off, the app uploads a snapshot without it right away. The viewer stops showing it after that upload succeeds. If uploads keep failing, the last stored snapshot stays on the relay until it expires after 7 days without updates, or until you turn remote view off, which deletes it.
@@ -50,5 +62,5 @@ If the app crashes during a check, or the folder cannot be deleted, that subfold
 - The app cannot tell whether `agy` is signed in. When `agy` is signed out, the widget shows "agy returned no quota. If agy is not signed in, run agy once." instead of a sign-in prompt.
 - The headline colour of the account reflects the Gemini windows only. The "Claude & GPT" rows have their own colours.
 - Only one Antigravity account is supported: the one `agy` is signed in to for your Windows account. A possible design for more accounts is kept in [ANTIGRAVITY-MULTI-ACCOUNT.md](ANTIGRAVITY-MULTI-ACCOUNT.md).
-- Each check also refreshes a few of `agy`'s own state files, such as `cache\onboarding.json` and an empty crash log under `~\.gemini\antigravity-cli`. These files do not grow, and `agy` adds no logs or conversations.
+- Each check also refreshes a few of `agy`'s own state files, such as `cache\onboarding.json` and an empty crash log under `~\.gemini\antigravity-cli`. These files do not grow, and `agy` adds no logs or conversations, so the checks themselves never appear in the Usage dashboard.
 - Each check starts `agy` for a few seconds, so it uses a little CPU and network every interval.

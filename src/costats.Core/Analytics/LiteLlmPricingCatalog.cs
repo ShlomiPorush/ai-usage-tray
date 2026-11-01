@@ -41,6 +41,14 @@ public static class LiteLlmPricingCatalog
     public const decimal MaxRatePerMTok = 1000m;
 
     private static readonly HashSet<string> Providers = new(StringComparer.Ordinal) { "anthropic", "openai" };
+
+    /// <summary>
+    /// Google's own Gemini entries. Only the bare <c>gemini-*</c> ids are kept:
+    /// they are the ids Antigravity logs, and the other Vertex AI entries are
+    /// partner models priced elsewhere.
+    /// </summary>
+    private const string GeminiProvider = "vertex_ai-language-models";
+    private const string GeminiPrefix = "gemini-";
     private static readonly HashSet<string> Modes = new(StringComparer.Ordinal) { "chat", "responses" };
 
     private static readonly string[] KeptFields =
@@ -151,7 +159,7 @@ public static class LiteLlmPricingCatalog
             var entry = property.Value;
             if (string.IsNullOrWhiteSpace(property.Name) ||
                 entry.ValueKind != JsonValueKind.Object ||
-                !Providers.Contains(ReadString(entry, "litellm_provider") ?? string.Empty) ||
+                !IsKeptProvider(property.Name, ReadString(entry, "litellm_provider")) ||
                 !Modes.Contains(ReadString(entry, "mode") ?? string.Empty) ||
                 ReadRate(entry, "input_cost_per_token") is null ||
                 ReadRate(entry, "output_cost_per_token") is null)
@@ -162,6 +170,11 @@ public static class LiteLlmPricingCatalog
             yield return (property.Name, entry);
         }
     }
+
+    private static bool IsKeptProvider(string model, string? provider) =>
+        provider is not null &&
+        (Providers.Contains(provider) ||
+         (provider == GeminiProvider && model.StartsWith(GeminiPrefix, StringComparison.Ordinal)));
 
     private static string? ReadString(JsonElement entry, string name) =>
         entry.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String

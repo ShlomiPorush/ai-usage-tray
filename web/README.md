@@ -112,6 +112,9 @@ How the page finds the report:
   the tab is hidden and `#usage` falls back to the quotas.
 - A relay without the usage route (the Cloudflare Worker) never sets the flag,
   so the tab never appears there.
+- The page reads report versions 1 and 2 and shows Claude Code, Codex and
+  Antigravity (version 2 only). A row that names any other provider is left out,
+  never shown under another agent.
 
 What the numbers mean:
 

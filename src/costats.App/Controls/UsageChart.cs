@@ -13,7 +13,7 @@ namespace costats.App.Controls;
 public sealed record UsageChartSeries(UsageProviderKind Provider, IReadOnlyList<double> Values)
 {
     /// <summary>The tooltip's name for the line.</summary>
-    public string DisplayName => Provider == UsageProviderKind.Claude ? "Claude Code" : "Codex";
+    public string DisplayName => UsageProviderNames.DisplayName(Provider);
 }
 
 /// <summary>
@@ -366,6 +366,13 @@ public sealed class UsageChart : FrameworkElement
         typeof(UsageChart),
         new FrameworkPropertyMetadata(Brushes.MediumSeaGreen, FrameworkPropertyMetadataOptions.AffectsRender));
 
+    /// <summary>Accent for <see cref="UsageProviderKind.Antigravity"/>.</summary>
+    public static readonly DependencyProperty AntigravityBrushProperty = DependencyProperty.Register(
+        nameof(AntigravityBrush),
+        typeof(Brush),
+        typeof(UsageChart),
+        new FrameworkPropertyMetadata(Brushes.RoyalBlue, FrameworkPropertyMetadataOptions.AffectsRender));
+
     /// <summary>Gridline colour.</summary>
     public static readonly DependencyProperty GridBrushProperty = DependencyProperty.Register(
         nameof(GridBrush),
@@ -491,6 +498,13 @@ public sealed class UsageChart : FrameworkElement
     {
         get => (Brush)GetValue(CodexBrushProperty);
         set => SetValue(CodexBrushProperty, value);
+    }
+
+    /// <inheritdoc cref="AntigravityBrushProperty"/>
+    public Brush AntigravityBrush
+    {
+        get => (Brush)GetValue(AntigravityBrushProperty);
+        set => SetValue(AntigravityBrushProperty, value);
     }
 
     /// <inheritdoc cref="GridBrushProperty"/>
@@ -730,7 +744,13 @@ public sealed class UsageChart : FrameworkElement
     }
 
     private Brush Accent(UsageProviderKind provider) =>
-        provider == UsageProviderKind.Claude ? ClaudeBrush : CodexBrush;
+        provider switch
+        {
+            UsageProviderKind.Claude => ClaudeBrush,
+            UsageProviderKind.Codex => CodexBrush,
+            UsageProviderKind.Antigravity => AntigravityBrush,
+            _ => throw new InvalidOperationException("Unknown usage provider " + provider)
+        };
 
     private static FormattedText TooltipText(string value, Typeface typeface, double dpi, Brush brush) =>
         new(value, CultureInfo.InvariantCulture, FlowDirection.LeftToRight, typeface, 12d, brush, dpi);
@@ -765,7 +785,7 @@ public sealed class UsageChart : FrameworkElement
             }
 
             var y = bottom - ((bottom - top) * Math.Min(1d, Math.Max(0d, series.Values[index]) / axisMax));
-            var accent = series.Provider == UsageProviderKind.Claude ? ClaudeBrush : CodexBrush;
+            var accent = Accent(series.Provider);
             var ring = new Pen(accent, 1.6d);
             ring.Freeze();
             drawingContext.DrawEllipse(null, ring, new Point(x, y), UsageChartLayout.RingRadius, UsageChartLayout.RingRadius);
@@ -826,7 +846,7 @@ public sealed class UsageChart : FrameworkElement
             return;
         }
 
-        var accent = series.Provider == UsageProviderKind.Claude ? ClaudeBrush : CodexBrush;
+        var accent = Accent(series.Provider);
         var stroke = accent.Clone();
         stroke.Opacity = 0.8;
         stroke.Freeze();
@@ -916,7 +936,7 @@ public sealed class UsageChart : FrameworkElement
             points.Add(new Point(x, y));
         }
 
-        var accent = series.Provider == UsageProviderKind.Claude ? ClaudeBrush : CodexBrush;
+        var accent = Accent(series.Provider);
         var geometry = new StreamGeometry();
         using (var context = geometry.Open())
         {

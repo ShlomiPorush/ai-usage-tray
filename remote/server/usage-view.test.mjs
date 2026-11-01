@@ -875,9 +875,166 @@ test("R7: an accepted report renders every preset without throwing", () => {
 
 test("unreadable payloads are refused", () => {
   assert.equal(U.prepareUsage(null), null);
-  assert.equal(U.prepareUsage({ ...payload({}), version: 2 }), null);
+  assert.equal(U.prepareUsage({ ...payload({}), version: 3 }), null);
+  assert.equal(U.prepareUsage({ ...payload({}), version: 0 }), null);
+  assert.equal(U.prepareUsage({ ...payload({}), version: "2" }), null);
   assert.equal(U.prepareUsage({ ...payload({}), timeZone: "Not/AZone" }), null);
   assert.equal(U.prepareUsage({ ...payload({}), seq: 0 }), null);
+});
+
+// --- payload version 2: Antigravity ---------------------------------------------
+
+const CODEX_PRICE = { input: 1.25, cacheRead: 0.125, cacheWrite5m: null, cacheWrite1h: null, output: 10 };
+
+function threeProviders(overrides) {
+  return {
+    version: 2,
+    ...londonHourly(),
+    accounts: [
+      { name: "Personal", provider: "claude" },
+      { name: "Codex (all accounts)", provider: "codex" },
+      { name: "Antigravity (all sources)", provider: "antigravity" },
+    ],
+    models: [
+      { id: "claude-sonnet-4-5", provider: "claude", priced: true, price: PRICE },
+      { id: "gpt-5-codex", provider: "codex", priced: true, price: CODEX_PRICE },
+      { id: "gemini-3.8-flash-medium", provider: "antigravity", priced: false, price: null },
+    ],
+    days: [
+      [25, 0, 0, ...metrics({ output: 100, cost: 1500000 })],
+      [25, 1, 1, ...metrics({ output: 50, cost: 500000 })],
+      [26, 2, 2, ...metrics({ uncached: 300, output: 70, unpriced: 370, requests: 3 })],
+    ],
+    hours: [{ phaseMinutes: 0, rows: [
+      [25, minutes("2026-10-26T09:00:00Z"), 0, 0, ...metrics({ output: 100, cost: 1500000 })],
+      [25, minutes("2026-10-26T10:00:00Z"), 1, 1, ...metrics({ output: 50, cost: 500000 })],
+      [26, minutes("2026-10-27T09:00:00Z"), 2, 2, ...metrics({ uncached: 300, output: 70, unpriced: 370, requests: 3 })],
+    ] }],
+    ...overrides,
+  };
+}
+
+test("a version 2 report shows Antigravity next to Claude Code and Codex everywhere", () => {
+  const data = prepared(threeProviders());
+  assert.deepEqual(data.accounts.map((account) => account.provider), ["claude", "codex", "antigravity"]);
+  assert.deepEqual(data.models.map((model) => model.provider), ["claude", "codex", "antigravity"]);
+  assert.deepEqual(U.accountOptions(data).map((entry) => entry.label),
+    ["Personal", "Codex (all accounts)", "Antigravity (all sources)"]);
+
+  const now = Date.parse("2026-10-27T12:00:00Z");
+  const period = U.resolvePeriod(data, { kind: "days", from: day("2026-10-20"), to: day("2026-10-27") });
+  const all = U.aggregate(data, period);
+  assert.deepEqual(Object.keys(all.byProvider), ["claude", "codex", "antigravity"]);
+  assert.equal(all.byProvider.antigravity[M.unpricedTokens], 370);
+  assert.equal(all.byProvider.antigravity[M.requests], 3);
+  assert.equal(all.totals[M.requests], 5);
+  assert.equal(all.points[day("2026-10-27") - period.from].byProvider.antigravity[M.output], 70);
+
+  // Only the Antigravity account picked.
+  const picked = U.aggregate(data, period, { accounts: [2] });
+  assert.equal(picked.byProvider.antigravity[M.rows], 1);
+  assert.equal(picked.byProvider.claude[M.rows], 0);
+
+  for (const [range, compare] of [["7", "off"], ["7", "previous"], ["24h", "previous"], ["30", "previous"]]) {
+    const view = U.computeView(data, U.selectionFor({ range, compare }, data, now), now);
+    const chart = U.buildChart(view, "tokens");
+    if (range === "7") {
+      assert.deepEqual(chart.series.map((line) => [line.provider, line.name]),
+        [["claude", "Claude Code"], ["codex", "Codex"], ["antigravity", "Antigravity"]], `${range} ${compare}`);
+      if (compare === "previous") assert.equal(chart.comparisonSeries.length, 3);
+      const hero = U.buildHero(view, "tokens");
+      assert.deepEqual(hero.providers.map((row) => row.provider).sort(), ["antigravity", "claude", "codex"]);
+      assert.equal(hero.providers.find((row) => row.provider === "antigravity").name, "Antigravity");
+      const breakdown = U.buildBreakdown(view, "model", { column: "value", descending: true }, { column: "label", descending: true });
+      assert.ok(breakdown.rows.some((row) => row.provider === "antigravity" && row.label === "gemini-3.8-flash-medium"));
+      const detail = U.buildModelDetail(view, 2, "tokens");
+      assert.equal(detail.provider, "antigravity");
+      assert.match(detail.subtitle, /^Antigravity /);
+    }
+    U.buildTiles(view);
+    U.buildNotes(view, chart);
+    for (let index = 0; index < chart.count; index++) U.tooltipFor(chart, index);
+  }
+
+  // The hourly view carries Antigravity too, and its tooltip names it.
+  const twoDays = U.resolvePeriod(data, { kind: "days", from: day("2026-10-26"), to: day("2026-10-27") });
+  assert.equal(twoDays.hourly, true);
+  const hourlyAll = U.aggregate(data, twoDays);
+  assert.equal(hourlyAll.points.reduce((sum, point) => sum + point.byProvider.antigravity[M.output], 0), 70);
+  const hourlyView = { ...U.computeView(data, U.selectionFor({ range: "7" }, data, now), now), primary: twoDays, current: hourlyAll };
+  const hourlyChart = U.buildChart(hourlyView, "tokens");
+  const line = hourlyChart.series.find((entry) => entry.provider === "antigravity");
+  const at = line.values.findIndex((value) => value > 0);
+  assert.ok(at >= 0, "an hour with Antigravity usage");
+  assert.ok(U.tooltipFor(hourlyChart, at).rows.some((row) => row.provider === "antigravity" && row.name === "Antigravity"));
+});
+
+test("rows naming a provider the viewer does not know are dropped, never relabelled", () => {
+  const data = prepared(threeProviders({
+    accounts: [
+      { name: "Personal", provider: "claude" },
+      { name: "Codex (all accounts)", provider: "codex" },
+      { name: "Antigravity (all sources)", provider: "antigravity" },
+      { name: "Somewhere else", provider: "zai" },
+    ],
+    models: [
+      { id: "claude-sonnet-4-5", provider: "claude", priced: true, price: PRICE },
+      { id: "gpt-5-codex", provider: "codex", priced: true, price: CODEX_PRICE },
+      { id: "gemini-3.8-flash-medium", provider: "antigravity", priced: false, price: null },
+      { id: "glm-9", provider: "zai", priced: false, price: null },
+    ],
+    days: [
+      [5, 3, 3, ...metrics({ output: 999, unpriced: 999 })],
+      [25, 0, 0, ...metrics({ output: 100, cost: 1500000 })],
+      [25, 0, 3, ...metrics({ output: 888, unpriced: 888 })],
+      [26, 3, 2, ...metrics({ output: 777, unpriced: 777 })],
+    ],
+    hours: [{ phaseMinutes: 0, rows: [
+      [25, minutes("2026-10-26T09:00:00Z"), 0, 0, ...metrics({ output: 100, cost: 1500000 })],
+      [25, minutes("2026-10-26T10:00:00Z"), 0, 3, ...metrics({ output: 888, unpriced: 888 })],
+      [26, minutes("2026-10-27T09:00:00Z"), 3, 2, ...metrics({ output: 777, unpriced: 777 })],
+    ] }],
+  }));
+  assert.equal(data.accounts[3].provider, null);
+  assert.equal(data.models[3].provider, null);
+  assert.deepEqual(U.accountOptions(data).map((entry) => entry.value), ["0", "1", "2"]);
+  assert.equal(U.accountSelection(data, 3), null);
+  // The only row on Oct 6 is dropped, so recorded usage starts on Oct 26.
+  assert.equal(data.firstDataDay, day("2026-10-26"));
+  assert.equal(data.lastDataDay, day("2026-10-26"));
+
+  for (const range of [{ kind: "days", from: day("2026-10-01"), to: day("2026-10-27") },
+    { kind: "days", from: day("2026-10-26"), to: day("2026-10-27") }]) {
+    const all = U.aggregate(data, U.resolvePeriod(data, range));
+    assert.equal(all.totals[M.output], 100);
+    assert.equal(all.totals[M.unpricedTokens], 0);
+    assert.equal(all.byProvider.claude[M.output], 100);
+    assert.equal(all.byProvider.codex[M.rows], 0);
+    assert.equal(all.byProvider.antigravity[M.rows], 0);
+    assert.equal(all.points.reduce((sum, point) => sum + point.metrics[M.output], 0), 100);
+    assert.deepEqual(Object.keys(all.byModel), ["0"]);
+    assert.deepEqual(Object.keys(all.byAccount), ["0"]);
+    assert.deepEqual(Object.keys(all.byProvider), ["claude", "codex", "antigravity"]);
+  }
+});
+
+test("a version 1 report from an older desktop still renders", () => {
+  const data = prepared({
+    ...londonHourly(),
+    days: [
+      [24, 0, 0, ...metrics({ output: 10, cost: 1000000 })],
+      [24, 1, 1, ...metrics({ output: 5, cost: 250000 })],
+    ],
+    hours: [{ phaseMinutes: 0, rows: [[24, minutes("2026-10-25T09:00:00Z"), 0, 0, ...metrics({ output: 10, cost: 1000000 })]] }],
+  });
+  assert.equal(payload({}).version, 1);
+  const now = Date.parse("2026-10-27T12:00:00Z");
+  const view = U.computeView(data, U.selectionFor({ range: "7", compare: "off" }, data, now), now);
+  assert.equal(view.current.totals[M.cost], 1250000);
+  assert.equal(view.current.byProvider.antigravity[M.rows], 0);
+  const chart = U.buildChart(view, "cost");
+  assert.deepEqual(chart.series.map((entry) => entry.provider), ["claude", "codex"]);
+  assert.deepEqual(U.buildHero(view, "cost").providers.map((row) => row.provider).sort(), ["claude", "codex"]);
 });
 
 // --- cross-check with the desktop aggregator (contract section 5) ------------------------------

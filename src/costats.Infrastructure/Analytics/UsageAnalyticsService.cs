@@ -124,7 +124,14 @@ public interface IUsageAnalyticsService
 public sealed record UsageHistoryOptions(
     UsageHistoryStore Store,
     Func<IReadOnlyList<MonitoredAccountSettings>> Accounts,
-    Func<int> RetentionDays);
+    Func<int> RetentionDays)
+{
+    /// <summary>Whether Antigravity is turned on, read on every use. Off when not set.</summary>
+    public Func<bool> AntigravityEnabled { get; init; } = static () => false;
+
+    /// <summary>The scope one scan and its history mapping share.</summary>
+    public UsageScanScope Scope() => new(Accounts(), AntigravityEnabled());
+}
 
 /// <summary>
 /// Default <see cref="IUsageAnalyticsService"/>: a
@@ -169,7 +176,9 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         ModelPricingProvider pricing,
         ILogger<UsageAnalyticsService>? logger = null)
         : this(
-            new UsageLogCollector(() => (settings ?? throw new ArgumentNullException(nameof(settings))).GetEffectiveAccounts()),
+            new UsageLogCollector(
+                () => (settings ?? throw new ArgumentNullException(nameof(settings))).GetEffectiveAccounts(),
+                antigravityEnabled: () => settings!.AntigravityEnabled),
             (pricing ?? throw new ArgumentNullException(nameof(pricing))).GetAsync,
             DefaultScanFreshness,
             logger)
@@ -382,12 +391,13 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // One account list for the scan and the mapping: a folder changed
-            // in Settings mid-scan must not file old usage under the new key.
-            var accounts = history.Accounts();
-            var live = await _collector.CollectAsync(accounts, cancellationToken).ConfigureAwait(false);
+            // One scope for the scan and the mapping: a folder changed in
+            // Settings mid-scan must not file old usage under the new key.
+            var scope = history.Scope();
+            var accounts = scope.Accounts;
+            var live = await _collector.CollectAsync(scope, cancellationToken).ConfigureAwait(false);
             var now = DateTimeOffset.UtcNow;
-            var map = HistoryAccountMap.Build(accounts);
+            var map = HistoryAccountMap.Build(scope);
             var stored = history.Store.Read();
             var retentionDays = history.RetentionDays();
             var notBefore = NotBefore(stored.DeletedBefore, retentionDays, now);
@@ -401,9 +411,11 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
                 .ToList();
 
             // The one-time recovery of older Claude usage from the parse cache
-            // runs only on a complete scan with every Claude folder present: a
-            // log the scan could not reach would otherwise look deleted and be
-            // counted twice once it is back.
+            // runs only when every Claude root and file was read, with every
+            // Claude folder present: a log the scan could not reach would
+            // otherwise look deleted and be counted twice once it is back.
+            // Other providers do not hold it up: a broken Antigravity database
+            // must not use up the attempts and lose the Claude recovery.
             //
             // It is all or nothing: until it succeeds, nothing at all is saved,
             // so a later attempt never meets usage it would count twice. The
@@ -415,7 +427,7 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             {
                 var recovered = new Dictionary<UsageHistoryKey, UsageHistoryBucket>(scanned);
                 var recoveredNames = new List<UsageHistoryAccount>(names);
-                var ready = live.IsComplete &&
+                var ready = live.IsCompleteFor(UsageProviderKind.Claude) &&
                     AllClaudeLogsReachable(accounts) &&
                     AddRecoveredClaudeUsage(live, history.Store, recovered, recoveredNames, notBefore, now);
 
@@ -451,7 +463,7 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             }
 
             // The scan just taken is as fresh as a report scan, so reports reuse it.
-            _scan = CombineWithHistory(live, accounts);
+            _scan = CombineWithHistory(live, scope);
             _scannedAt = DateTimeOffset.UtcNow;
             if (changed > 0 || pruned > 0)
             {
@@ -624,7 +636,7 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
     }
 
     /// <summary>Adds the stored history to a fresh log scan.</summary>
-    private UsageScanResult CombineWithHistory(UsageScanResult live, IReadOnlyList<MonitoredAccountSettings>? monitored)
+    private UsageScanResult CombineWithHistory(UsageScanResult live, UsageScanScope? scope)
     {
         var history = History;
         if (history is null)
@@ -643,7 +655,7 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             return live;
         }
 
-        var map = HistoryAccountMap.Build(monitored ?? history.Accounts());
+        var map = HistoryAccountMap.Build(scope ?? history.Scope());
         var notBefore = NotBefore(stored.DeletedBefore, history.RetentionDays(), DateTimeOffset.UtcNow);
         var samples = UsageHistory.Combine(live.Samples, map.KeyOf, stored.Buckets, map.IdOf, notBefore);
 
@@ -707,11 +719,11 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
                 return cached;
             }
 
-            var accounts = History?.Accounts();
-            var live = accounts is null
+            var scope = History?.Scope();
+            var live = scope is null
                 ? await _collector.CollectAsync(cancellationToken).ConfigureAwait(false)
-                : await _collector.CollectAsync(accounts, cancellationToken).ConfigureAwait(false);
-            var scan = CombineWithHistory(live, accounts);
+                : await _collector.CollectAsync(scope, cancellationToken).ConfigureAwait(false);
+            var scan = CombineWithHistory(live, scope);
             _scan = scan;
             _scannedAt = DateTimeOffset.UtcNow;
 

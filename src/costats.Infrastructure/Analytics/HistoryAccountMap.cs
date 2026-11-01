@@ -5,12 +5,30 @@ namespace costats.Infrastructure.Analytics;
 
 /// <summary>
 /// Translates between the account ids reports use (settings ids, and the
-/// merged <c>codex</c> id) and the keys the usage history is stored under.
+/// merged <c>codex</c> and <c>antigravity</c> ids) and the keys the usage
+/// history is stored under.
 /// </summary>
 internal sealed class HistoryAccountMap
 {
     private readonly Dictionary<string, string> _keyById = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, UsageAccountInfo> _accountByKey = new(StringComparer.Ordinal);
+
+    public static HistoryAccountMap Build(UsageScanScope scope)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        var map = Build(scope.Accounts);
+        if (scope.AntigravityEnabled)
+        {
+            var info = new UsageAccountInfo(
+                UsageAccounts.MergedAntigravityId,
+                UsageAccounts.MergedAntigravityDisplayName,
+                UsageProviderKind.Antigravity);
+            map._keyById.TryAdd(info.AccountId, UsageHistory.AntigravityAccountKey);
+            map._accountByKey.TryAdd(UsageHistory.AntigravityAccountKey, info);
+        }
+
+        return map;
+    }
 
     public static HistoryAccountMap Build(IReadOnlyList<MonitoredAccountSettings>? accounts)
     {

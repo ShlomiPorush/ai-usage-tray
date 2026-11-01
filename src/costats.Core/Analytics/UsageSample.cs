@@ -2,7 +2,8 @@ namespace costats.Core.Analytics;
 
 /// <summary>
 /// Which local agent produced a usage sample. Quota providers (Z.AI, Copilot)
-/// have no local token log and never appear here.
+/// have no local token log and never appear here. Append new values at the
+/// end: value names are stored in the usage history and the parse cache.
 /// </summary>
 public enum UsageProviderKind
 {
@@ -10,7 +11,13 @@ public enum UsageProviderKind
     Claude,
 
     /// <summary>OpenAI Codex, read from the shared <c>sessions/**/rollout-*.jsonl</c>.</summary>
-    Codex
+    Codex,
+
+    /// <summary>
+    /// Google Antigravity, read from the per-call records in its
+    /// <c>conversations/*.db</c> SQLite files.
+    /// </summary>
+    Antigravity
 }
 
 /// <summary>
@@ -128,6 +135,39 @@ public static class UsageAccounts
 
     /// <summary>Display name for <see cref="MergedCodexId"/>.</summary>
     public const string MergedCodexDisplayName = "Codex (all accounts)";
+
+    /// <summary>
+    /// The single bucket every Antigravity conversation lands in. The agy CLI
+    /// and every app that drives it (such as T3 Code) keep their own
+    /// conversation folder, and a conversation file does not name the account
+    /// that ran it, so all of them are merged.
+    /// </summary>
+    public const string MergedAntigravityId = "antigravity";
+
+    /// <summary>Display name for <see cref="MergedAntigravityId"/>.</summary>
+    public const string MergedAntigravityDisplayName = "Antigravity (all sources)";
+}
+
+/// <summary>User-facing and wire names of each usage provider.</summary>
+public static class UsageProviderNames
+{
+    /// <summary>The name shown in the Usage window, e.g. "Claude Code".</summary>
+    public static string DisplayName(UsageProviderKind provider) => provider switch
+    {
+        UsageProviderKind.Claude => "Claude Code",
+        UsageProviderKind.Codex => "Codex",
+        UsageProviderKind.Antigravity => "Antigravity",
+        _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, null)
+    };
+
+    /// <summary>The lower-case key used in the remote payload, the viewer and styles.</summary>
+    public static string Key(UsageProviderKind provider) => provider switch
+    {
+        UsageProviderKind.Claude => "claude",
+        UsageProviderKind.Codex => "codex",
+        UsageProviderKind.Antigravity => "antigravity",
+        _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, null)
+    };
 }
 
 /// <summary>

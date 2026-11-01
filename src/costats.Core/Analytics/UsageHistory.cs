@@ -63,6 +63,9 @@ public static class UsageHistory
     /// <summary>History key of the merged Codex account, shared by every Codex profile.</summary>
     public const string CodexAccountKey = UsageAccounts.MergedCodexId;
 
+    /// <summary>History key of the merged Antigravity account, shared by every conversation folder.</summary>
+    public const string AntigravityAccountKey = UsageAccounts.MergedAntigravityId;
+
     /// <summary>
     /// History key for Claude usage recovered from the parse cache whose
     /// account can no longer be told.
