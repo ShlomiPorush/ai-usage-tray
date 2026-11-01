@@ -37,6 +37,15 @@ public sealed record UsageScanResult(
     /// complete scan may be used to decide that a log file is gone.
     /// </summary>
     public bool IsComplete { get; init; } = true;
+
+    /// <summary>Providers with a root that did not list completely or a file that could not be read.</summary>
+    public IReadOnlySet<UsageProviderKind> IncompleteProviders { get; init; } = new HashSet<UsageProviderKind>();
+
+    /// <summary>
+    /// True when every root and file of <paramref name="provider"/> was read,
+    /// whatever happened to the other providers.
+    /// </summary>
+    public bool IsCompleteFor(UsageProviderKind provider) => !IncompleteProviders.Contains(provider);
 }
 
 /// <summary>
@@ -52,6 +61,8 @@ public sealed record UsageScanResult(
 public sealed class UsageLogCollector
 {
     private readonly Func<IReadOnlyList<MonitoredAccountSettings>> _accountsProvider;
+    private readonly Func<bool> _antigravityEnabled;
+    private readonly AntigravityUsageLocations _antigravityLocations;
     private readonly UsageFileCache _cache;
     private readonly int _maxParallelism;
 
@@ -67,13 +78,22 @@ public sealed class UsageLogCollector
     /// full parse. Defaults to the on-disk cache.
     /// </param>
     /// <param name="maxParallelism">Files parsed at once. Defaults to the CPU count, capped at 8.</param>
+    /// <param name="antigravityEnabled">
+    /// Reads whether Antigravity is turned on, once per scan. Antigravity is
+    /// never scanned when null.
+    /// </param>
+    /// <param name="antigravityLocations">Where Antigravity keeps its conversations; the user profile when null.</param>
     public UsageLogCollector(
         Func<IReadOnlyList<MonitoredAccountSettings>> accountsProvider,
         UsageFileCache? cache = null,
-        int? maxParallelism = null)
+        int? maxParallelism = null,
+        Func<bool>? antigravityEnabled = null,
+        AntigravityUsageLocations? antigravityLocations = null)
     {
         ArgumentNullException.ThrowIfNull(accountsProvider);
         _accountsProvider = accountsProvider;
+        _antigravityEnabled = antigravityEnabled ?? (static () => false);
+        _antigravityLocations = antigravityLocations ?? AntigravityUsageLocations.Default;
         _cache = cache ?? new UsageFileCache();
         _maxParallelism = Math.Max(1, maxParallelism ?? Math.Min(8, Environment.ProcessorCount));
     }
@@ -99,19 +119,32 @@ public sealed class UsageLogCollector
     /// </para>
     /// </summary>
     public Task<UsageScanResult> CollectAsync(CancellationToken cancellationToken = default) =>
-        CollectAsync(_accountsProvider(), cancellationToken);
+        CollectAsync(CurrentScope(), cancellationToken);
 
     /// <summary>
     /// Scans the roots of <paramref name="monitored"/> rather than the current
     /// settings, so a caller can use one account list for the scan and for
-    /// whatever it does with the result.
+    /// whatever it does with the result. Antigravity follows the current setting.
+    /// </summary>
+    public Task<UsageScanResult> CollectAsync(
+        IReadOnlyList<MonitoredAccountSettings> monitored,
+        CancellationToken cancellationToken = default) =>
+        CollectAsync(new UsageScanScope(monitored, _antigravityEnabled()), cancellationToken);
+
+    /// <summary>The scope the current settings describe.</summary>
+    public UsageScanScope CurrentScope() => new(_accountsProvider(), _antigravityEnabled());
+
+    /// <summary>
+    /// Scans exactly <paramref name="scope"/>, so a caller can use one scope
+    /// for the scan and for whatever it does with the result.
     /// </summary>
     public async Task<UsageScanResult> CollectAsync(
-        IReadOnlyList<MonitoredAccountSettings> monitored,
+        UsageScanScope scope,
         CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(scope);
         var stopwatch = Stopwatch.StartNew();
-        var roots = UsageLogRootResolver.Resolve(monitored);
+        var roots = UsageLogRootResolver.Resolve(scope, _antigravityLocations);
         if (roots.Count == 0)
         {
             return UsageScanResult.Empty with
@@ -127,8 +160,9 @@ public sealed class UsageLogCollector
             .ThenBy(account => account.AccountId, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var jobs = EnumerateFiles(roots, out var rootsIncomplete);
+        var jobs = EnumerateFiles(roots, out var incompleteRoots);
         var results = new ConcurrentDictionary<int, (UsageLogRoot Root, ParsedUsageFile Parsed)>();
+        var failedProviders = new ConcurrentDictionary<UsageProviderKind, bool>();
 
         var filesParsed = 0;
         var filesFromCache = 0;
@@ -147,7 +181,11 @@ public sealed class UsageLogCollector
                 var job = jobs[index];
                 try
                 {
-                    var cached = _cache.TryRead(job.File, job.Root.Provider);
+                    // A database takes its writes in a -wal file beside it, so
+                    // its signature covers both and is taken before and after
+                    // the read. A parse that raced a write is used, not cached.
+                    var before = UsageFileSignature.Capture(job.File, job.Root.Provider);
+                    var cached = _cache.TryRead(job.File, job.Root.Provider, before);
                     if (cached is not null)
                     {
                         Interlocked.Increment(ref filesFromCache);
@@ -155,22 +193,36 @@ public sealed class UsageLogCollector
                         return ValueTask.CompletedTask;
                     }
 
-                    var parsed = job.Root.Provider == UsageProviderKind.Claude
-                        ? UsageLogParser.ParseClaudeFile(job.File.FullName, token)
-                        : UsageLogParser.ParseCodexFile(job.File.FullName, token);
+                    var parsed = job.Root.Provider switch
+                    {
+                        UsageProviderKind.Claude => UsageLogParser.ParseClaudeFile(job.File.FullName, token),
+                        UsageProviderKind.Codex => UsageLogParser.ParseCodexFile(job.File.FullName, token),
+                        UsageProviderKind.Antigravity => AntigravityUsageParser.ParseFile(job.File.FullName, token),
+                        _ => throw new InvalidOperationException("Unknown usage provider " + job.Root.Provider)
+                    };
 
                     Interlocked.Increment(ref filesParsed);
                     Interlocked.Add(ref bytesParsed, job.File.Length);
-                    _cache.Write(job.File, job.Root.Provider, parsed);
+                    if (UsageFileSignature.Capture(job.File, job.Root.Provider) == before)
+                    {
+                        _cache.Write(job.File, job.Root.Provider, parsed, before);
+                    }
+
                     results[index] = (job.Root, parsed);
                 }
                 catch (OperationCanceledException)
                 {
                     throw;
                 }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException)
+                catch (Exception exception) when (
+                    exception is IOException or UnauthorizedAccessException or NotSupportedException or
+                        Microsoft.Data.Sqlite.SqliteException or InvalidDataException)
                 {
+                    // An unreadable or oversized conversation database fails
+                    // on its own, like an unreadable log file; it never stops
+                    // the scan of everything else.
                     Interlocked.Increment(ref filesFailed);
+                    failedProviders[job.Root.Provider] = true;
                 }
 
                 return ValueTask.CompletedTask;
@@ -232,7 +284,8 @@ public sealed class UsageLogCollector
         {
             DedupKeys = seen,
             CacheEntryNames = entryNames,
-            IsComplete = rootsIncomplete == 0 && filesFailed == 0
+            IsComplete = incompleteRoots.Count == 0 && filesFailed == 0,
+            IncompleteProviders = incompleteRoots.Concat(failedProviders.Keys).ToHashSet()
         };
     }
 
@@ -253,13 +306,18 @@ public sealed class UsageLogCollector
     /// Lists the log files under every root, in a stable order so that
     /// "first occurrence wins" deduplication is reproducible.
     /// </summary>
-    private static List<ScanJob> EnumerateFiles(IReadOnlyList<UsageLogRoot> roots, out int rootsIncomplete)
+    /// <param name="roots">The roots to list.</param>
+    /// <param name="incompleteRoots">
+    /// The provider of every root or file that could not be listed or
+    /// inspected. Empty when everything listed.
+    /// </param>
+    private static List<ScanJob> EnumerateFiles(IReadOnlyList<UsageLogRoot> roots, out List<UsageProviderKind> incompleteRoots)
     {
         var jobs = new List<ScanJob>();
-        rootsIncomplete = 0;
+        incompleteRoots = [];
         foreach (var root in roots.OrderBy(root => root.Provider).ThenBy(root => root.Path, StringComparer.OrdinalIgnoreCase))
         {
-            var pattern = root.Provider == UsageProviderKind.Codex ? "rollout-*.jsonl" : "*.jsonl";
+            var pattern = root.FilePattern;
 
             // Collected incrementally on purpose: an agent writes into these
             // trees while the scan runs, and a mid-enumeration IO error used to
@@ -271,13 +329,17 @@ public sealed class UsageLogCollector
             {
                 foreach (var file in System.IO.Directory.EnumerateFiles(root.Path, pattern, SearchOption.AllDirectories))
                 {
-                    files.Add(file);
+                    // Windows matches short-name patterns loosely; keep exact extensions only.
+                    if (file.EndsWith(root.FileExtension, StringComparison.OrdinalIgnoreCase))
+                    {
+                        files.Add(file);
+                    }
                 }
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
                 // Keep what was listed before the failure.
-                rootsIncomplete++;
+                incompleteRoots.Add(root.Provider);
             }
 
             files.Sort(StringComparer.OrdinalIgnoreCase);
@@ -296,7 +358,7 @@ public sealed class UsageLogCollector
                 {
                     // A file that could not even be inspected leaves the scan
                     // incomplete, the same as one that could not be read.
-                    rootsIncomplete++;
+                    incompleteRoots.Add(root.Provider);
                     continue;
                 }
 

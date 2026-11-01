@@ -557,6 +557,166 @@ public sealed class RemoteUsageSharingTests
         Assert.Equal([1, 2], order);
     }
 
+    // -- Antigravity and the relay version ------------------------------------
+
+    [Theory]
+    [InlineData("1.9.0", true)]
+    [InlineData("1.10.2", true)]
+    [InlineData("2.0.0-rc.1", true)]
+    [InlineData("1.9.0+build.7", true)]
+    [InlineData("1.8.0", false)]
+    [InlineData("dev", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void Only_a_relay_from_1_9_0_takes_antigravity(string? version, bool accepts) =>
+        Assert.Equal(accepts, RemoteUsageSharing.AcceptsAntigravity(version));
+
+    [Theory]
+    [InlineData("1.9.0", 2)]
+    [InlineData("1.8.0", 1)]
+    public async Task Antigravity_is_shared_only_with_a_relay_that_takes_it(string relayVersion, int expectedVersion)
+    {
+        var harness = AntigravityHarness();
+        var uploads = RecordUploads(harness, _ => relayVersion, _ => Status(HttpStatusCode.NoContent));
+
+        await harness.Sharing.RunCycleAsync();
+        await harness.Queue.WhenIdleAsync();
+
+        var upload = Assert.Single(uploads);
+        Assert.Equal(expectedVersion, upload.Version);
+        Assert.Equal(expectedVersion == 2, upload.Providers.Contains("antigravity"));
+        Assert.Equal(["GET", "PUT"], harness.Relay.Requests.Select(request => request.Method));
+        Assert.Equal("/version", harness.Relay.Requests[0].Path);
+    }
+
+    [Fact]
+    public async Task Claude_and_codex_only_reports_never_ask_the_relay_its_version()
+    {
+        var harness = new Harness();
+
+        await harness.Sharing.RunCycleAsync();
+        await harness.Queue.WhenIdleAsync();
+
+        Assert.Equal(["PUT"], harness.Relay.Requests.Select(request => request.Method));
+    }
+
+    [Fact]
+    public async Task A_relay_rolled_back_after_saying_yes_gets_the_report_without_antigravity_next()
+    {
+        var harness = AntigravityHarness();
+        var puts = 0;
+        var uploads = RecordUploads(
+            harness,
+            _ => "1.9.0",
+            _ => Interlocked.Increment(ref puts) == 1
+                ? Status(HttpStatusCode.UnprocessableContent, "{\"error\":\"invalid_payload\",\"reason\":\"bad_version\"}")
+                : Status(HttpStatusCode.NoContent));
+
+        await harness.Sharing.RunCycleAsync();
+        await harness.Queue.WhenIdleAsync();
+        await harness.Sharing.RunCycleAsync();
+        await harness.Queue.WhenIdleAsync();
+
+        Assert.Equal([2, 1], uploads.Select(upload => upload.Version));
+        Assert.DoesNotContain("antigravity", uploads[1].Providers);
+        Assert.True(uploads[1].Seq > uploads[0].Seq);
+        // The refusal settles the question; the relay is not asked again.
+        Assert.Single(harness.Relay.Requests, request => request.Method == "GET");
+    }
+
+    [Fact]
+    public async Task A_relay_update_is_noticed_once_the_answer_expires()
+    {
+        var harness = AntigravityHarness();
+        var version = "1.8.0";
+        var uploads = RecordUploads(harness, _ => version, _ => Status(HttpStatusCode.NoContent));
+
+        await harness.Sharing.RunCycleAsync();
+        await harness.Queue.WhenIdleAsync();
+
+        version = "1.9.0";
+        harness.Clock.Advance(RemoteUsageSharing.ComposeInterval);
+        harness.Samples.Add(Harness.Sample(Start.AddMinutes(5)));
+        await harness.Sharing.RunCycleAsync();
+        await harness.Queue.WhenIdleAsync();
+
+        harness.Clock.Advance(RemoteUsageSharing.RelayCapabilityLifetime);
+        await harness.Sharing.RunCycleAsync();
+        await harness.Queue.WhenIdleAsync();
+
+        Assert.Equal([1, 1, 2], uploads.Select(upload => upload.Version));
+        Assert.Equal(2, harness.Relay.Requests.Count(request => request.Method == "GET"));
+    }
+
+    [Fact]
+    public async Task A_failed_version_check_shares_without_antigravity()
+    {
+        var harness = AntigravityHarness();
+        var uploads = RecordUploads(harness, _ => null, _ => Status(HttpStatusCode.NoContent));
+
+        await harness.Sharing.RunCycleAsync();
+        await harness.Queue.WhenIdleAsync();
+
+        Assert.Equal(1, Assert.Single(uploads).Version);
+    }
+
+    private static Harness AntigravityHarness()
+    {
+        var harness = new Harness();
+        harness.Samples.Add(new UsageSample(
+            Start.AddDays(-1),
+            UsageProviderKind.Antigravity,
+            UsageAccounts.MergedAntigravityId,
+            "gemini-3.8-flash-medium",
+            new UsageTokens { UncachedInputTokens = 500, OutputTokens = 100 }));
+        return harness;
+    }
+
+    private sealed record Upload(int Version, long Seq, IReadOnlyList<string> Providers);
+
+    /// <summary>
+    /// Answers <c>GET /version</c> with <paramref name="version"/> (no
+    /// answer at all for null) and every PUT with <paramref name="put"/>,
+    /// recording what each PUT carried.
+    /// </summary>
+    private static List<Upload> RecordUploads(
+        Harness harness,
+        Func<HttpRequestMessage, string?> version,
+        Func<HttpRequestMessage, HttpResponseMessage> put)
+    {
+        var uploads = new List<Upload>();
+        harness.Relay.Respond = async request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return version(request) is { } answer
+                    ? Status(HttpStatusCode.OK, "{\"version\":\"" + answer + "\"}")
+                    : Status(HttpStatusCode.NotFound);
+            }
+
+            if (request.Method == HttpMethod.Put)
+            {
+                using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+                var providers = body.RootElement.GetProperty("accounts").EnumerateArray()
+                    .Select(account => account.GetProperty("provider").GetString()!)
+                    .ToList();
+                lock (uploads)
+                {
+                    uploads.Add(new Upload(
+                        body.RootElement.GetProperty("version").GetInt32(),
+                        body.RootElement.GetProperty("seq").GetInt64(),
+                        providers));
+                }
+
+                return put(request);
+            }
+
+            return Status(HttpStatusCode.NoContent);
+        };
+
+        return uploads;
+    }
+
     private static AppSettings SettingsWith(bool share) => new()
     {
         RemoteViewEnabled = true,

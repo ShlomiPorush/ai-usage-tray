@@ -1,8 +1,9 @@
 // AI Usage Tray - remote view, Usage tab.
 //
 // Reads the usage report the desktop app shares (GET /u/{readId}/usage, payload
-// version 1) and shows it like the desktop Usage window: range presets, account
-// filter, comparison, cost or tokens, chart, tiles, breakdown and model details.
+// version 1 or 2) and shows it like the desktop Usage window: range presets,
+// account filter, comparison, cost or tokens, chart, tiles, breakdown and model
+// details.
 //
 // The top half is pure logic and is exported for Node tests through
 // module.exports. The bottom half (createController) is the DOM layer; app.js
@@ -38,8 +39,11 @@ var UsageView = (function () {
   var MAX_HOURLY_DAYS = 3;
   var MAX_CUSTOM_DAYS = 366;
   var STALE_MS = 30 * 60000;
-  var PROVIDERS = ["claude", "codex"];
-  var PROVIDER_NAMES = { claude: "Claude Code", codex: "Codex" };
+  // The agents the viewer knows, in display order. Version 2 of the payload
+  // adds "antigravity"; a row naming anything else is dropped, never relabelled.
+  var PROVIDERS = ["claude", "codex", "antigravity"];
+  var PROVIDER_NAMES = { claude: "Claude Code", codex: "Codex", antigravity: "Antigravity" };
+  var PAYLOAD_VERSIONS = [1, 2];
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   var WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   var SPLIT_LABELS = ["Input", "Cache read", "Cache write", "Output"];
@@ -52,6 +56,18 @@ var UsageView = (function () {
 
   function emptyMetrics() {
     return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  }
+
+  // One empty metrics array per known provider.
+  function emptyByProvider() {
+    var result = {};
+    PROVIDERS.forEach(function (provider) { result[provider] = emptyMetrics(); });
+    return result;
+  }
+
+  // The provider as the viewer names it, or null for one it does not know.
+  function knownProvider(value) {
+    return typeof value === "string" && PROVIDERS.indexOf(value) >= 0 ? value : null;
   }
 
   function addRow(target, row, offset) {
@@ -466,10 +482,18 @@ var UsageView = (function () {
     return Math.abs(starts[0] - hourlyFrom * 1440) <= MAX_ZONE_OFFSET_MIN;
   }
 
+  // A row counts only when its account and model exist and both name a
+  // provider the viewer knows.
+  function rowKnown(accounts, models, accountIndex, modelIndex) {
+    var account = isSafeCount(accountIndex) ? accounts[accountIndex] : undefined;
+    var model = isSafeCount(modelIndex) ? models[modelIndex] : undefined;
+    return Boolean(account && model && account.provider !== null && model.provider !== null);
+  }
+
   // Checks the shape the viewer relies on and indexes it. Returns null for a
   // payload it cannot show; the relay validates the details.
   function prepareUsage(payload) {
-    if (!payload || typeof payload !== "object" || payload.version !== 1) return null;
+    if (!payload || typeof payload !== "object" || PAYLOAD_VERSIONS.indexOf(payload.version) < 0) return null;
     if (!isSafeCount(payload.seq) || payload.seq <= 0) return null;
     var generatedAt = Date.parse(payload.generatedAt);
     if (!isFinite(generatedAt) || !isValidZone(payload.timeZone)) return null;
@@ -492,17 +516,20 @@ var UsageView = (function () {
       }
     }
 
+    // Rows refer to accounts and models by index, so an entry with a provider
+    // the viewer does not know keeps its place with provider null, and every
+    // row that refers to it is skipped (see rowKnown).
     var accounts = (Array.isArray(payload.accounts) ? payload.accounts : []).map(function (account) {
       return {
         name: account && typeof account.name === "string" && account.name ? account.name : "Account",
-        provider: account && account.provider === "codex" ? "codex" : "claude"
+        provider: account ? knownProvider(account.provider) : null
       };
     });
     var models = (Array.isArray(payload.models) ? payload.models : []).map(function (model) {
       var price = model && model.price && typeof model.price === "object" ? model.price : null;
       return {
         id: model && typeof model.id === "string" && model.id ? model.id : "unknown",
-        provider: model && model.provider === "codex" ? "codex" : "claude",
+        provider: model ? knownProvider(model.provider) : null,
         priced: Boolean(model && model.priced === true && price),
         price: price
       };
@@ -525,7 +552,7 @@ var UsageView = (function () {
     var lastDataDay = null;
     for (var i = 0; i < days.length; i++) {
       var row = days[i];
-      if (!Array.isArray(row) || row.length < 3 + METRIC_COUNT) continue;
+      if (!Array.isArray(row) || row.length < 3 + METRIC_COUNT || !rowKnown(accounts, models, row[1], row[2])) continue;
       var day = dailyFrom + row[0];
       if (firstDataDay === null || day < firstDataDay) firstDataDay = day;
       if (lastDataDay === null || day > lastDataDay) lastDataDay = day;
@@ -685,13 +712,13 @@ var UsageView = (function () {
   // account. Internal account ids are never sent, so none are used.
   function accountSelection(data, index) {
     var account = data.accounts[index];
-    return account ? { index: index, provider: account.provider, name: account.name } : null;
+    return account && account.provider !== null ? { index: index, provider: account.provider, name: account.name } : null;
   }
 
   function resolveAccount(selection, data) {
     if (!selection || typeof selection !== "object") return null;
     var account = data.accounts[selection.index];
-    return account && account.provider === selection.provider && account.name === selection.name
+    return account && account.provider !== null && account.provider === selection.provider && account.name === selection.name
       ? selection.index
       : null;
   }
@@ -700,11 +727,14 @@ var UsageView = (function () {
   // " (3)" on its later copies so they can be told apart.
   function accountOptions(data) {
     var seen = {};
-    return data.accounts.map(function (account, index) {
+    var options = [];
+    data.accounts.forEach(function (account, index) {
+      if (account.provider === null) return;
       var count = (seen[account.name] || 0) + 1;
       seen[account.name] = count;
-      return { value: String(index), label: count === 1 ? account.name : account.name + " (" + count + ")" };
+      options.push({ value: String(index), label: count === 1 ? account.name : account.name + " (" + count + ")" });
     });
+    return options;
   }
 
   // --- date pickers (DateRangeSelection and the UsagePeriods limits) -----------
@@ -922,11 +952,10 @@ var UsageView = (function () {
 
   // --- aggregation (UsageAggregator over payload rows) --------------------------
 
-  function rowProvider(data, row, accountColumn, modelColumn) {
-    var model = data.models[row[modelColumn]];
-    if (model) return model.provider;
-    var account = data.accounts[row[accountColumn]];
-    return account ? account.provider : "claude";
+  // The model's provider. Only called for rows aggregate() included, whose
+  // account and model both name a known provider.
+  function rowProvider(data, row, modelColumn) {
+    return data.models[row[modelColumn]].provider;
   }
 
   // Sums a resolved period: totals, per model, per provider, per account and
@@ -944,7 +973,7 @@ var UsageView = (function () {
     var totals = emptyMetrics();
     var byModel = {};
     var byAccount = {};
-    var byProvider = { claude: emptyMetrics(), codex: emptyMetrics() };
+    var byProvider = emptyByProvider();
     var count = resolved.hourly ? resolved.slots.length : resolved.dayCount;
     var generatedMin = Math.floor(data.generatedAt / MINUTE_MS);
     var points = [];
@@ -960,7 +989,7 @@ var UsageView = (function () {
       points.push({
         key: resolved.hourly ? resolved.slots[p] : resolved.from + p,
         metrics: emptyMetrics(),
-        byProvider: { claude: emptyMetrics(), codex: emptyMetrics() },
+        byProvider: emptyByProvider(),
         missing: missing
       });
     }
@@ -968,12 +997,13 @@ var UsageView = (function () {
     function included(accountIndex, modelIndex) {
       if (!isSafeCount(accountIndex) || accountIndex < 0 || accountIndex >= data.accounts.length) return false;
       if (!isSafeCount(modelIndex) || modelIndex < 0 || modelIndex >= data.models.length) return false;
+      if (!rowKnown(data.accounts, data.models, accountIndex, modelIndex)) return false;
       if (accountFilter && !accountFilter[accountIndex]) return false;
       return modelFilter === null || modelFilter === modelIndex;
     }
 
     function addTotals(row, accountColumn, modelColumn, offset) {
-      var provider = rowProvider(data, row, accountColumn, modelColumn);
+      var provider = rowProvider(data, row, modelColumn);
       addRow(totals, row, offset);
       addRow(byProvider[provider], row, offset);
       var model = row[modelColumn];
@@ -984,11 +1014,11 @@ var UsageView = (function () {
       addRow(byAccount[account], row, offset);
     }
 
-    function addPoint(index, row, accountColumn, modelColumn, offset) {
+    function addPoint(index, row, modelColumn, offset) {
       if (index < 0 || index >= points.length || points[index].missing) return;
       var point = points[index];
       addRow(point.metrics, row, offset);
-      addRow(point.byProvider[rowProvider(data, row, accountColumn, modelColumn)], row, offset);
+      addRow(point.byProvider[rowProvider(data, row, modelColumn)], row, offset);
     }
 
     var i;
@@ -999,7 +1029,7 @@ var UsageView = (function () {
         row = window.rows[i];
         if (!Array.isArray(row) || row.length < 3 + METRIC_COUNT || !included(row[1], row[2])) continue;
         addTotals(row, 1, 2, 3);
-        addPoint(row[0], row, 1, 2, 3);
+        addPoint(row[0], row, 2, 3);
       }
     } else {
       var firstNumber = resolved.from - data.dailyFrom;
@@ -1009,7 +1039,7 @@ var UsageView = (function () {
         if (!Array.isArray(row) || row.length < 3 + METRIC_COUNT) continue;
         if (row[0] < firstNumber || row[0] > lastNumber || !included(row[1], row[2])) continue;
         addTotals(row, 1, 2, 3);
-        if (!resolved.hourly) addPoint(row[0] - firstNumber, row, 1, 2, 3);
+        if (!resolved.hourly) addPoint(row[0] - firstNumber, row, 2, 3);
       }
       if (resolved.hourly) {
         // The grid aligned to this range's first midnight, rows of its days only.
@@ -1020,7 +1050,7 @@ var UsageView = (function () {
           if (row[0] < firstNumber || row[0] > lastNumber || !included(row[2], row[3])) continue;
           var offset = row[1] - resolved.startMin;
           if (offset < 0 || offset % 60 !== 0) continue;
-          addPoint(offset / 60, row, 2, 3, 4);
+          addPoint(offset / 60, row, 3, 4);
         }
       }
     }
@@ -1288,7 +1318,7 @@ var UsageView = (function () {
       result.averageDay = true;
       result.title = "B: average day";
       var byHour = [];
-      for (i = 0; i < 24; i++) byHour.push({ claude: emptyMetrics(), codex: emptyMetrics() });
+      for (i = 0; i < 24; i++) byHour.push(emptyByProvider());
       previous.points.forEach(function (point) {
         if (point.missing) return;
         var local = clock(point.key * MINUTE_MS);
@@ -1319,7 +1349,7 @@ var UsageView = (function () {
       var entry = comparisonByKey[key];
       if (!entry) {
         entry = comparisonByKey[key] = {
-          byProvider: { claude: emptyMetrics(), codex: emptyMetrics() },
+          byProvider: emptyByProvider(),
           missing: false,
           local: local
         };
@@ -1830,7 +1860,8 @@ var UsageView = (function () {
     if (any) return "";
     var data = view.data;
     if (data.firstDataDay === null) {
-      return "The shared report holds no Claude Code or Codex usage yet.";
+      var names = PROVIDERS.map(function (provider) { return PROVIDER_NAMES[provider]; });
+      return "The shared report holds no " + names.slice(0, -1).join(", ") + " or " + names[names.length - 1] + " usage yet.";
     }
     var empty = view.comparison ? "No local agent usage in either range." : "No local agent usage in this range.";
     return empty + " Recorded usage: " + rangeLabel(data.firstDataDay, data.lastDataDay, view.today) + ".";

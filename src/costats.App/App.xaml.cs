@@ -907,6 +907,9 @@ namespace costats.App
                                 new UsageHistoryStore(logger: logger),
                                 settings.GetEffectiveAccounts,
                                 () => settings.UsageHistoryRetentionDays)
+                            {
+                                AntigravityEnabled = () => settings.AntigravityEnabled
+                            }
                         };
                     });
                     services.AddHostedService<UsageHistorySyncWorker>();

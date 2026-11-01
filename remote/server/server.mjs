@@ -143,7 +143,12 @@ const USAGE_METRIC_COUNT = 10;
 // Position of savingsMicroUsd among the ten metrics: the only signed one.
 const USAGE_SAVINGS_METRIC = 7;
 const USAGE_MAX_METRIC = 1e15;
-const USAGE_PROVIDERS = new Set(["claude", "codex"]);
+// Providers each usage payload version may name. Version 2 only adds
+// "antigravity"; a version 1 report naming it is refused.
+const USAGE_PROVIDERS_BY_VERSION = new Map([
+  [1, new Set(["claude", "codex"])],
+  [2, new Set(["claude", "codex", "antigravity"])],
+]);
 const USAGE_PRICE_FIELDS = ["input", "cacheRead", "cacheWrite5m", "cacheWrite1h", "output"];
 const USAGE_MAX_PRICE = 1e6;
 const LOCAL_DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -214,26 +219,26 @@ function metricsValid(row, offset) {
   return true;
 }
 
-function validateUsageAccounts(accounts) {
+function validateUsageAccounts(accounts, providers) {
   if (!Array.isArray(accounts)) return "bad_accounts";
   if (accounts.length > USAGE_LIMITS.accounts) return "too_many_accounts";
   for (const account of accounts) {
     if (!isPlainObject(account)) return "bad_account";
     if (typeof account.name !== "string") return "bad_account";
     if (account.name.length > USAGE_LIMITS.string) return "field_too_long";
-    if (!USAGE_PROVIDERS.has(account.provider)) return "bad_account";
+    if (!providers.has(account.provider)) return "bad_account";
   }
   return null;
 }
 
-function validateUsageModels(models) {
+function validateUsageModels(models, providers) {
   if (!Array.isArray(models)) return "bad_models";
   if (models.length > USAGE_LIMITS.models) return "too_many_models";
   for (const model of models) {
     if (!isPlainObject(model)) return "bad_model";
     if (typeof model.id !== "string" || model.id.length === 0) return "bad_model";
     if (model.id.length > USAGE_LIMITS.string) return "field_too_long";
-    if (!USAGE_PROVIDERS.has(model.provider)) return "bad_model";
+    if (!providers.has(model.provider)) return "bad_model";
     if (typeof model.priced !== "boolean") return "bad_model";
     if (!model.priced) {
       if (model.price != null) return "bad_model_price";
@@ -252,14 +257,15 @@ function validateUsageModels(models) {
 }
 
 /**
- * Validates a usage report (payload version 1). Returns null when it may be
+ * Validates a usage report (payload version 1 or 2). Returns null when it may be
  * stored, else a short reason. One pass over every row, with duplicate keys
  * packed into numbers, so a 1 MiB report validates in milliseconds. Unknown
  * extra fields are ignored; the body cap bounds them.
  */
 export function validateUsagePayload(data) {
   if (!isPlainObject(data)) return "not_an_object";
-  if (data.version !== 1) return "bad_version";
+  const providers = USAGE_PROVIDERS_BY_VERSION.get(data.version);
+  if (providers === undefined) return "bad_version";
   if (!Number.isSafeInteger(data.seq) || data.seq <= 0) return "bad_seq";
   if (parseUtcInstant(data.generatedAt) === null) return "bad_generated_at";
   if (!isTimeZone(data.timeZone)) return "bad_time_zone";
@@ -283,9 +289,9 @@ export function validateUsagePayload(data) {
     if (hourlySpan > USAGE_LIMITS.hourlySpanDays) return "hourly_coverage_too_long";
   }
 
-  const accountsReason = validateUsageAccounts(data.accounts);
+  const accountsReason = validateUsageAccounts(data.accounts, providers);
   if (accountsReason !== null) return accountsReason;
-  const modelsReason = validateUsageModels(data.models);
+  const modelsReason = validateUsageModels(data.models, providers);
   if (modelsReason !== null) return modelsReason;
   const accountCount = data.accounts.length;
   const modelCount = data.models.length;
@@ -1004,11 +1010,12 @@ function demoSnapshot(now) {
 }
 
 // --- Demo usage report -------------------------------------------------------
-// A generated, deterministic report for /u/demo/usage: three accounts, five
-// models (one unpriced), 90 days of daily rows, the last 7 days hourly and both
-// rolling windows, in Europe/London so the demo crosses DST changes. The values
-// for a given day depend only on that day, so the demo does not jump around
-// between requests. The report is "as of" the start of the current hour.
+// A generated, deterministic report for /u/demo/usage (payload version 2):
+// four accounts, six models (two unpriced), 90 days of daily rows, the last
+// 7 days hourly and both rolling windows, in Europe/London so the demo crosses
+// DST changes. The values for a given day depend only on that day, so the demo
+// does not jump around between requests. The report is "as of" the start of
+// the current hour.
 const DEMO_USAGE_TIME_ZONE = "Europe/London";
 const DEMO_USAGE_DAYS = 90;
 const DEMO_USAGE_HOURLY_DAYS = 7;
@@ -1018,6 +1025,7 @@ const DEMO_USAGE_ACCOUNTS = [
   { name: "Claude Personal", provider: "claude" },
   { name: "Claude Work", provider: "claude" },
   { name: "Codex (all accounts)", provider: "codex" },
+  { name: "Antigravity (all sources)", provider: "antigravity" },
 ];
 
 const DEMO_USAGE_MODELS = [
@@ -1038,6 +1046,7 @@ const DEMO_USAGE_MODELS = [
     price: { input: 1.25, cacheRead: 0.125, cacheWrite5m: null, cacheWrite1h: null, output: 10 },
   },
   { id: "gpt-5-codex-preview", provider: "codex", priced: false, price: null },
+  { id: "gemini-3.8-flash-medium", provider: "antigravity", priced: false, price: null },
 ];
 
 // Per (account, model) in sorted order: typical requests per active day and the
@@ -1050,6 +1059,7 @@ const DEMO_USAGE_SERIES = [
   { account: 1, model: 2, requests: 220, uncached: 800, cacheRead: 41_000, cacheWrite5m: 2_400, cacheWrite1h: 200, output: 950 },
   { account: 2, model: 3, requests: 120, uncached: 4_000, cacheRead: 30_000, cacheWrite5m: 0, cacheWrite1h: 0, output: 1_400, reasoning: 0.45 },
   { account: 2, model: 4, requests: 12, uncached: 3_000, cacheRead: 12_000, cacheWrite5m: 0, cacheWrite1h: 0, output: 900, reasoning: 0.3 },
+  { account: 3, model: 5, requests: 50, uncached: 2_500, cacheRead: 18_000, cacheWrite5m: 0, cacheWrite1h: 0, output: 700, reasoning: 0.25 },
 ];
 
 // Relative activity per local hour of the day.
@@ -1225,7 +1235,7 @@ export function demoUsagePayload(now) {
   };
 
   return {
-    version: 1,
+    version: 2,
     seq: asOf,
     generatedAt: new Date(asOf).toISOString(),
     timeZone: DEMO_USAGE_TIME_ZONE,

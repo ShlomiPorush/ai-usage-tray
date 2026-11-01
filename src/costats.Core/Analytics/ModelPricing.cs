@@ -149,6 +149,14 @@ public sealed class ModelPricingTable
 {
     private static readonly Regex DateSuffix = new(@"[-@]\d{8}$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    /// <summary>
+    /// The thinking level Antigravity appends to a Gemini model id
+    /// (<c>gemini-3.8-flash-medium</c>). Google prices a model the same at
+    /// every thinking level, the level only changes how many tokens are spent,
+    /// so the id without it names the same rates. Gemini only, on purpose.
+    /// </summary>
+    private static readonly Regex GeminiThinkingSuffix = new(@"^(gemini-.+)-(minimal|low|medium|high)$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private const string SnapshotResource = "costats.Core.Analytics.pricing-snapshot.json";
 
     private readonly Dictionary<string, ModelPrice> _entries;
@@ -205,7 +213,9 @@ public sealed class ModelPricingTable
 
     /// <summary>
     /// Looks a model up, falling back to its date-stripped id (so
-    /// <c>claude-haiku-4-5-20251001</c> finds <c>claude-haiku-4-5</c>).
+    /// <c>claude-haiku-4-5-20251001</c> finds <c>claude-haiku-4-5</c>), and for
+    /// Gemini to the id without its thinking level (so
+    /// <c>gemini-3.8-flash-medium</c> finds <c>gemini-3.8-flash</c>).
     /// Returns <see cref="ModelPrice.Unpriced"/> when nothing matches, so
     /// callers never have to null-check.
     /// </summary>
@@ -223,9 +233,15 @@ public sealed class ModelPricingTable
         }
 
         var undated = DateSuffix.Replace(normalized, string.Empty);
-        return !string.Equals(undated, normalized, StringComparison.Ordinal) &&
-               _entries.TryGetValue(undated, out var datedPrice)
-            ? datedPrice
+        if (!string.Equals(undated, normalized, StringComparison.Ordinal) &&
+            _entries.TryGetValue(undated, out var datedPrice))
+        {
+            return datedPrice;
+        }
+
+        var level = GeminiThinkingSuffix.Match(normalized);
+        return level.Success && _entries.TryGetValue(level.Groups[1].Value, out var levelPrice)
+            ? levelPrice
             : ModelPrice.Unpriced;
     }
 

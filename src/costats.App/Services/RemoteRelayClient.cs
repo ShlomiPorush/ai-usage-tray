@@ -12,9 +12,11 @@ namespace costats.App.Services
     /// <summary>
     /// How the relay answered one write. <see cref="StatusCode"/> is 0 when no
     /// answer came at all; <see cref="ErrorCode"/> is the relay's short error
-    /// code (such as <c>stale_write</c>) when it sent a known one.
+    /// code (such as <c>stale_write</c>) when it sent a known one, and
+    /// <see cref="Reason"/> the short reason beside it (such as
+    /// <c>bad_version</c> on an <c>invalid_payload</c>).
     /// </summary>
-    public sealed record RelayResponse(int StatusCode, string? ErrorCode, TimeSpan? RetryAfter, string? FailureKind)
+    public sealed record RelayResponse(int StatusCode, string? ErrorCode, TimeSpan? RetryAfter, string? FailureKind, string? Reason = null)
     {
         public bool IsSuccess => StatusCode is >= 200 and < 300;
     }
@@ -80,21 +82,62 @@ namespace costats.App.Services
 
                 using var response = await _http.SendAsync(request).ConfigureAwait(false);
                 var status = (int)response.StatusCode;
-                var errorCode = status >= 400 ? await ReadErrorCodeAsync(response).ConfigureAwait(false) : null;
+                var (errorCode, reason) = status >= 400 ? await ReadErrorCodeAsync(response).ConfigureAwait(false) : (null, null);
                 Logger.Debug(
-                    "Remote view {What} at {Host}: HTTP {StatusCode}{Error} ({Bytes} bytes)",
+                    "Remote view {What} at {Host}: HTTP {StatusCode}{Error}{Reason} ({Bytes} bytes)",
                     what,
                     HostOf(url),
                     status,
                     errorCode is null ? string.Empty : " " + errorCode,
+                    reason is null ? string.Empty : " " + reason,
                     body?.Length ?? 0);
-                return new RelayResponse(status, errorCode, RetryAfterOf(response), null);
+                return new RelayResponse(status, errorCode, RetryAfterOf(response), null, reason);
             }
             catch (Exception ex)
             {
                 // Only the exception's type: its message can quote the URL.
                 Logger.Debug("Remote view {What} at {Host} failed: {ErrorKind}", what, HostOf(url), ex.GetType().Name);
                 return new RelayResponse(0, null, null, ex.GetType().Name);
+            }
+        }
+
+        /// <summary>
+        /// The relay's version from <c>GET /version</c>, or null when it gave
+        /// none, an answer that is not one, or no answer at all. Never throws.
+        /// </summary>
+        /// <param name="baseUrl">The relay's base address, without the write id.</param>
+        public async Task<string?> GetVersionAsync(string baseUrl)
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, baseUrl.TrimEnd('/') + "/version");
+                using var response = await _http.SendAsync(request).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    Logger.Debug("Remote view version check at {Host}: HTTP {StatusCode}", HostOf(baseUrl), (int)response.StatusCode);
+                    return null;
+                }
+
+                var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (text.Length > 1024)
+                {
+                    return null;
+                }
+
+                using var document = JsonDocument.Parse(text);
+                return document.RootElement.ValueKind == JsonValueKind.Object &&
+                       document.RootElement.TryGetProperty("version", out var version) &&
+                       version.ValueKind == JsonValueKind.String &&
+                       version.GetString() is { Length: > 0 and <= 32 } value &&
+                       value.All(character => char.IsAsciiLetterOrDigit(character) || character is '.' or '-' or '+')
+                    ? value
+                    : null;
+            }
+            catch (Exception ex)
+            {
+                // Only the exception's type: its message can quote the URL.
+                Logger.Debug("Remote view version check at {Host} failed: {ErrorKind}", HostOf(baseUrl), ex.GetType().Name);
+                return null;
             }
         }
 
@@ -130,27 +173,24 @@ namespace costats.App.Services
         }
 
         /// <summary>
-        /// The relay's <c>error</c> code, accepted only when it looks like one
-        /// (a short snake_case word), so nothing else from the body is kept.
+        /// The relay's <c>error</c> code and <c>reason</c>, each accepted only
+        /// when it looks like one (a short snake_case word), so nothing else
+        /// from the body is kept.
         /// </summary>
-        private static async Task<string?> ReadErrorCodeAsync(HttpResponseMessage response)
+        private static async Task<(string? Error, string? Reason)> ReadErrorCodeAsync(HttpResponseMessage response)
         {
             try
             {
                 var text = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 if (text.Length > 4096)
                 {
-                    return null;
+                    return (null, null);
                 }
 
                 using var document = JsonDocument.Parse(text);
-                if (document.RootElement.ValueKind == JsonValueKind.Object &&
-                    document.RootElement.TryGetProperty("error", out var error) &&
-                    error.ValueKind == JsonValueKind.String &&
-                    error.GetString() is { Length: > 0 and <= 40 } code &&
-                    code.All(character => character is >= 'a' and <= 'z' or '_'))
+                if (document.RootElement.ValueKind == JsonValueKind.Object)
                 {
-                    return code;
+                    return (CodeOf(document.RootElement, "error"), CodeOf(document.RootElement, "reason"));
                 }
             }
             catch (Exception ex) when (ex is JsonException or HttpRequestException or InvalidOperationException or IOException)
@@ -158,7 +198,15 @@ namespace costats.App.Services
                 // Not a relay error body; the status code says enough.
             }
 
-            return null;
+            return (null, null);
+
+            static string? CodeOf(JsonElement body, string name) =>
+                body.TryGetProperty(name, out var value) &&
+                value.ValueKind == JsonValueKind.String &&
+                value.GetString() is { Length: > 0 and <= 40 } code &&
+                code.All(character => character is >= 'a' and <= 'z' or '_')
+                    ? code
+                    : null;
         }
 
         private static TimeSpan? RetryAfterOf(HttpResponseMessage response) =>

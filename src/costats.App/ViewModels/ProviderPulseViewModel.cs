@@ -442,7 +442,7 @@ public sealed partial class ProviderPulseViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(month);
 
         UsageAccountId = binding.AccountId;
-        CostScopeNote = binding.IsMerged ? UsageAccountMap.MergedScopeNote : string.Empty;
+        CostScopeNote = binding.ScopeNote;
 
         TodayCostText = UsageNumberFormat.CostOrUnpriced(today.CostUsd, today.UnpricedTokens);
         TodayTokensText = UsageNumberFormat.Tokens(today.Tokens.ProcessedTokens);

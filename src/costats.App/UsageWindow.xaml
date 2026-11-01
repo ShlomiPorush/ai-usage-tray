@@ -154,6 +154,9 @@
                 <DataTrigger Binding="{Binding ProviderKey}" Value="codex">
                     <Setter Property="Foreground" Value="{DynamicResource CodexAccent}" />
                 </DataTrigger>
+                <DataTrigger Binding="{Binding ProviderKey}" Value="antigravity">
+                    <Setter Property="Foreground" Value="{DynamicResource AntigravityAccent}" />
+                </DataTrigger>
             </Style.Triggers>
         </Style>
 
@@ -171,6 +174,10 @@
                 <DataTrigger Binding="{Binding ProviderKey}" Value="codex">
                     <Setter Property="Data" Value="{StaticResource CodexIconPath}" />
                     <Setter Property="Fill" Value="{DynamicResource CodexAccent}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ProviderKey}" Value="antigravity">
+                    <Setter Property="Data" Value="{StaticResource AntigravityIconPath}" />
+                    <Setter Property="Fill" Value="{DynamicResource AntigravityAccent}" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -190,6 +197,11 @@
                 <DataTrigger Binding="{Binding ProviderKey}" Value="codex">
                     <Setter Property="Data" Value="{StaticResource CodexIconPath}" />
                     <Setter Property="Fill" Value="{DynamicResource CodexAccent}" />
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ProviderKey}" Value="antigravity">
+                    <Setter Property="Data" Value="{StaticResource AntigravityIconPath}" />
+                    <Setter Property="Fill" Value="{DynamicResource AntigravityAccent}" />
                     <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
             </Style.Triggers>
@@ -438,6 +450,7 @@
         <Style x:Key="ThemedUsageChart" TargetType="controls:UsageChart">
             <Setter Property="ClaudeBrush" Value="{DynamicResource ClaudeAccent}" />
             <Setter Property="CodexBrush" Value="{DynamicResource CodexAccent}" />
+            <Setter Property="AntigravityBrush" Value="{DynamicResource AntigravityAccent}" />
             <Setter Property="GridBrush" Value="{DynamicResource DividerBrush}" />
             <Setter Property="LabelBrush" Value="{DynamicResource TextFaintBrush}" />
             <Setter Property="TooltipBackground" Value="{DynamicResource InputBgBrush}" />
@@ -457,6 +470,9 @@
                 </DataTrigger>
                 <DataTrigger Binding="{Binding ProviderKey}" Value="codex">
                     <Setter Property="Brush" Value="{DynamicResource CodexAccent}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ProviderKey}" Value="antigravity">
+                    <Setter Property="Brush" Value="{DynamicResource AntigravityAccent}" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -493,6 +509,9 @@
                                 </DataTrigger>
                                 <DataTrigger Binding="{Binding DataContext.ProviderKey, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="codex">
                                     <Setter Property="Background" Value="{DynamicResource CodexAccent}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding DataContext.ProviderKey, RelativeSource={RelativeSource AncestorType=ItemsControl}}" Value="antigravity">
+                                    <Setter Property="Background" Value="{DynamicResource AntigravityAccent}" />
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>

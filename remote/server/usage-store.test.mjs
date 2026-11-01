@@ -86,6 +86,16 @@ function mutated(change) {
   return report;
 }
 
+// The contract example as version 2, with an Antigravity account and model
+// and a day row that uses them.
+function antigravityReport(seq = 1_761_650_000_123, version = 2) {
+  const report = structuredClone(usageReport(seq, { version }));
+  report.accounts.push({ name: "Antigravity (all sources)", provider: "antigravity" });
+  report.models.push({ id: "gemini-3.8-flash-medium", provider: "antigravity", priced: false, price: null });
+  report.days.push([27, 2, 2, 10, 20, 0, 0, 30, 5, 0, 0, 2, 60]);
+  return report;
+}
+
 async function startApp(t, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), "ai-usage-usage-store-"));
   let currentTime = START;
@@ -164,7 +174,10 @@ test("validator accepts the contract example and ignores unknown fields", () => 
 test("validator rejects each rule class with its reason", () => {
   const cases = [
     ["not an object", [], "not_an_object"],
-    ["version", usageReport(1, { version: 2 }), "bad_version"],
+    ["version 3", usageReport(1, { version: 3 }), "bad_version"],
+    ["version 0", usageReport(1, { version: 0 }), "bad_version"],
+    ["version as text", usageReport(1, { version: "2" }), "bad_version"],
+    ["version fraction", usageReport(1, { version: 1.5 }), "bad_version"],
     ["seq zero", usageReport(0), "bad_seq"],
     ["seq fraction", usageReport(1.5), "bad_seq"],
     ["seq unsafe", usageReport(2 ** 53), "bad_seq"],
@@ -422,8 +435,16 @@ test("the demo report is valid, realistic, and matches the demo snapshot flag", 
   const demo = await response.json();
   assert.equal(validateUsagePayload(demo), null);
   assert.equal(demo.timeZone, "Europe/London");
+  assert.equal(demo.version, 2);
   assert.equal(demo.accounts.filter((account) => account.provider === "claude").length, 2);
   assert.equal(demo.accounts.filter((account) => account.provider === "codex").length, 1);
+  assert.deepEqual(demo.accounts.filter((account) => account.provider === "antigravity"),
+    [{ name: "Antigravity (all sources)", provider: "antigravity" }]);
+  const antigravityModels = demo.models.filter((model) => model.provider === "antigravity");
+  assert.deepEqual(antigravityModels.map((model) => [model.id, model.priced]), [["gemini-3.8-flash-medium", false]]);
+  const antigravityModel = demo.models.indexOf(antigravityModels[0]);
+  assert.ok(demo.days.some((row) => row[2] === antigravityModel), "Antigravity has daily rows");
+  assert.ok(demo.hours[0].rows.some((row) => row[3] === antigravityModel), "Antigravity has hourly rows");
   assert.ok(demo.models.length >= 4);
   assert.ok(demo.models.some((model) => !model.priced));
   assert.ok(new Set(demo.days.map((row) => row[0])).size > 60, "roughly 90 days of daily rows");
@@ -440,6 +461,26 @@ test("the demo report is valid, realistic, and matches the demo snapshot flag", 
     const refused = await fetch(`${fixture.baseUrl}/u/demo/usage`, { method });
     assert.equal(refused.status, 405, method);
   }
+});
+
+test("version 2 adds Antigravity; version 1 keeps Claude and Codex only", () => {
+  assert.equal(validateUsagePayload(usageReport()), null, "version 1");
+  assert.equal(validateUsagePayload(usageReport(1, { version: 2 })), null, "version 2 without Antigravity");
+  assert.equal(validateUsagePayload(antigravityReport()), null, "version 2 with Antigravity");
+
+  const v1Account = mutated((r) => { r.accounts[0].provider = "antigravity"; });
+  assert.equal(validateUsagePayload(v1Account), "bad_account");
+  const v1Model = mutated((r) => { r.models[1].provider = "antigravity"; });
+  assert.equal(validateUsagePayload(v1Model), "bad_model");
+  assert.equal(validateUsagePayload(antigravityReport(1, 1)), "bad_account");
+
+  const v2Unknown = antigravityReport();
+  v2Unknown.accounts[2].provider = "zai";
+  assert.equal(validateUsagePayload(v2Unknown), "bad_account");
+  const v2UnknownModel = antigravityReport();
+  v2UnknownModel.models[2].provider = "zai";
+  assert.equal(validateUsagePayload(v2UnknownModel), "bad_model");
+  assert.equal(validateUsagePayload(antigravityReport(1, 3)), "bad_version");
 });
 
 // --- Routes ----------------------------------------------------------------------
@@ -500,10 +541,41 @@ test("usage routes refuse bad ids, methods, and headers", async (t) => {
 test("rejects an invalid report with 422 and the validator reason", async (t) => {
   const fixture = await startApp(t);
   await fixture.putSnapshot();
-  const response = await fixture.putUsage(usageReport(5, { version: 2 }));
+  const response = await fixture.putUsage(usageReport(5, { version: 3 }));
   assert.equal(response.status, 422);
   assert.deepEqual(await response.json(), { error: "invalid_payload", reason: "bad_version" });
   assert.equal(fixture.app.store.usageRow(READ_ID), null);
+});
+
+test("the relay stores version 1 and version 2 reports and refuses Antigravity in version 1", async (t) => {
+  const fixture = await startApp(t);
+  await fixture.putSnapshot();
+
+  const v1 = JSON.stringify(usageReport(10));
+  assert.equal((await fixture.putUsage(v1)).status, 204);
+  assert.equal(await (await fixture.getUsage()).text(), v1, "version 1 stored verbatim");
+
+  const v2 = JSON.stringify(antigravityReport(11));
+  const put = await fixture.putUsage(v2);
+  assert.equal(put.status, 204);
+  assert.equal(put.headers.get("x-read-id"), READ_ID);
+  assert.equal(await (await fixture.getUsage()).text(), v2, "version 2 stored verbatim");
+
+  for (const [report, reason] of [
+    [antigravityReport(12, 1), "bad_account"],
+    [usageReport(12, { models: [...usageReport().models.slice(0, 1), { id: "gemini-3.8-flash-medium", provider: "antigravity", priced: false, price: null }] }), "bad_model"],
+    [antigravityReport(12, 3), "bad_version"],
+  ]) {
+    const refused = await fixture.putUsage(report);
+    assert.equal(refused.status, 422, reason);
+    assert.deepEqual(await refused.json(), { error: "invalid_payload", reason });
+  }
+  assert.equal(await (await fixture.getUsage()).text(), v2, "a refused report changes nothing");
+
+  // Going back to version 1 (an older desktop) is a normal newer write.
+  const back = JSON.stringify(usageReport(13));
+  assert.equal((await fixture.putUsage(back)).status, 204);
+  assert.equal(await (await fixture.getUsage()).text(), back);
 });
 
 test("usage writes are signed over the /usage path and share the write budget", async (t) => {

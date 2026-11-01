@@ -93,13 +93,22 @@ public sealed record RemoteUsageHourGrid(int PhaseMinutes, IReadOnlyList<RemoteU
 public sealed record RemoteUsageRollingWindow(UsageTimeWindow Window, IReadOnlyList<RemoteUsageRow> Rows);
 
 /// <summary>
-/// A composed usage payload, version 1. Immutable; <see cref="ToUtf8Json"/>
-/// writes it with the write sequence it is sent under.
+/// A composed usage payload. Immutable; <see cref="ToUtf8Json"/> writes it
+/// with the write sequence it is sent under.
 /// </summary>
+/// <remarks>
+/// Version 2 is version 1 plus the <c>antigravity</c> provider. A payload
+/// without Antigravity is always written as version 1, so relays and viewers
+/// that only know version 1 keep working; one with Antigravity is version 2,
+/// which an older viewer rejects instead of showing it under the wrong provider.
+/// </remarks>
 public sealed class RemoteUsagePayload
 {
-    /// <summary>Payload schema version.</summary>
-    public const int Version = 1;
+    /// <summary>Payload schema version of a report with only Claude and Codex.</summary>
+    public const int BaseVersion = 1;
+
+    /// <summary>Payload schema version of a report that names Antigravity.</summary>
+    public const int AntigravityVersion = 2;
 
     /// <summary>Largest JSON safe integer, used to measure a payload before its sequence is known.</summary>
     public const long MaxSafeInteger = 9_007_199_254_740_991;
@@ -145,6 +154,18 @@ public sealed class RemoteUsagePayload
 
     /// <summary>The clock reading the payload describes, whole seconds, UTC.</summary>
     public DateTimeOffset GeneratedAt { get; }
+
+    /// <summary>
+    /// The schema version this payload is written as: <see cref="AntigravityVersion"/>
+    /// when any account or model is Antigravity, otherwise <see cref="BaseVersion"/>.
+    /// </summary>
+    public int Version =>
+        Accounts.Any(account => account.Provider == AntigravityProviderKey) ||
+        Models.Any(model => model.Provider == AntigravityProviderKey)
+            ? AntigravityVersion
+            : BaseVersion;
+
+    private static string AntigravityProviderKey => UsageProviderNames.Key(UsageProviderKind.Antigravity);
 
     /// <summary>IANA id of the zone whose days the payload uses.</summary>
     public string TimeZone { get; }
@@ -405,7 +426,7 @@ public sealed record RemoteUsageComposition(RemoteUsagePayload? Payload, string?
 }
 
 /// <summary>
-/// Builds the remote usage payload (version 1) from the samples the desktop
+/// Builds the remote usage payload (version 1, or 2 with Antigravity) from the samples the desktop
 /// Usage window reports from. Pure: no IO and no clock beyond the
 /// <c>generatedAt</c> passed in, deterministic for a given input.
 /// </summary>
@@ -421,6 +442,9 @@ public static class RemoteUsageComposer
 {
     /// <summary>Name of the single Codex account.</summary>
     public const string CodexAccountName = UsageAccounts.MergedCodexDisplayName;
+
+    /// <summary>Name of the single Antigravity account.</summary>
+    public const string AntigravityAccountName = UsageAccounts.MergedAntigravityDisplayName;
 
     /// <summary>Name of recovered Claude history whose account is unknown.</summary>
     public const string UnknownClaudeAccountName = UsageHistory.UnknownClaudeAccountName;
@@ -442,12 +466,17 @@ public static class RemoteUsageComposer
     /// <param name="zone">The zone the desktop buckets days by.</param>
     /// <param name="generatedAt">The clock reading; cut to whole seconds.</param>
     /// <param name="limits">Size limits, <see cref="RemoteUsageLimits.Default"/> when null.</param>
+    /// <param name="includeAntigravity">
+    /// True when the relay accepts version 2. When false, Antigravity samples
+    /// and accounts are left out and the payload is always version 1.
+    /// </param>
     public static RemoteUsageComposition Compose(
         RemoteUsageSource source,
         string timeZoneId,
         TimeZoneInfo zone,
         DateTimeOffset generatedAt,
-        RemoteUsageLimits? limits = null)
+        RemoteUsageLimits? limits = null,
+        bool includeAntigravity = false)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentException.ThrowIfNullOrWhiteSpace(timeZoneId);
@@ -466,7 +495,7 @@ public static class RemoteUsageComposer
         var relevant = new List<LocatedSample>();
         foreach (var sample in source.Samples ?? [])
         {
-            if (sample is null)
+            if (sample is null || (sample.Provider == UsageProviderKind.Antigravity && !includeAntigravity))
             {
                 continue;
             }
@@ -479,7 +508,10 @@ public static class RemoteUsageComposer
             }
         }
 
-        var accounts = AccountTable.Build(source.Accounts ?? [], relevant, limits.MaxNameLength);
+        var accountSources = (source.Accounts ?? [])
+            .Where(account => account is not null && (includeAntigravity || account.Provider != UsageProviderKind.Antigravity))
+            .ToList();
+        var accounts = AccountTable.Build(accountSources, relevant, limits.MaxNameLength);
         if (accounts.Published.Count > limits.MaxAccounts)
         {
             return Skip($"{accounts.Published.Count} accounts is over the limit of {limits.MaxAccounts}");
@@ -800,8 +832,7 @@ public static class RemoteUsageComposer
 
     private static long FloorMod(long value, long divisor) => value - (FloorDiv(value, divisor) * divisor);
 
-    internal static string ProviderName(UsageProviderKind provider) =>
-        provider == UsageProviderKind.Codex ? "codex" : "claude";
+    internal static string ProviderName(UsageProviderKind provider) => UsageProviderNames.Key(provider);
 
     /// <summary>Trims a name and cuts it to <paramref name="max"/> UTF-16 units.</summary>
     internal static string Cut(string value, int max) => CutId(value.Trim(), max);
@@ -833,11 +864,17 @@ public static class RemoteUsageComposer
     {
         private readonly Dictionary<string, int> _claudeIndex = new(StringComparer.OrdinalIgnoreCase);
         private int _codexIndex = -1;
+        private int _antigravityIndex = -1;
 
         public IReadOnlyList<RemoteUsageAccount> Published { get; private set; } = [];
 
-        public int IndexOf(UsageSample sample) =>
-            sample.Provider == UsageProviderKind.Codex ? _codexIndex : _claudeIndex[sample.AccountId ?? string.Empty];
+        public int IndexOf(UsageSample sample) => sample.Provider switch
+        {
+            UsageProviderKind.Claude => _claudeIndex[sample.AccountId ?? string.Empty],
+            UsageProviderKind.Codex => _codexIndex,
+            UsageProviderKind.Antigravity => _antigravityIndex,
+            _ => throw new ArgumentOutOfRangeException(nameof(sample), sample.Provider, null)
+        };
 
         public static AccountTable Build(
             IReadOnlyList<RemoteUsageAccountSource> sources,
@@ -846,6 +883,7 @@ public static class RemoteUsageComposer
         {
             var claude = new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
             var hasCodex = false;
+            var hasAntigravity = false;
             foreach (var source in sources)
             {
                 if (source is null || string.IsNullOrWhiteSpace(source.AccountId))
@@ -856,6 +894,12 @@ public static class RemoteUsageComposer
                 if (source.Provider == UsageProviderKind.Codex)
                 {
                     hasCodex = true;
+                    continue;
+                }
+
+                if (source.Provider == UsageProviderKind.Antigravity)
+                {
+                    hasAntigravity = true;
                     continue;
                 }
 
@@ -878,6 +922,10 @@ public static class RemoteUsageComposer
                 {
                     hasCodex = true;
                 }
+                else if (located.Sample.Provider == UsageProviderKind.Antigravity)
+                {
+                    hasAntigravity = true;
+                }
                 else if (!claude.ContainsKey(located.Sample.AccountId ?? string.Empty))
                 {
                     // Usage of an account nobody can name any more.
@@ -894,7 +942,7 @@ public static class RemoteUsageComposer
                 .ToList();
 
             var table = new AccountTable();
-            var published = new List<RemoteUsageAccount>(ordered.Count + 1);
+            var published = new List<RemoteUsageAccount>(ordered.Count + 2);
             foreach (var entry in ordered)
             {
                 table._claudeIndex[entry.AccountId] = published.Count;
@@ -905,6 +953,12 @@ public static class RemoteUsageComposer
             {
                 table._codexIndex = published.Count;
                 published.Add(new RemoteUsageAccount(CodexAccountName, "codex"));
+            }
+
+            if (hasAntigravity)
+            {
+                table._antigravityIndex = published.Count;
+                published.Add(new RemoteUsageAccount(AntigravityAccountName, "antigravity"));
             }
 
             table.Published = published;

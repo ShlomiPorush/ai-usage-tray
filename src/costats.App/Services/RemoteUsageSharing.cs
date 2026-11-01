@@ -57,6 +57,16 @@ namespace costats.App.Services
         /// <summary>Retry delay while the relay has no usage route.</summary>
         public static readonly TimeSpan MissingRouteRetry = TimeSpan.FromHours(1);
 
+        /// <summary>
+        /// How long the answer to "does the relay take Antigravity?" is
+        /// trusted, whatever it was, so a relay update or rollback is noticed
+        /// without a restart.
+        /// </summary>
+        public static readonly TimeSpan RelayCapabilityLifetime = TimeSpan.FromHours(6);
+
+        /// <summary>The first relay version that accepts usage payload version 2 (Antigravity).</summary>
+        public static readonly Version FirstAntigravityRelayVersion = new(1, 9, 0);
+
         public const string TimeZonePausedStatus = "Usage sharing is paused: your time zone could not be identified.";
         public const string RemovedStatus = "Usage sharing stopped and the shared usage was removed.";
         public const string RemovalPendingStatus = "Usage sharing stopped. Removal will be retried; the shared usage expires within a week.";
@@ -89,6 +99,7 @@ namespace costats.App.Services
         private int _cycleWanted;
         private long _generation;
         private string _status = string.Empty;
+        private RelayCapability? _capability;
 
         /// <param name="settings">The shared settings; sharing state is read from it on every use.</param>
         /// <param name="saveSettings">Saves <paramref name="settings"/> atomically.</param>
@@ -448,7 +459,12 @@ namespace costats.App.Services
                 SetStatus(string.Empty);
 
                 var source = await _source(CancellationToken.None).ConfigureAwait(false);
-                var composition = RemoteUsageComposer.Compose(source, ianaId, zone, now, _limits);
+
+                // Antigravity is only shared with a relay that says it takes
+                // it; any other relay gets the report without it, as version 1.
+                var includeAntigravity = HasAntigravity(source) &&
+                    await RelayAcceptsAntigravityAsync(target!, generation.Value, now).ConfigureAwait(false);
+                var composition = RemoteUsageComposer.Compose(source, ianaId, zone, now, _limits, includeAntigravity);
                 if (composition.Payload is not { } payload)
                 {
                     lock (_sync)
@@ -587,6 +603,16 @@ namespace costats.App.Services
                         _missingRouteLogged = true;
                         Logger.Information("Remote usage upload: the relay has no usage route; retrying hourly");
                     }
+                }
+                else if (response.StatusCode == 422 &&
+                         payload.Version == RemoteUsagePayload.AntigravityVersion &&
+                         response.Reason is "bad_version" or "bad_account" or "bad_model")
+                {
+                    // The relay said it takes Antigravity, then refused it: it
+                    // was rolled back. Send the report without it right away.
+                    _capability = new RelayCapability(target, generation, AcceptsAntigravity: false, now);
+                    _nextComposeAt = now;
+                    Logger.Information("Remote usage upload: the relay does not take Antigravity usage; sharing without it");
                 }
                 else if (response.StatusCode == 409 && response.ErrorCode == "snapshot_missing")
                 {
@@ -766,10 +792,62 @@ namespace costats.App.Services
         private static (string Url, string WriteId, long Seq) KeyOf(RemoteUsagePendingDelete entry) =>
             (entry.UploadUrl, entry.WriteId, entry.Seq);
 
+        private static bool HasAntigravity(RemoteUsageSource source) =>
+            (source.Samples ?? []).Any(sample => sample?.Provider == UsageProviderKind.Antigravity) ||
+            (source.Accounts ?? []).Any(account => account?.Provider == UsageProviderKind.Antigravity);
+
+        /// <summary>
+        /// True when the relay of <paramref name="target"/> reports a version
+        /// that accepts Antigravity. The answer, including a failed check,
+        /// holds for <see cref="RelayCapabilityLifetime"/> within one sharing
+        /// generation.
+        /// </summary>
+        private async Task<bool> RelayAcceptsAntigravityAsync(RemoteUsageTarget target, long generation, DateTimeOffset now)
+        {
+            lock (_sync)
+            {
+                if (_capability is { } known &&
+                    known.Target == target &&
+                    known.Generation == generation &&
+                    now - known.CheckedAt < RelayCapabilityLifetime)
+                {
+                    return known.AcceptsAntigravity;
+                }
+            }
+
+            var version = await _relay.GetVersionAsync(target.UploadUrl).ConfigureAwait(false);
+            var accepts = AcceptsAntigravity(version);
+            lock (_sync)
+            {
+                if (_generation == generation)
+                {
+                    _capability = new RelayCapability(target, generation, accepts, now);
+                }
+            }
+
+            Logger.Debug("Remote usage: the relay {Answer} Antigravity usage", accepts ? "takes" : "does not take");
+            return accepts;
+        }
+
+        /// <summary>True for a relay version at or above <see cref="FirstAntigravityRelayVersion"/>.</summary>
+        public static bool AcceptsAntigravity(string? relayVersion)
+        {
+            if (string.IsNullOrWhiteSpace(relayVersion))
+            {
+                return false;
+            }
+
+            // "1.9.0", "1.9.0-rc.1" and "1.9.0+build" all name 1.9.0.
+            var core = relayVersion.Split('-', '+')[0];
+            return Version.TryParse(core, out var parsed) && parsed >= FirstAntigravityRelayVersion;
+        }
+
         private static string DescribeFailure(RelayResponse response) =>
             response.FailureKind ?? $"HTTP {response.StatusCode}{(response.ErrorCode is null ? string.Empty : " " + response.ErrorCode)}";
 
         private sealed record Success(RemoteUsageTarget Target, long Seq, string ChangeKey, DateTimeOffset At);
+
+        private sealed record RelayCapability(RemoteUsageTarget Target, long Generation, bool AcceptsAntigravity, DateTimeOffset CheckedAt);
 
         private readonly record struct DeleteRetry(DateTimeOffset NextAt, int Failures);
     }

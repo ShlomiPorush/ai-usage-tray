@@ -13,6 +13,43 @@ public sealed record UsageCacheInfo(int FileCount, long Bytes)
 }
 
 /// <summary>
+/// What a cached parse is checked against: a log file's length and last write
+/// time, plus, for an Antigravity database, the same two of its <c>-wal</c>
+/// file. SQLite commits into the WAL and leaves the database file alone until
+/// a checkpoint, so the database alone would not show new calls.
+/// </summary>
+/// <param name="Length">Length of the file.</param>
+/// <param name="LastWriteUtcTicks">Last write time of the file.</param>
+/// <param name="WalLength">Length of the <c>-wal</c> file, -1 when there is none or it is not tracked.</param>
+/// <param name="WalLastWriteUtcTicks">Last write time of the <c>-wal</c> file, 0 when there is none.</param>
+public readonly record struct UsageFileSignature(
+    long Length,
+    long LastWriteUtcTicks,
+    long WalLength,
+    long WalLastWriteUtcTicks)
+{
+    /// <summary>
+    /// The signature of <paramref name="file"/> now. Claude and Codex logs use
+    /// the values the scan listed; an Antigravity database and its WAL are
+    /// read fresh, so a write during the parse is noticed.
+    /// </summary>
+    public static UsageFileSignature Capture(FileInfo file, UsageProviderKind provider)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        if (provider != UsageProviderKind.Antigravity)
+        {
+            return new UsageFileSignature(file.Length, file.LastWriteTimeUtc.Ticks, -1, 0);
+        }
+
+        var database = new FileInfo(file.FullName);
+        var wal = new FileInfo(file.FullName + "-wal");
+        return wal.Exists
+            ? new UsageFileSignature(database.Length, database.LastWriteTimeUtc.Ticks, wal.Length, wal.LastWriteTimeUtc.Ticks)
+            : new UsageFileSignature(database.Length, database.LastWriteTimeUtc.Ticks, -1, 0);
+    }
+}
+
+/// <summary>
 /// Per-file parse cache for the usage scanner.
 /// </summary>
 /// <remarks>
@@ -39,6 +76,14 @@ public sealed class UsageFileCache
 {
     /// <summary>Bump to discard every previously written cache entry.</summary>
     private const int CacheSchemaVersion = 1;
+
+    /// <summary>
+    /// Schema of Antigravity entries. Kept apart from
+    /// <see cref="CacheSchemaVersion"/> on purpose: the Claude history
+    /// recovery and older app versions accept only schema 1, so they never
+    /// mistake an Antigravity entry for Claude usage.
+    /// </summary>
+    private const int AntigravitySchemaVersion = 2;
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -107,7 +152,14 @@ public sealed class UsageFileCache
     /// Returns the cached parse for <paramref name="file"/> when one exists and
     /// still matches the file's length and last write time.
     /// </summary>
-    public ParsedUsageFile? TryRead(FileInfo file, UsageProviderKind provider)
+    public ParsedUsageFile? TryRead(FileInfo file, UsageProviderKind provider) =>
+        TryRead(file, provider, UsageFileSignature.Capture(file, provider));
+
+    /// <summary>
+    /// Returns the cached parse for <paramref name="file"/> when one exists and
+    /// still matches <paramref name="signature"/>.
+    /// </summary>
+    public ParsedUsageFile? TryRead(FileInfo file, UsageProviderKind provider, UsageFileSignature signature)
     {
         ArgumentNullException.ThrowIfNull(file);
         if (_directory is null)
@@ -126,10 +178,9 @@ public sealed class UsageFileCache
             using var stream = File.OpenRead(path);
             var entry = JsonSerializer.Deserialize<CacheEntry>(stream, SerializerOptions);
             if (entry is null ||
-                entry.Schema != CacheSchemaVersion ||
-                entry.Parser != UsageLogParser.FormatVersion ||
-                entry.Length != file.Length ||
-                entry.LastWriteUtcTicks != file.LastWriteTimeUtc.Ticks)
+                entry.Schema != SchemaOf(provider) ||
+                entry.Parser != ParserVersionOf(provider) ||
+                entry.Signature != signature)
             {
                 return null;
             }
@@ -146,7 +197,14 @@ public sealed class UsageFileCache
     /// Stores the parse for <paramref name="file"/>. Failures are swallowed: a
     /// cache miss next time is the only consequence.
     /// </summary>
-    public void Write(FileInfo file, UsageProviderKind provider, ParsedUsageFile parsed)
+    public void Write(FileInfo file, UsageProviderKind provider, ParsedUsageFile parsed) =>
+        Write(file, provider, parsed, UsageFileSignature.Capture(file, provider));
+
+    /// <summary>
+    /// Stores the parse for <paramref name="file"/> under the
+    /// <paramref name="signature"/> it was read at. Failures are swallowed.
+    /// </summary>
+    public void Write(FileInfo file, UsageProviderKind provider, ParsedUsageFile parsed, UsageFileSignature signature)
     {
         ArgumentNullException.ThrowIfNull(file);
         ArgumentNullException.ThrowIfNull(parsed);
@@ -161,7 +219,7 @@ public sealed class UsageFileCache
             var path = EntryPath(file.FullName, provider);
             var temp = path + "." + Environment.CurrentManagedThreadId.ToString(CultureInfo.InvariantCulture) + ".tmp";
 
-            var entry = CacheEntry.From(file, parsed);
+            var entry = CacheEntry.From(signature, SchemaOf(provider), ParserVersionOf(provider), parsed);
             using (var stream = File.Create(temp))
             {
                 JsonSerializer.Serialize(stream, entry, SerializerOptions);
@@ -192,6 +250,16 @@ public sealed class UsageFileCache
             // Nothing to do; a stale cache is still validated per file.
         }
     }
+
+    private static int SchemaOf(UsageProviderKind provider) =>
+        provider == UsageProviderKind.Antigravity ? AntigravitySchemaVersion : CacheSchemaVersion;
+
+    private static int ParserVersionOf(UsageProviderKind provider) => provider switch
+    {
+        UsageProviderKind.Claude or UsageProviderKind.Codex => UsageLogParser.FormatVersion,
+        UsageProviderKind.Antigravity => AntigravityUsageParser.FormatVersion,
+        _ => throw new ArgumentOutOfRangeException(nameof(provider), provider, null)
+    };
 
     private string EntryPath(string fullPath, UsageProviderKind provider) =>
         Path.Combine(_directory!, EntryFileName(fullPath, provider));
@@ -315,11 +383,21 @@ public sealed class UsageFileCache
         public int Parser { get; init; }
         public long Length { get; init; }
         public long LastWriteUtcTicks { get; init; }
+
+        /// <summary>WAL length of an Antigravity entry; absent (-1) in schema 1.</summary>
+        public long WalLength { get; init; } = -1;
+
+        /// <summary>WAL last write time of an Antigravity entry; absent (0) in schema 1.</summary>
+        public long WalLastWriteUtcTicks { get; init; }
+
         public int Skipped { get; init; }
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public UsageFileSignature Signature => new(Length, LastWriteUtcTicks, WalLength, WalLastWriteUtcTicks);
         public string[] Models { get; init; } = [];
         public long[][] Rows { get; init; } = [];
 
-        public static CacheEntry From(FileInfo file, ParsedUsageFile parsed)
+        public static CacheEntry From(UsageFileSignature signature, int schema, int parser, ParsedUsageFile parsed)
         {
             var models = new List<string>();
             var index = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -351,10 +429,12 @@ public sealed class UsageFileCache
 
             return new CacheEntry
             {
-                Schema = CacheSchemaVersion,
-                Parser = UsageLogParser.FormatVersion,
-                Length = file.Length,
-                LastWriteUtcTicks = file.LastWriteTimeUtc.Ticks,
+                Schema = schema,
+                Parser = parser,
+                Length = signature.Length,
+                LastWriteUtcTicks = signature.LastWriteUtcTicks,
+                WalLength = signature.WalLength,
+                WalLastWriteUtcTicks = signature.WalLastWriteUtcTicks,
                 Skipped = parsed.SkippedLines,
                 Models = [.. models],
                 Rows = rows

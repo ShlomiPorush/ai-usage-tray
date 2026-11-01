@@ -4,8 +4,9 @@
 //
 // The snapshot is what the app prices with when it has never reached the live
 // catalog (first start offline, or the download is disabled). It keeps the
-// catalog's own shape, trimmed to first-party Anthropic and OpenAI chat models
-// and to the cost fields the app reads, so the app parses both with one parser.
+// catalog's own shape, trimmed to first-party Anthropic, OpenAI and Google
+// Gemini chat models and to the cost fields the app reads, so the app parses
+// both with one parser.
 //
 // Entries are merged, never dropped: a model that disappears from the catalog
 // (LiteLLM prunes retired models) keeps its last known price here, because old
@@ -18,6 +19,12 @@ import path from 'node:path';
 
 const DEFAULT_SOURCE = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
 const PROVIDERS = new Set(['anthropic', 'openai']);
+// Google's own Gemini models, under their bare ids (the ids Antigravity logs).
+// Must match LiteLlmPricingCatalog.IsKeptProvider.
+const GEMINI_PROVIDER = 'vertex_ai-language-models';
+const GEMINI_PREFIX = 'gemini-';
+const isKept = (id, provider) =>
+  PROVIDERS.has(provider) || (provider === GEMINI_PROVIDER && id.startsWith(GEMINI_PREFIX));
 const MODES = new Set(['chat', 'responses']);
 const FIELDS = [
   'litellm_provider',
@@ -47,7 +54,7 @@ function trim(catalog) {
   const models = {};
   for (const [id, entry] of Object.entries(catalog)) {
     if (!entry || typeof entry !== 'object' ||
-        !PROVIDERS.has(entry.litellm_provider) || !MODES.has(entry.mode) ||
+        !isKept(id, entry.litellm_provider) || !MODES.has(entry.mode) ||
         typeof entry.input_cost_per_token !== 'number' || typeof entry.output_cost_per_token !== 'number') {
       continue;
     }

@@ -15,7 +15,77 @@ public sealed record UsageLogRoot(
     string Path,
     UsageProviderKind Provider,
     string AccountId,
-    string DisplayName);
+    string DisplayName)
+{
+    /// <summary>The file name pattern of the provider's log files under <see cref="Path"/>.</summary>
+    public string FilePattern => Provider switch
+    {
+        UsageProviderKind.Claude => "*.jsonl",
+        UsageProviderKind.Codex => "rollout-*.jsonl",
+        UsageProviderKind.Antigravity => "*.db",
+        _ => throw new InvalidOperationException("Unknown usage provider " + Provider)
+    };
+
+    /// <summary>The extension every log file of the provider ends with.</summary>
+    public string FileExtension => Provider == UsageProviderKind.Antigravity ? ".db" : ".jsonl";
+}
+
+/// <summary>
+/// What one usage scan covers: the configured Claude and Codex accounts, and
+/// whether Antigravity is turned on. Built once per scan, so the scan and the
+/// history mapping that follows it agree.
+/// </summary>
+/// <param name="Accounts">Configured Claude and Codex accounts.</param>
+/// <param name="AntigravityEnabled">True when the Antigravity account is turned on in Settings.</param>
+public sealed record UsageScanScope(
+    IReadOnlyList<MonitoredAccountSettings> Accounts,
+    bool AntigravityEnabled);
+
+/// <summary>
+/// Where Antigravity keeps its conversation databases: the agy CLI's own
+/// folder, and one folder per profile that T3 Code runs agy under.
+/// </summary>
+/// <param name="HomeDirectory">The user profile folder the default locations hang off.</param>
+public sealed record AntigravityUsageLocations(string HomeDirectory)
+{
+    /// <summary>The current user's locations.</summary>
+    public static AntigravityUsageLocations Default { get; } =
+        new(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
+    /// <summary>
+    /// Every conversation folder that exists right now. T3 Code profile
+    /// folders are found by listing, since their names are hashes; a folder
+    /// that cannot be listed is left out.
+    /// </summary>
+    public IReadOnlyList<string> ConversationFolders()
+    {
+        var folders = new List<string>();
+        if (string.IsNullOrWhiteSpace(HomeDirectory))
+        {
+            return folders;
+        }
+
+        folders.Add(System.IO.Path.Combine(HomeDirectory, ".gemini", "antigravity-cli", "conversations"));
+
+        var t3Profiles = System.IO.Path.Combine(HomeDirectory, ".t3", "userdata", "providers", "antigravity");
+        try
+        {
+            if (Directory.Exists(t3Profiles))
+            {
+                foreach (var profile in Directory.EnumerateDirectories(t3Profiles).Order(StringComparer.OrdinalIgnoreCase))
+                {
+                    folders.Add(System.IO.Path.Combine(profile, "antigravity-acp", "conversations"));
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Profiles that could not be listed are simply not scanned.
+        }
+
+        return folders;
+    }
+}
 
 /// <summary>
 /// Turns the configured accounts into the distinct set of directories worth
@@ -34,6 +104,7 @@ public sealed record UsageLogRoot(
 /// A rollout file gives no clue which Codex profile produced it, so per-account
 /// Codex attribution is impossible. All Codex roots are merged into the single
 /// <see cref="UsageAccounts.MergedCodexId"/> bucket instead of being guessed at.
+/// Antigravity conversation folders are merged the same way.
 /// </item>
 /// </list>
 /// </remarks>
@@ -90,6 +161,37 @@ public static class UsageLogRootResolver
                     UsageAccounts.MergedCodexId,
                     UsageAccounts.MergedCodexDisplayName);
             }
+        }
+
+        return roots;
+    }
+
+    /// <summary>
+    /// Resolves the scan roots of <paramref name="scope"/>: the account roots
+    /// of <see cref="Resolve(IEnumerable{MonitoredAccountSettings}?)"/>, plus
+    /// every Antigravity conversation folder when Antigravity is on. All
+    /// Antigravity folders are merged into the
+    /// <see cref="UsageAccounts.MergedAntigravityId"/> account.
+    /// </summary>
+    public static IReadOnlyList<UsageLogRoot> Resolve(UsageScanScope scope, AntigravityUsageLocations? antigravity = null)
+    {
+        ArgumentNullException.ThrowIfNull(scope);
+        var roots = Resolve(scope.Accounts).ToList();
+        if (!scope.AntigravityEnabled)
+        {
+            return roots;
+        }
+
+        var seen = new HashSet<string>(roots.Select(root => root.Path), StringComparer.OrdinalIgnoreCase);
+        foreach (var folder in (antigravity ?? AntigravityUsageLocations.Default).ConversationFolders())
+        {
+            TryAdd(
+                roots,
+                seen,
+                folder,
+                UsageProviderKind.Antigravity,
+                UsageAccounts.MergedAntigravityId,
+                UsageAccounts.MergedAntigravityDisplayName);
         }
 
         return roots;

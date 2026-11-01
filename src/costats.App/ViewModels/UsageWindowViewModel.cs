@@ -12,7 +12,7 @@ public sealed record UsageAccountOption(string? AccountId, string DisplayName);
 
 /// <summary>A provider's line in the hero block, in the selected metric: value, share bar and caption.</summary>
 /// <param name="Name">User-facing provider name.</param>
-/// <param name="ProviderKey">"claude" or "codex", the key the XAML colours by.</param>
+/// <param name="ProviderKey">"claude", "codex" or "antigravity", the key the XAML colours by.</param>
 /// <param name="ValueText">Formatted cost or "unpriced", or processed tokens in the tokens metric.</param>
 /// <param name="Share">0..1 share of the total in the selected metric, for the bar width.</param>
 /// <param name="Caption">"88.9% of estimate · 11.2B tokens", or "88.9% of tokens · $12.00".</param>
@@ -30,7 +30,7 @@ public sealed record UsageStatTile(string Caption, string Value, string Footnote
 
 /// <summary>One row of the breakdown table, in either MODEL or DAY mode.</summary>
 /// <param name="Label">Model id or date.</param>
-/// <param name="ProviderKey">"claude", "codex", or empty for a day row (no dot).</param>
+/// <param name="ProviderKey">"claude", "codex", "antigravity", or empty for a day row (no dot).</param>
 /// <param name="ChangeText">Change against the comparison period, or empty.</param>
 /// <param name="PreviousValueText">The row's value in comparison period B, or empty.</param>
 /// <param name="PreviousTokensText">The row's tokens in comparison period B, or empty.</param>
@@ -76,7 +76,7 @@ public sealed record UsageModelDetail
     /// <summary>The agent that used it.</summary>
     public required UsageProviderKind Provider { get; init; }
 
-    /// <summary>"claude" or "codex", the key the XAML colours by.</summary>
+    /// <summary>"claude", "codex" or "antigravity", the key the XAML colours by.</summary>
     public required string ProviderKey { get; init; }
 
     /// <summary>"Claude Code · 90.3% of cost".</summary>
@@ -1163,14 +1163,14 @@ public sealed partial class UsageWindowViewModel : ObservableObject
 
         if (view.Report.Diagnostics.RootsScanned == 0)
         {
-            return "No Claude Code or Codex logs were found in your accounts' folders. " +
+            return "No Claude Code, Codex or Antigravity logs were found in your accounts' folders. " +
                 "This window reads only those local logs. " + NotCounted;
         }
 
         if (view.Activity is not { } activity)
         {
             return view.AccountId is null
-                ? "The local Claude Code and Codex logs hold no usage yet. " + NotCounted
+                ? "The local Claude Code, Codex and Antigravity logs hold no usage yet. " + NotCounted
                 : "This account's local logs hold no usage yet.";
         }
 
@@ -1766,11 +1766,9 @@ public sealed partial class UsageWindowViewModel : ObservableObject
     private static string Cost(UsageTotals totals) =>
         UsageNumberFormat.CostOrUnpriced(totals.CostUsd, totals.UnpricedTokens);
 
-    private static string DisplayName(UsageProviderKind provider) =>
-        provider == UsageProviderKind.Claude ? "Claude Code" : "Codex";
+    private static string DisplayName(UsageProviderKind provider) => UsageProviderNames.DisplayName(provider);
 
-    private static string Key(UsageProviderKind provider) =>
-        provider == UsageProviderKind.Claude ? "claude" : "codex";
+    private static string Key(UsageProviderKind provider) => UsageProviderNames.Key(provider);
 
     /// <summary>Everything one completed load produced, applied in one step.</summary>
     private sealed record LoadedView(

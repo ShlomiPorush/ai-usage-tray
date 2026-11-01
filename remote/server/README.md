@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.8.0
+ghcr.io/shlomiporush/ai-usage-tray:1.9.0
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -401,18 +401,26 @@ served by the Worker never shows the tab.
 
 ### Payload
 
-Version 1, UTF-8 JSON. `validateUsagePayload` in `server.mjs` is the authoritative check, and
+Version 1 or 2, UTF-8 JSON. `validateUsagePayload` in `server.mjs` is the authoritative check, and
 `RemoteUsagePayload` in `src/costats.Core/Remote` produces it. Unknown extra fields are ignored.
+
+Version 2 is identical to version 1 in every field and limit, except that `accounts[].provider` and
+`models[].provider` may also be `antigravity`. The relay still accepts version 1 from older desktop
+apps, with providers `claude` and `codex` only: a version 1 report that names `antigravity` is
+refused with `bad_account` or `bad_model`, and any other version with `bad_version`. Relay 1.9.0 is
+the first release that accepts version 2. The desktop reads `GET /version` and sends version 2 only
+to a relay at that version or later; otherwise it sends version 1, which cannot carry Antigravity
+rows.
 
 | Field | Content |
 | --- | --- |
-| `version` | `1`. |
+| `version` | `1` or `2`. |
 | `seq` | Positive safe integer. The write sequence; see ordering below. |
 | `generatedAt` | ISO-8601 UTC instant ending in `Z`. |
 | `timeZone` | IANA id of the desktop's zone, for example `Europe/London`. |
 | `coverage` | `dailyFrom`, `dailyTo` (local `YYYY-MM-DD`), and `hourlyFrom`, `hourlyTo` (both dates inside the daily range, or both `null`). |
-| `accounts` | `[{ name, provider }]`, provider `claude` or `codex`. Rows refer to them by index. |
-| `models` | `[{ id, provider, priced, price }]`. `price` is `null` when unpriced, else per-MTok USD `input`, `cacheRead`, `cacheWrite5m`, `cacheWrite1h`, `output` (each a number or `null`). |
+| `accounts` | `[{ name, provider }]`, provider `claude` or `codex`, plus `antigravity` in version 2. Rows refer to them by index. |
+| `models` | `[{ id, provider, priced, price }]`, provider as for `accounts`. `price` is `null` when unpriced, else per-MTok USD `input`, `cacheRead`, `cacheWrite5m`, `cacheWrite1h`, `output` (each a number or `null`). |
 | `days` | Rows `[dayNumber, accountIdx, modelIdx, ...10 metrics]`, `dayNumber` counted from `dailyFrom`. |
 | `hourDayStarts` | UTC epoch minutes of each local midnight from `hourlyFrom` to the day after `hourlyTo`; empty without hourly coverage. |
 | `hours` | Up to four grids `{ phaseMinutes, rows }` of 60-minute buckets; rows `[dayNumber, bucketStartEpochMinutes, accountIdx, modelIdx, ...10 metrics]`. |

@@ -356,6 +356,151 @@
     "output_cost_per_token": 0.000016,
     "cache_read_input_token_cost": 0.000001
   },
+  "gemini-2.5-computer-use-preview-10-2025": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001
+  },
+  "gemini-2.5-flash": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 3e-7,
+    "output_cost_per_token": 0.0000025,
+    "cache_read_input_token_cost": 3e-8
+  },
+  "gemini-2.5-flash-lite": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 1e-7,
+    "output_cost_per_token": 4e-7,
+    "cache_read_input_token_cost": 1e-8
+  },
+  "gemini-2.5-flash-lite-preview-09-2025": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 1e-7,
+    "output_cost_per_token": 4e-7,
+    "cache_read_input_token_cost": 1e-8
+  },
+  "gemini-2.5-flash-preview-09-2025": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 3e-7,
+    "output_cost_per_token": 0.0000025,
+    "cache_read_input_token_cost": 3e-8
+  },
+  "gemini-2.5-pro": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 0.00000125,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 1.25e-7
+  },
+  "gemini-2.5-pro-preview-tts": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 0.000001,
+    "output_cost_per_token": 0.00002,
+    "cache_read_input_token_cost": 1.25e-7
+  },
+  "gemini-3-flash-preview": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 5e-7,
+    "output_cost_per_token": 0.000003,
+    "cache_read_input_token_cost": 5e-8
+  },
+  "gemini-3.1-flash-lite": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 2.5e-7,
+    "output_cost_per_token": 0.0000015,
+    "cache_read_input_token_cost": 2.5e-8
+  },
+  "gemini-3.1-flash-lite-preview": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 2.5e-7,
+    "output_cost_per_token": 0.0000015,
+    "cache_read_input_token_cost": 2.5e-8
+  },
+  "gemini-3.1-pro-preview": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 0.000002,
+    "output_cost_per_token": 0.000012,
+    "cache_read_input_token_cost": 2e-7
+  },
+  "gemini-3.1-pro-preview-customtools": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 0.000002,
+    "output_cost_per_token": 0.000012,
+    "cache_read_input_token_cost": 2e-7
+  },
+  "gemini-3.5-flash": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000015,
+    "output_cost_per_token": 0.000009,
+    "cache_read_input_token_cost": 1.5e-7
+  },
+  "gemini-3.5-flash-lite": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 3e-7,
+    "output_cost_per_token": 0.0000025,
+    "cache_read_input_token_cost": 3e-8
+  },
+  "gemini-3.6-flash": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 7.5e-7,
+    "output_cost_per_token": 0.00000375,
+    "cache_read_input_token_cost": 7.5e-8
+  },
+  "gemini-3.7-flash": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 7.5e-7,
+    "output_cost_per_token": 0.00000375,
+    "cache_read_input_token_cost": 7.5e-8
+  },
+  "gemini-3.8-flash": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 7.5e-7,
+    "output_cost_per_token": 0.00000375,
+    "cache_read_input_token_cost": 7.5e-8
+  },
+  "gemini-3.8-flash-cyber": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000015,
+    "output_cost_per_token": 0.0000075,
+    "cache_read_input_token_cost": 1.5e-7
+  },
+  "gemini-omni-flash-preview": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 0.0000015,
+    "output_cost_per_token": 0.000009
+  },
+  "gemini-robotics-er-1.5-preview": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 3e-7,
+    "output_cost_per_token": 0.0000025,
+    "cache_read_input_token_cost": 0
+  },
+  "gemini-robotics-er-2-preview": {
+    "litellm_provider": "vertex_ai-language-models",
+    "mode": "chat",
+    "input_cost_per_token": 0.000001,
+    "output_cost_per_token": 0.000005,
+    "cache_read_input_token_cost": 1e-7
+  },
   "gpt-3.5-turbo": {
     "litellm_provider": "openai",
     "mode": "chat",
