@@ -79,6 +79,21 @@ public sealed class TrayStatusComposerTests
     }
 
     [Fact]
+    public void Weekly_window_under_one_day_shows_hours_instead_of_fractional_days()
+    {
+        var accounts = new[]
+        {
+            new AccountUsageStatus("PA", null, null, 87, Now.AddHours(4).AddMinutes(48))
+        };
+
+        var result = TrayStatusComposer.Compose(accounts, Now);
+        var row = Assert.Single(TrayStatusComposer.ComposeRows(accounts, Now));
+
+        Assert.Equal("PA Weekly 13% · 4h48m", result.Tooltip);
+        Assert.Equal("Weekly 13% · 4h48m", row.WindowsText);
+    }
+
+    [Fact]
     public void ComposeRows_keeps_session_usage_when_the_provider_omits_its_reset_time()
     {
         var accounts = new[]
