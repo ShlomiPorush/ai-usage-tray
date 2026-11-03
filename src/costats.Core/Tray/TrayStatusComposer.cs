@@ -328,7 +328,8 @@ public static class TrayStatusComposer
         var percent = Math.Clamp(displayPercent, 0, 100)
             .ToString("0", CultureInfo.InvariantCulture);
 
-        if (weekly)
+        // A weekly window under a day reads better as hours ("4h48m") than "0.2d".
+        if (weekly && remaining >= TimeSpan.FromDays(1))
         {
             var days = remaining.TotalDays.ToString("0.0", CultureInfo.InvariantCulture);
             return $"{label} {percent}% · {days}d";
