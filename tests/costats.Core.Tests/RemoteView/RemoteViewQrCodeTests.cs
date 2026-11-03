@@ -1,9 +1,8 @@
 using costats.Application.RemoteView;
 using costats.Application.Settings;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
+using StbImageSharp;
 using Xunit;
-using ZXing.ImageSharp;
+using ZXing;
 
 namespace costats.Core.Tests.RemoteView;
 
@@ -28,8 +27,10 @@ public sealed class RemoteViewQrCodeTests
         Assert.True(qr.PngBytes.Length > 100);
         Assert.Equal(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, qr.PngBytes[..8]);
 
-        using var image = Image.Load<Rgba32>(qr.PngBytes);
-        var decoded = new BarcodeReader<Rgba32>().Decode(image);
+        var image = ImageResult.FromMemory(qr.PngBytes, ColorComponents.RedGreenBlueAlpha);
+        var pixels = new RGBLuminanceSource(
+            image.Data, image.Width, image.Height, RGBLuminanceSource.BitmapFormat.RGBA32);
+        var decoded = new BarcodeReaderGeneric().Decode(pixels);
         Assert.NotNull(decoded);
         Assert.Equal(qr.ShareLink, decoded.Text);
     }

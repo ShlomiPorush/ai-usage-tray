@@ -18,7 +18,8 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="ZXing.Net.Bindings.ImageSharp.V3" />
+    <PackageReference Include="StbImageSharp" />
+    <PackageReference Include="ZXing.Net" />
     <PackageReference Include="Serilog" />
     <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>
