@@ -41,7 +41,7 @@ A lightweight Windows tray app that shows, behind **one icon**, the live quota o
 - Plan chips for Claude (`Max 5x`, `Max 20x`, `Pro`...) and Codex (`Plus`, `Pro Lite`...).
 - Optional primary account (star in Settings): drives the tray icon and is pinned to the top of the overview.
 - **Scheduled five-hour window starts**: opt in per provider, then limit automatic activation to local daily hours so an expired window can start before your workday. If the PC wakes during the schedule, the app catches up immediately.
-- **Warm stone light and blue steel dark themes**, following the Windows theme by default.
+- **Warm stone light theme and two dark styles** (neutral charcoal by default, or the original blue steel), following the Windows theme by default.
 - Providers managed in Settings as a table with add/edit dialogs; changes apply without restarting.
 - **Move to another computer**: Settings → General → **Export settings** writes your accounts and preferences to a JSON file; **Import settings** on the other computer applies them at once. API keys, tokens and the remote view link are not included, and account folders under your user profile are moved to the new profile automatically.
 - Optional reset countdowns on the overview cards; daily / 30-day cost estimates where the provider supplies them.
@@ -84,6 +84,7 @@ The export file (`ai-usage-tray-settings.json`) carries the same settings minus 
 | `CopilotEnabled` | `false` | Enable the Copilot provider |
 | `AntigravityEnabled` / `AntigravityMinIntervalMinutes` | `false` / `15` | Enable the Google Antigravity provider, and the minimum minutes (5 to 240) between two checks, each of which starts `agy` briefly |
 | `Theme` | `system` | `system` / `light` / `dark` |
+| `DarkPalette` | `neutral-charcoal` | Dark style used whenever the theme is dark: `neutral-charcoal` or `blue-steel` |
 | `PrimaryAccountId` | empty | Provider id whose status drives the tray icon |
 | `ShowOverviewResetTimes` | `false` | Reset countdowns on overview cards |
 | `ShowRemainingPercentages` | `false` | Show remaining rather than used quota in desktop numbers and progress bars; colours preserve the same capacity warning state |
@@ -133,7 +134,7 @@ Compared with `fmdz387/costats` v1.4.6 (the fork point):
 | OpenAI / Codex | One account, reads `~/.codex/auth.json` + OAuth endpoint, log-based estimates | **Any number of accounts** via `codex app-server`, separate `CODEX_HOME`s, account selector, editable in Settings |
 | Claude | Claude Code usage from local logs; multiple profiles only through the external `multicc` tool | **Any number of Claude subscriptions** through per-account OAuth profiles (`ClaudeSubscriptionSource`), including model-scoped limits |
 | Z.AI / GLM | not available | New provider (`ZaiUsageSource`) |
-| UI | Fixed tabs per provider, static tray icon | Overview-first widget, dynamic tray icon (colour + used %), hover popup with per-account status dots, warm stone / blue steel themes, four-level usage colours, primary account, scheduled five-hour window starts |
+| UI | Fixed tabs per provider, static tray icon | Overview-first widget, dynamic tray icon (colour + used %), hover popup with per-account status dots, warm stone light theme with neutral charcoal or blue steel dark styles, four-level usage colours, primary account, scheduled five-hour window starts |
 | Usage analytics | Insights card CLI only | Built-in usage dashboard: tokens and API-rate cost from the local logs, per provider / account / model / day |
 | Tests | none | `tests/costats.Core.Tests` (xunit) covering the new sources, parsers and tray composer |
 | Settings | Fixed sections per provider | Providers table with add/edit dialogs; account changes apply live (`AccountSourceRegistry`) without a restart |

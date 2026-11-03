@@ -259,13 +259,13 @@ namespace costats.App
 
                 var tray = await Dispatcher.InvokeAsync(() =>
                 {
-                    ThemeService.Apply(settings.Theme);
+                    ThemeService.Apply(settings.Theme, settings.DarkPalette);
                     Microsoft.Win32.SystemEvents.UserPreferenceChanged += (_, args) =>
                     {
                         if (args.Category == Microsoft.Win32.UserPreferenceCategory.General &&
                             string.Equals(settings.Theme, ThemeService.SystemTheme, StringComparison.OrdinalIgnoreCase))
                         {
-                            Dispatcher.BeginInvoke(() => ThemeService.Apply(settings.Theme));
+                            Dispatcher.BeginInvoke(() => ThemeService.Apply(settings.Theme, settings.DarkPalette));
                         }
                     };
                     var initializedTray = InitializeHost(settingsStore, settings);
@@ -524,6 +524,14 @@ namespace costats.App
             if (theme is ThemeService.LightTheme or ThemeService.DarkTheme)
             {
                 settings.Theme = theme;
+            }
+
+            // "--preview-theme dark --preview-dark-palette blue-steel" shows the
+            // other dark palette without changing the user's choice on disk.
+            var palette = ReadOptionalArgument(args, "--preview-dark-palette");
+            if (palette is ThemeService.NeutralCharcoalPalette or ThemeService.BlueSteelPalette)
+            {
+                settings.DarkPalette = palette;
             }
         }
 

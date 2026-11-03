@@ -15,6 +15,11 @@
     <SolidColorBrush x:Key="ButtonPressedBrush" Color="#22000000" />
     <SolidColorBrush x:Key="KindBadgeBrush" Color="#1FB45309" />
     <SolidColorBrush x:Key="ScrimBrush" Color="#73362C1E" />
+    <!-- Informational notice: a plain tinted block, no edge stripe -->
+    <SolidColorBrush x:Key="NoticeBgBrush" Color="#1FB45309" />
+    <SolidColorBrush x:Key="NoticeStripeBrush" Color="#1FB45309" />
+    <Thickness x:Key="NoticeStripeThickness">0</Thickness>
+    <Thickness x:Key="NoticePadding">8,6</Thickness>
 
     <!-- Text -->
     <SolidColorBrush x:Key="TextPrimaryBrush" Color="#2A2318" />

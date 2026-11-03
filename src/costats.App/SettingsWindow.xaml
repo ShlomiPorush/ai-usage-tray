@@ -495,6 +495,15 @@
                         </DockPanel>
                         <TextBlock Text="Follow system tracks the Windows app theme; Light and Dark are fixed."
                                    FontSize="11" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" />
+                        <DockPanel Margin="0,12,0,6">
+                            <TextBlock Text="Dark style" FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}"
+                                       DockPanel.Dock="Left" VerticalAlignment="Center" />
+                            <ComboBox ItemsSource="{Binding DarkPaletteOptions}" SelectedItem="{Binding SelectedDarkPalette}"
+                                      DockPanel.Dock="Right" HorizontalAlignment="Right" Width="140"
+                                      AutomationProperties.Name="Dark style" />
+                        </DockPanel>
+                        <TextBlock Text="The colours used whenever the theme is dark."
+                                   FontSize="11" Foreground="{DynamicResource TextFaintBrush}" TextWrapping="Wrap" />
                     </StackPanel>
                 </Expander>
 

@@ -35,7 +35,7 @@ class Program
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources.MergedDictionaries.Add(new ResourceDictionary
         {
-            Source = new Uri("/AIUsageTray;component/Themes/ThemeDark.xaml", UriKind.Relative)
+            Source = new Uri("/AIUsageTray;component/Themes/ThemeDarkNeutralCharcoal.xaml", UriKind.Relative)
         });
         var rows = new[]
         {

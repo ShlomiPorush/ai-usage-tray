@@ -448,8 +448,9 @@
                                         </Grid>
                                     </DockPanel>
 
-                                    <Border Margin="0,6,0,8" Padding="8,6" CornerRadius="5"
-                                            Background="{DynamicResource KindBadgeBrush}"
+                                    <Border Margin="0,6,0,8" Padding="{DynamicResource NoticePadding}" CornerRadius="5" BorderThickness="{DynamicResource NoticeStripeThickness}"
+                                            Background="{DynamicResource NoticeBgBrush}"
+                                            BorderBrush="{DynamicResource NoticeStripeBrush}"
                                             Visibility="{Binding HasResetExpiryNotice, Converter={StaticResource BoolToVisibilityConverter}}">
                                         <TextBlock Text="{Binding ResetExpiryNotice}" TextWrapping="Wrap" FontSize="11"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" AutomationProperties.LiveSetting="Polite" />
@@ -816,8 +817,9 @@
                             Visibility="{Binding HasResetCredits, Converter={StaticResource BoolToVisibilityConverter}}">
                     <TextBlock Text="{Binding ResetCreditsText}" FontSize="11.5" VerticalAlignment="Center"
                                Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" />
-                    <Border Margin="0,6,0,8" Padding="8,6" CornerRadius="5"
-                                            Background="{DynamicResource KindBadgeBrush}"
+                    <Border Margin="0,6,0,8" Padding="{DynamicResource NoticePadding}" CornerRadius="5" BorderThickness="{DynamicResource NoticeStripeThickness}"
+                                            Background="{DynamicResource NoticeBgBrush}"
+                                            BorderBrush="{DynamicResource NoticeStripeBrush}"
                                             Visibility="{Binding HasResetExpiryNotice, Converter={StaticResource BoolToVisibilityConverter}}">
                                         <TextBlock Text="{Binding ResetExpiryNotice}" TextWrapping="Wrap" FontSize="11"
                                                    Foreground="{DynamicResource TextSecondaryBrush}" AutomationProperties.LiveSetting="Polite" />

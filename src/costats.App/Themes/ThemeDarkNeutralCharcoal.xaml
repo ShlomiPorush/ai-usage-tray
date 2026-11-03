@@ -1,0 +1,52 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Palette: "Neutral charcoal" dark, the default dark style. Untinted
+         near-black surfaces and plain greys, so the usage band colours are the
+         only strong colour on screen. -->
+
+    <!-- Surfaces -->
+    <SolidColorBrush x:Key="WidgetBgBrush" Color="#161616" />
+    <SolidColorBrush x:Key="PanelBgBrush" Color="#1C1C1C" />
+    <SolidColorBrush x:Key="WindowBorderBrush" Color="#50737373" />
+    <SolidColorBrush x:Key="CardBgBrush" Color="#0DFFFFFF" />
+    <SolidColorBrush x:Key="CardHoverBgBrush" Color="#1AFFFFFF" />
+    <SolidColorBrush x:Key="InputBgBrush" Color="#232323" />
+    <SolidColorBrush x:Key="ButtonBgBrush" Color="#10FFFFFF" />
+    <SolidColorBrush x:Key="ButtonHoverBrush" Color="#1CFFFFFF" />
+    <SolidColorBrush x:Key="ButtonPressedBrush" Color="#2BFFFFFF" />
+    <SolidColorBrush x:Key="KindBadgeBrush" Color="#16FFFFFF" />
+    <SolidColorBrush x:Key="ScrimBrush" Color="#A6000000" />
+    <!-- Expiry notice: an amber warning tint with a solid amber edge stripe -->
+    <SolidColorBrush x:Key="NoticeBgBrush" Color="#24F59E0B" />
+    <SolidColorBrush x:Key="NoticeStripeBrush" Color="#F59E0B" />
+    <Thickness x:Key="NoticeStripeThickness">3,0,0,0</Thickness>
+    <Thickness x:Key="NoticePadding">5,6,8,6</Thickness>
+
+    <!-- Text -->
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F5F5F5" />
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#D4D4D4" />
+    <SolidColorBrush x:Key="TextMutedBrush" Color="#B3B3B3" />
+    <SolidColorBrush x:Key="TextFaintBrush" Color="#A3A3A3" />
+    <SolidColorBrush x:Key="AccentTextBrush" Color="#07121D" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="#10B981" />
+    <SolidColorBrush x:Key="SuccessTintBrush" Color="#2210B981" />
+    <SolidColorBrush x:Key="DividerBrush" Color="#2F2F2F" />
+    <SolidColorBrush x:Key="TrackBrush" Color="#333333" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#38BDF8" />
+
+    <!-- Provider accents (brightened for dark surfaces) -->
+    <SolidColorBrush x:Key="CodexAccent" Color="#34D399" />
+    <SolidColorBrush x:Key="ClaudeAccent" Color="#FB923C" />
+    <SolidColorBrush x:Key="CopilotAccent" Color="#A3A3A3" />
+    <SolidColorBrush x:Key="AntigravityAccent" Color="#60A5FA" />
+    <SolidColorBrush x:Key="SessionAccent" Color="#FBBF24" />
+    <SolidColorBrush x:Key="WeeklyAccent" Color="#60A5FA" />
+    <SolidColorBrush x:Key="CostTodayAccent" Color="#6EE7B7" />
+    <SolidColorBrush x:Key="CostMonthAccent" Color="#93C5FD" />
+    <SolidColorBrush x:Key="PlanCodexFgBrush" Color="#6EE7B7" />
+    <SolidColorBrush x:Key="PlanClaudeFgBrush" Color="#FDBA74" />
+    <SolidColorBrush x:Key="PlanCopilotFgBrush" Color="#D4D4D4" />
+    <SolidColorBrush x:Key="PlanAntigravityFgBrush" Color="#93C5FD" />
+    <SolidColorBrush x:Key="PlanAntigravityBgBrush" Color="#4285F4" Opacity="0.16" />
+</ResourceDictionary>

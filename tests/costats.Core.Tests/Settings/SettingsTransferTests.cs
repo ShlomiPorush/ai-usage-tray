@@ -48,6 +48,7 @@ public sealed class SettingsTransferTests
             nameof(AppSettings.SessionActivationScheduleStartHour),
             nameof(AppSettings.SessionActivationScheduleEndHour),
             nameof(AppSettings.Theme),
+            nameof(AppSettings.DarkPalette),
             nameof(AppSettings.PrimaryAccountId),
             nameof(AppSettings.RemoteViewEnabled),
             nameof(AppSettings.RemoteViewUploadUrl),
@@ -383,6 +384,7 @@ public sealed class SettingsTransferTests
         Assert.Equal(7, target.SessionActivationScheduleStartHour);
         Assert.Equal(19, target.SessionActivationScheduleEndHour);
         Assert.Equal("dark", target.Theme);
+        Assert.Equal("blue-steel", target.DarkPalette);
         Assert.Equal("codex:codex-2", target.PrimaryAccountId);
         Assert.True(target.RemoteViewEnabled);
         Assert.Equal("https://mine.example.com", target.RemoteViewUploadUrl);
@@ -433,6 +435,7 @@ public sealed class SettingsTransferTests
             SessionActivationScheduleStartHour = 7,
             SessionActivationScheduleEndHour = 19,
             Theme = "dark",
+            DarkPalette = "blue-steel",
             PrimaryAccountId = "codex:codex-2",
             RemoteViewEnabled = true,
             RemoteViewId = WriteId,
