@@ -344,6 +344,12 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         new ThemeOption(Services.ThemeService.DarkTheme, "Dark"),
     ];
 
+    public static IReadOnlyList<ThemeOption> DarkPaletteOptions { get; } =
+    [
+        new ThemeOption(Services.ThemeService.NeutralCharcoalPalette, "Neutral charcoal"),
+        new ThemeOption(Services.ThemeService.BlueSteelPalette, "Blue steel"),
+    ];
+
     public static IReadOnlyList<FloatingPanelPositionOption> FloatingPanelPositionOptions { get; } =
     [
         new(FloatingPanelPlacementCalculator.BottomRightSetting, "Bottom right"),
@@ -414,7 +420,27 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
 
             _settings.Theme = value.Value;
             SaveSettingsInBackground();
-            Services.ThemeService.Apply(value.Value);
+            Services.ThemeService.Apply(value.Value, _settings.DarkPalette);
+            _pulseOrchestrator.RepublishLastState();
+            OnPropertyChanged();
+        }
+    }
+
+    public ThemeOption SelectedDarkPalette
+    {
+        get => DarkPaletteOptions.FirstOrDefault(o =>
+                   string.Equals(o.Value, _settings.DarkPalette, StringComparison.OrdinalIgnoreCase))
+               ?? DarkPaletteOptions[0];
+        set
+        {
+            if (value is null || string.Equals(_settings.DarkPalette, value.Value, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _settings.DarkPalette = value.Value;
+            SaveSettingsInBackground();
+            Services.ThemeService.Apply(_settings.Theme, value.Value);
             _pulseOrchestrator.RepublishLastState();
             OnPropertyChanged();
         }
@@ -2016,8 +2042,9 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
 
         // These setters compare against _settings, which already holds the
         // imported values, so they are refreshed explicitly.
-        Services.ThemeService.Apply(_settings.Theme);
+        Services.ThemeService.Apply(_settings.Theme, _settings.DarkPalette);
         OnPropertyChanged(nameof(SelectedTheme));
+        OnPropertyChanged(nameof(SelectedDarkPalette));
         OnPropertyChanged(nameof(SelectedSessionActivationScheduleStart));
         OnPropertyChanged(nameof(SelectedSessionActivationScheduleEnd));
         OnPropertyChanged(nameof(SelectedHistoryRetentionOption));

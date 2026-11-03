@@ -13,7 +13,8 @@ public static class ThemeManager
 
 /// <summary>
 /// Applies the light/dark resource dictionary. "system" follows the Windows
-/// apps theme (AppsUseLightTheme) and reacts to it changing at runtime.
+/// apps theme (AppsUseLightTheme) and reacts to it changing at runtime. A dark
+/// result uses the chosen dark palette.
 /// </summary>
 public static class ThemeService
 {
@@ -21,7 +22,10 @@ public static class ThemeService
     public const string LightTheme = "light";
     public const string DarkTheme = "dark";
 
-    public static void Apply(string? theme)
+    public const string NeutralCharcoalPalette = "neutral-charcoal";
+    public const string BlueSteelPalette = "blue-steel";
+
+    public static void Apply(string? theme, string? darkPalette)
     {
         var isDark = theme?.ToLowerInvariant() switch
         {
@@ -31,7 +35,7 @@ public static class ThemeService
         };
 
         ThemeManager.IsDark = isDark;
-        var source = new Uri($"pack://application:,,,/Themes/Theme{(isDark ? "Dark" : "Light")}.xaml");
+        var source = new Uri($"pack://application:,,,/Themes/{DictionaryName(isDark, darkPalette)}.xaml");
         var dictionaries = System.Windows.Application.Current.Resources.MergedDictionaries;
         if (dictionaries.Count > 0)
         {
@@ -41,6 +45,18 @@ public static class ThemeService
         {
             dictionaries.Add(new ResourceDictionary { Source = source });
         }
+    }
+
+    internal static string DictionaryName(bool isDark, string? darkPalette)
+    {
+        if (!isDark)
+        {
+            return "ThemeLight";
+        }
+
+        return string.Equals(darkPalette, BlueSteelPalette, StringComparison.OrdinalIgnoreCase)
+            ? "ThemeDarkBlueSteel"
+            : "ThemeDarkNeutralCharcoal";
     }
 
     private static bool IsSystemDark()

@@ -360,6 +360,13 @@ public sealed class AppSettings
     public string Theme { get; set; } = "system";
 
     /// <summary>
+    /// Palette used whenever the theme resolves to dark: "neutral-charcoal"
+    /// (default) or "blue-steel" (the original dark palette). An unknown value
+    /// falls back to the default.
+    /// </summary>
+    public string DarkPalette { get; set; } = "neutral-charcoal";
+
+    /// <summary>
     /// Provider id of the primary account (e.g. "claude:claude-1", "codex:codex-2",
     /// "zai", "copilot"). When set, the tray icon shows this account's status and
     /// the account is pinned to the top of the widget overview. Null keeps the
