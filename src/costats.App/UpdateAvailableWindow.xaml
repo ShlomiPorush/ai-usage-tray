@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:costats.App"
         Title="Update available"
-        Width="380"
+        Width="520"
         SizeToContent="Height"
         WindowStyle="None"
         ResizeMode="NoResize"
@@ -16,7 +16,7 @@
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="0"
                       ResizeBorderThickness="0"
-                      CornerRadius="14"
+                      CornerRadius="16"
                       GlassFrameThickness="-1"
                       UseAeroCaptionButtons="False" />
     </WindowChrome.WindowChrome>
@@ -27,8 +27,8 @@
             <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource DividerBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="Padding" Value="16,8" />
-            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="20,9" />
+            <Setter Property="FontSize" Value="13.5" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
                 <Setter.Value>
@@ -65,11 +65,11 @@
         </Style>
     </Window.Resources>
 
-    <Border CornerRadius="14"
+    <Border CornerRadius="16"
             BorderBrush="{DynamicResource WindowBorderBrush}"
             BorderThickness="1"
             Background="{DynamicResource PanelBgBrush}">
-        <Grid Margin="20">
+        <Grid Margin="30,26,30,26">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -79,41 +79,42 @@
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
-            <DockPanel Grid.Row="0" Margin="0,0,0,16">
-                <Button Content="X" Click="OnCloseClick" DockPanel.Dock="Right"
-                        HorizontalAlignment="Right" Width="28" Height="28" Padding="0"
-                        Style="{StaticResource DialogButton}" FontWeight="SemiBold" />
-                <TextBlock Text="Update available" FontSize="18" FontWeight="SemiBold"
+            <DockPanel Grid.Row="0" Margin="0,0,0,18">
+                <Button Content="&#x2715;" Click="OnCloseClick" DockPanel.Dock="Right"
+                        HorizontalAlignment="Right" VerticalAlignment="Center" Width="34" Height="34" Padding="0" FontSize="13"
+                        ToolTip="Close" AutomationProperties.Name="Close"
+                        Style="{StaticResource DialogButton}" BorderThickness="0" Background="Transparent" />
+                <TextBlock Text="Update available" FontSize="22" FontWeight="Bold"
                            Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" />
             </DockPanel>
 
-            <Border Grid.Row="1" Height="1" Background="{DynamicResource DividerBrush}" Margin="0,0,0,16" />
+            <Border Grid.Row="1" Height="1" Background="{DynamicResource DividerBrush}" Margin="0,0,0,18" />
 
             <StackPanel Grid.Row="2">
                 <TextBlock Text="{Binding AvailableUpdateVersion, StringFormat='Version {0} is ready'}"
-                           FontSize="14" FontWeight="SemiBold"
+                           FontSize="16" FontWeight="SemiBold"
                            Foreground="{DynamicResource TextPrimaryBrush}" />
                 <TextBlock Text="Review what changed, then update now or come back later."
-                           FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
-                           TextWrapping="Wrap" Margin="0,5,0,16" />
-                <TextBlock Text="WHAT'S NEW" FontSize="9" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextMutedBrush}" Margin="0,0,0,6" />
+                           FontSize="13.5" Foreground="{DynamicResource TextMutedBrush}"
+                           TextWrapping="Wrap" Margin="0,4,0,20" />
+                <TextBlock Text="What's new" FontSize="14" FontWeight="SemiBold"
+                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="2,0,0,8" />
                 <Border BorderBrush="{DynamicResource DividerBrush}" BorderThickness="1"
-                        Background="{DynamicResource InputBgBrush}" CornerRadius="8" Padding="10">
+                        Background="{DynamicResource InputBgBrush}" CornerRadius="8" Padding="14,12">
                     <TextBox Text="{Binding AvailableUpdateNotes, Mode=OneWay}"
                              IsReadOnly="True" IsReadOnlyCaretVisible="True"
                              Background="Transparent" BorderThickness="0" Padding="0"
                              Foreground="{DynamicResource TextSecondaryBrush}"
-                             FontSize="11" TextWrapping="Wrap" MinHeight="90" MaxHeight="220"
+                             FontSize="13" TextWrapping="Wrap" MinHeight="110" MaxHeight="300"
                              VerticalScrollBarVisibility="Auto" />
                 </Border>
             </StackPanel>
 
             <TextBlock Grid.Row="3" Text="{Binding UpdateStatusText}"
-                       FontSize="11" Foreground="{DynamicResource TextFaintBrush}"
-                       TextWrapping="Wrap" Margin="0,12,0,0" />
+                       FontSize="12.5" Foreground="{DynamicResource TextFaintBrush}"
+                       TextWrapping="Wrap" Margin="0,14,0,0" />
 
-            <ProgressBar Grid.Row="4" Height="5" Minimum="0" Maximum="100"
+            <ProgressBar Grid.Row="4" Height="6" Minimum="0" Maximum="100"
                          Value="{Binding UpdateProgressPercent}"
                          IsIndeterminate="{Binding IsUpdateProgressIndeterminate}"
                          Foreground="{DynamicResource AccentBrush}"
@@ -121,14 +122,14 @@
                          BorderThickness="0" Margin="0,8,0,0"
                          Visibility="{Binding IsUpdateProgressVisible, Converter={x:Static local:BoolToVisibilityConverter.Instance}}" />
 
-            <DockPanel Grid.Row="5" Margin="0,18,0,0">
+            <DockPanel Grid.Row="5" Margin="0,24,0,0">
                 <Button Content="Later" Click="OnLaterClick" IsCancel="True"
                         Style="{StaticResource DialogButton}" DockPanel.Dock="Left" />
                 <Button Content="Update now" Command="{Binding InstallUpdateCommand}"
                         IsDefault="True"
                         IsEnabled="{Binding IsUpdateBusy, Converter={x:Static local:BoolNegationConverter.Instance}}"
                         Style="{StaticResource PrimaryDialogButton}"
-                        DockPanel.Dock="Right" HorizontalAlignment="Right" />
+                        DockPanel.Dock="Right" HorizontalAlignment="Right" MinWidth="120" />
             </DockPanel>
         </Grid>
     </Border>

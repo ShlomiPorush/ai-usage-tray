@@ -1,3 +1,5 @@
+> Superseded by settings-sidebar-layout.md (two-pane navigation rail).
+
 # Split desktop settings into focused accordion categories
 
 Written against: 87c0f2a8a2189c2b92e71781e1f1058a6bf7d8eb
