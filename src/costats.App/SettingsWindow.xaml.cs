@@ -26,6 +26,7 @@ namespace costats.App
         {
             InitializeComponent();
             DataContext = viewModel;
+            SelectCategory(SettingsCategory.General);
             MouseLeftButtonDown += OnMouseLeftButtonDown;
             viewModel.ManualUpdateAvailable += OnManualUpdateAvailable;
             viewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -90,17 +91,13 @@ namespace costats.App
                 viewModel.RefreshUsageCacheInfo();
             }
 
-            CollapseSettingsCategories();
-            var category = initialCategory is { } selectedCategory
-                ? ExpanderOf(selectedCategory)
-                : null;
-            if (category is not null)
-            {
-                category.IsExpanded = true;
-            }
+            SelectCategory(initialCategory ?? SettingsCategory.General);
 
+            // Fixed design size, clamped so the whole window fits a small or
+            // highly scaled work area; the page and the navigation list scroll.
             var workArea = SystemParameters.WorkArea;
-            MaxHeight = workArea.Height;
+            Width = Math.Min(DesignWidth, workArea.Width);
+            Height = Math.Min(DesignHeight, workArea.Height);
             if (!IsVisible)
             {
                 Show();
@@ -109,65 +106,80 @@ namespace costats.App
             UpdateLayout();
             Left = (workArea.Width - ActualWidth) / 2 + workArea.Left;
             Top = (workArea.Height - ActualHeight) / 2 + workArea.Top;
-            if (category is not null)
-            {
-                category.BringIntoView();
-            }
-
             Activate();
         }
 
-        private IEnumerable<System.Windows.Controls.Expander> SettingsCategoryExpanders()
-        {
-            yield return GeneralCategory;
-            yield return AutomationCategory;
-            yield return DisplayCategory;
-            yield return AlertsCategory;
-            yield return AccountsCategory;
-            yield return RemoteViewCategory;
-            yield return UpdatesCategory;
-            yield return LocalUsageDataCategory;
-        }
+        private const double DesignWidth = 920;
+        private const double DesignHeight = 660;
 
-        private System.Windows.Controls.Expander ExpanderOf(SettingsCategory category) => category switch
+        private static (string Title, string Description) PageTextOf(SettingsCategory category) => category switch
         {
-            SettingsCategory.General => GeneralCategory,
-            SettingsCategory.Automation => AutomationCategory,
-            SettingsCategory.Display => DisplayCategory,
-            SettingsCategory.Alerts => AlertsCategory,
-            SettingsCategory.Accounts => AccountsCategory,
-            SettingsCategory.RemoteView => RemoteViewCategory,
-            SettingsCategory.Updates => UpdatesCategory,
-            SettingsCategory.LocalUsageData => LocalUsageDataCategory,
+            SettingsCategory.General => ("General", "Startup, refresh, shortcut and moving to another computer."),
+            SettingsCategory.Automation => ("Automation", "Start new 5-hour windows for you. Everything here is off by default."),
+            SettingsCategory.Display => ("Display", "What the tray, panels and main window show, and how they look."),
+            SettingsCategory.Alerts => ("Alerts", "Notifications when an account gets close to its limit."),
+            SettingsCategory.Accounts => ("Accounts", "The accounts you monitor, and which one drives the tray icon."),
+            SettingsCategory.RemoteView => ("Remote view", "A read-only page with your usage, for your phone."),
+            SettingsCategory.Updates => ("Updates", "New versions of AI Usage Tray."),
+            SettingsCategory.LocalUsageData => ("Local usage data", "The cache and history behind the usage reports."),
             _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
         };
 
-        private void CollapseSettingsCategories()
+        private FrameworkElement PageOf(SettingsCategory category) => category switch
         {
-            foreach (var category in SettingsCategoryExpanders())
+            SettingsCategory.General => GeneralPage,
+            SettingsCategory.Automation => AutomationPage,
+            SettingsCategory.Display => DisplayPage,
+            SettingsCategory.Alerts => AlertsPage,
+            SettingsCategory.Accounts => AccountsPage,
+            SettingsCategory.RemoteView => RemoteViewPage,
+            SettingsCategory.Updates => UpdatesPage,
+            SettingsCategory.LocalUsageData => LocalUsageDataPage,
+            _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+        };
+
+        private System.Windows.Controls.RadioButton NavItemOf(SettingsCategory category) => category switch
+        {
+            SettingsCategory.General => GeneralNavItem,
+            SettingsCategory.Automation => AutomationNavItem,
+            SettingsCategory.Display => DisplayNavItem,
+            SettingsCategory.Alerts => AlertsNavItem,
+            SettingsCategory.Accounts => AccountsNavItem,
+            SettingsCategory.RemoteView => RemoteViewNavItem,
+            SettingsCategory.Updates => UpdatesNavItem,
+            SettingsCategory.LocalUsageData => LocalUsageDataNavItem,
+            _ => throw new ArgumentOutOfRangeException(nameof(category), category, null)
+        };
+
+        /// <summary>
+        /// Shows one category page. View state only: nothing about the selected
+        /// page is saved.
+        /// </summary>
+        private void SelectCategory(SettingsCategory category)
+        {
+            foreach (var each in Enum.GetValues<SettingsCategory>())
             {
-                category.IsExpanded = false;
+                PageOf(each).Visibility = each == category ? Visibility.Visible : Visibility.Collapsed;
             }
 
+            var navItem = NavItemOf(category);
+            if (navItem.IsChecked != true)
+            {
+                navItem.IsChecked = true;
+            }
+
+            var (title, description) = PageTextOf(category);
+            PageTitle.Text = title;
+            PageDescription.Text = description;
             SettingsScrollViewer.ScrollToTop();
         }
 
-        private void OnSettingsCategoryExpanded(object sender, RoutedEventArgs e)
+        private void OnNavItemChecked(object sender, RoutedEventArgs e)
         {
-            if (sender is not System.Windows.Controls.Expander expanded)
+            if (sender is System.Windows.Controls.RadioButton { Tag: SettingsCategory category })
             {
-                return;
+                SelectCategory(category);
             }
-
-            foreach (var category in SettingsCategoryExpanders())
-            {
-                if (!ReferenceEquals(category, expanded))
-                {
-                    category.IsExpanded = false;
-                }
-            }
-
-            Dispatcher.BeginInvoke(() => expanded.BringIntoView());
         }
 
         /// <summary>
