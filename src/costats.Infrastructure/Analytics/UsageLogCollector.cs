@@ -254,7 +254,10 @@ public sealed class UsageLogCollector
                     result.Root.Provider,
                     result.Root.AccountId,
                     entry.Model,
-                    entry.Tokens));
+                    entry.Tokens)
+                {
+                    DedupKey = entry.DedupKey
+                });
             }
         }
 

@@ -51,9 +51,32 @@ public readonly record struct UsageHistoryBucket(UsageTokens Tokens, long Reques
 /// shrinks and the stored copy takes over.</item>
 /// <item>Usage is never counted twice, because the two sources are never summed.</item>
 /// </list>
+/// <para>
+/// A bucket cannot tell which requests it holds, so these rules alone count a
+/// request twice when its log file comes to be attributed to another account
+/// key (a folder edited to a copy, a session moved between accounts). Claude
+/// requests that carry an identity are therefore also kept by identity, in
+/// the Claude request store of the infrastructure layer, once a one-time
+/// conversion has run:
+/// </para>
+/// <list type="bullet">
+/// <item>A request in the logs at the conversion is a mark. It keeps counting
+/// in the bucket it was saved in, with the account, model and tokens it was
+/// saved with, wherever its log file goes. In these rules it takes part as
+/// the mark, never as the copy.</item>
+/// <item>A request logged at or after the conversion is a record: counted once,
+/// at its exact time, whatever happens to its log files, the first recorded
+/// copy winning. Records are added to the buckets, never compared with them,
+/// because a bucket after the conversion holds only other usage.</item>
+/// </list>
+/// Everything else (Claude requests without an identity, requests logged
+/// before the conversion that turn up only later, Codex and Antigravity)
+/// follows the rules above exactly as before.
+/// <para>
 /// Fifteen minutes is the finest step every real time zone offset is a multiple
 /// of, so local days and local hours rebuilt from buckets match the desktop's
 /// own day and hour boundaries in every zone.
+/// </para>
 /// </remarks>
 public static class UsageHistory
 {

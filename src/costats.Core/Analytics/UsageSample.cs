@@ -121,6 +121,14 @@ public sealed record UsageSample(
     /// bucket's request count, so request totals survive the logs being deleted.
     /// </summary>
     public long Requests { get; init; } = 1;
+
+    /// <summary>
+    /// The request identity the log entry carried (a stable hash of the
+    /// provider's own ids), or 0 when it had none. The usage history uses it
+    /// to recognise a Claude request it already saved, wherever its log file
+    /// is now. Never shown, priced or uploaded.
+    /// </summary>
+    public long DedupKey { get; init; }
 }
 
 /// <summary>Well-known account identifiers used by the usage engine.</summary>
