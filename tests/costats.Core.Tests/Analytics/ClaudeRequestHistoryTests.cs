@@ -1976,6 +1976,48 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
         var unlisted = new UsageHistoryStore(HistoryDir) { StopAt = DenyListing };
         Assert.True(Service(() => accounts, store: unlisted).GetHistoryInfo().SavingPaused);
     }
+    [Fact]
+    public async Task A_second_delete_while_the_first_cannot_be_checked_leaves_the_first_in_place()
+    {
+        // The review's route: a delete recorded at 12:30 stops before the
+        // state update; the clock goes back to 12:00; the journal cannot be
+        // checked; the user deletes again. That second delete must change
+        // nothing, so once the journal can be checked the 12:30 delete is
+        // finished and the 12:15 sample still in the logs never shows.
+        var now = DateTimeOffset.UtcNow;
+        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
+        WriteLog("c1", "s.jsonl", Line("1", now.AddMinutes(15)));
+        var service = Service(() => accounts);
+        await service.SyncHistoryAsync();
+        Assert.Equal(1, await Requests(service));
+        File.SetAttributes(StatePath, FileAttributes.ReadOnly);
+        try
+        {
+            Assert.False(new UsageHistoryStore(HistoryDir).DeleteAll(now.AddMinutes(30)));
+        }
+        finally
+        {
+            File.SetAttributes(StatePath, FileAttributes.Normal);
+        }
+
+        var journal = File.ReadAllBytes(JournalPath);
+        var journalBackup = File.ReadAllBytes(JournalPath + ".bak");
+        var blind = new UsageHistoryStore(HistoryDir)
+        {
+            JournalProbe = path => path.Contains("deletion-journal", StringComparison.Ordinal) ? null : File.Exists(path)
+        };
+
+        Assert.False(blind.DeleteAll(now));
+        Assert.Equal(journal, File.ReadAllBytes(JournalPath));
+        Assert.Equal(journalBackup, File.ReadAllBytes(JournalPath + ".bak"));
+
+        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
+        Assert.False(File.Exists(JournalPath));
+        Assert.Equal(
+            DateTimeOffset.FromUnixTimeSeconds(now.AddMinutes(30).ToUnixTimeSeconds() + 1),
+            new UsageHistoryStore(HistoryDir).Read().DeletedBefore);
+        Assert.Empty((await service.GetRemoteUsageSourceAsync()).Samples);
+    }
 }
 
 /// <summary>

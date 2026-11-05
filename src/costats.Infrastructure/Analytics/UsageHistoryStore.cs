@@ -795,6 +795,15 @@ public sealed class UsageHistoryStore
             // connection is closed before any store file is removed.
         }
 
+        if (pending is { Undetermined: true })
+        {
+            // A delete may already be pending with a later point than this
+            // one would get (a clock set back): replacing its journal could
+            // bring its usage back. Everything is left as it is.
+            _logger.LogWarning("Usage history: whether a delete is pending cannot be checked; the history was not deleted");
+            return false;
+        }
+
         // One second past now so a request logged in this very second is
         // gone too. The deletion point only ever moves forward.
         var point = Math.Max(
