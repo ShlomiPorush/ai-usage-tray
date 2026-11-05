@@ -129,8 +129,23 @@ public sealed record UsageHistoryOptions(
     /// <summary>Whether Antigravity is turned on, read on every use. Off when not set.</summary>
     public Func<bool> AntigravityEnabled { get; init; } = static () => false;
 
-    /// <summary>The scope one scan and its history mapping share.</summary>
-    public UsageScanScope Scope() => new(Accounts(), AntigravityEnabled());
+    /// <summary>
+    /// The scope one scan and its history mapping share. The accounts are
+    /// copied, so an edit in Settings while the scan runs cannot change the
+    /// folder or name the scan's usage is filed under.
+    /// </summary>
+    public UsageScanScope Scope() => new(
+        [.. (Accounts() ?? []).Select(account => account is null
+            ? null!
+            : new MonitoredAccountSettings
+            {
+                Id = account.Id,
+                Type = account.Type,
+                DisplayName = account.DisplayName,
+                ConfigDir = account.ConfigDir,
+                KeepSessionActive = account.KeepSessionActive
+            })],
+        AntigravityEnabled());
 }
 
 /// <summary>
@@ -395,20 +410,23 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             // Settings mid-scan must not file old usage under the new key.
             var scope = history.Scope();
             var accounts = scope.Accounts;
+
+            // The deletion point this sync scans against, read before the
+            // scan: a delete that lands while the logs are read makes the
+            // write below save nothing, so deleted usage never comes back.
+            var start = history.Store.BeginSync();
+            if (start is null)
+            {
+                return;
+            }
+
+            var scanStart = DateTimeOffset.UtcNow;
             var live = await _collector.CollectAsync(scope, cancellationToken).ConfigureAwait(false);
             var now = DateTimeOffset.UtcNow;
             var map = HistoryAccountMap.Build(scope);
             var stored = history.Store.Read();
             var retentionDays = history.RetentionDays();
-            var notBefore = NotBefore(stored.DeletedBefore, retentionDays, now);
-
-            var scanned = UsageHistory.Bucketize(live.Samples, map.KeyOf, notBefore);
-            var names = scanned.Keys
-                .Select(key => key.AccountKey)
-                .Distinct(StringComparer.Ordinal)
-                .Select(map.AccountFor)
-                .OfType<UsageHistoryAccount>()
-                .ToList();
+            var notBefore = NotBefore(start.DeletedBefore, retentionDays, now);
 
             // The one-time recovery of older Claude usage from the parse cache
             // runs only when every Claude root and file was read, with every
@@ -422,19 +440,16 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             // logs stay on disk meanwhile, and any that Claude Code deletes in
             // between are still in the cache. After MaxRecoveryAttempts
             // postponed syncs (two days) it is given up and saving starts.
+            var claudeComplete = live.IsCompleteFor(UsageProviderKind.Claude) && AllClaudeLogsReachable(accounts);
             var recoveryDone = false;
+            IReadOnlyList<UsageSample> recoveredSamples = [];
             if (history.Store.NeedsCacheRecovery())
             {
-                var recovered = new Dictionary<UsageHistoryKey, UsageHistoryBucket>(scanned);
-                var recoveredNames = new List<UsageHistoryAccount>(names);
-                var ready = live.IsCompleteFor(UsageProviderKind.Claude) &&
-                    AllClaudeLogsReachable(accounts) &&
-                    AddRecoveredClaudeUsage(live, history.Store, recovered, recoveredNames, notBefore, now);
+                var ready = claudeComplete &&
+                    RecoverClaudeUsage(live, history.Store, now, out recoveredSamples);
 
                 if (ready)
                 {
-                    scanned = recovered;
-                    names = recoveredNames;
                     recoveryDone = true;
                 }
                 else if (history.Store.RecordPostponedCacheRecovery() is var attempts &&
@@ -451,13 +466,20 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
                 {
                     _logger.LogWarning("Usage history: recovery of earlier usage given up; saving current usage only");
                     recoveryDone = true;
+                    recoveredSamples = [];
                 }
             }
 
-            var changed = history.Store.Merge(scanned, names, cacheRecovered: recoveryDone) ?? 0;
+            var outcome = history.Store.Save(
+                start,
+                view => PlanHistoryWrite(view, live, recoveredSamples, map, notBefore, scanStart, recoveryDone, claudeComplete));
+            if (outcome is null || outcome.Skipped)
+            {
+                return;
+            }
 
             var pruned = 0;
-            if (retentionDays > 0 && ClockLooksRight(now, stored, live))
+            if (retentionDays > 0 && ClockLooksRight(now, stored, live, outcome.NewestRecordMs))
             {
                 pruned = history.Store.Prune(now.AddDays(-retentionDays)) ?? 0;
             }
@@ -465,19 +487,174 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             // The scan just taken is as fresh as a report scan, so reports reuse it.
             _scan = CombineWithHistory(live, scope);
             _scannedAt = DateTimeOffset.UtcNow;
-            if (changed > 0 || pruned > 0)
+            if (outcome.Changed > 0 || outcome.RecordsAdded > 0 || outcome.Converted || pruned > 0)
             {
                 Interlocked.Increment(ref _generation);
             }
 
             _logger.LogInformation(
-                "Usage history sync: {Changed} buckets saved, {Pruned} expired buckets removed",
-                changed,
+                "Usage history sync: {Changed} buckets saved, {Records} Claude requests saved, {Pruned} expired buckets and requests removed",
+                outcome.Changed,
+                outcome.RecordsAdded,
                 pruned);
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Decides what one sync writes, given what the Claude request store holds.
+    /// </summary>
+    /// <remarks>
+    /// Every sample other than a Claude request with an identity follows the
+    /// month-file rules exactly as before (bucketize, larger bucket wins). A
+    /// Claude request with an identity is attributed in this order:
+    /// <list type="number">
+    /// <item>A mark (counted in a bucket at the conversion): it takes part in
+    /// the larger-wins comparison as the mark, at the mark's bucket, account
+    /// and model and with the mark's tokens, never the copy's, so a moved or
+    /// changed copy can neither move nor inflate it.</item>
+    /// <item>A record: ignored, the record is its only representation.</item>
+    /// <item>Unknown and logged before the conversion: the month-file rules.</item>
+    /// <item>Unknown and logged at or after it: saved as a record, once; the
+    /// first recorded copy wins.</item>
+    /// </list>
+    /// Until the conversion has committed, every sample follows the month-file
+    /// rules; the conversion itself saves them that way and then marks every
+    /// Claude request it just saved.
+    /// </remarks>
+    private static HistoryWritePlan PlanHistoryWrite(
+        ClaudeRequestView view,
+        UsageScanResult live,
+        IReadOnlyList<UsageSample> recovered,
+        HistoryAccountMap map,
+        DateTimeOffset? notBefore,
+        DateTimeOffset scanStart,
+        bool recoveryDone,
+        bool claudeComplete)
+    {
+        var legacy = new List<UsageSample>(live.Samples.Count);
+        var marked = new List<UsageSample>();
+        var unknownLegacy = new List<UsageSample>();
+        var records = new List<ClaudeRequestRow>();
+
+        void Route(UsageSample sample, Func<string, string?> keyOf, List<UsageSample> legacyTarget)
+        {
+            switch (view.RouteOf(sample, out var row))
+            {
+                case ClaudeSampleRoute.Legacy:
+                    legacyTarget.Add(sample);
+                    break;
+                case ClaudeSampleRoute.Mark:
+                    marked.Add(row!.ToSample(row.Account));
+                    break;
+                case ClaudeSampleRoute.New:
+                    if ((notBefore is not { } floor || sample.Timestamp >= floor) && keyOf(sample.AccountId) is { } key)
+                    {
+                        records.Add(ClaudeRequestRow.From(sample, key, isMark: false));
+                    }
+
+                    break;
+                default:
+                    // Recorded: the record stands for it. Held or unclassified:
+                    // the store cannot be used, and saving it as a bucket could
+                    // count it twice once the store is back.
+                    break;
+            }
+        }
+
+        foreach (var sample in live.Samples)
+        {
+            Route(sample, map.KeyOf, legacy);
+        }
+
+        foreach (var sample in recovered)
+        {
+            Route(sample, static id => id, unknownLegacy);
+        }
+
+        var buckets = UsageHistory.Bucketize(legacy, map.KeyOf, notBefore);
+        AddBuckets(buckets, UsageHistory.Bucketize(marked, static id => id, notBefore));
+        AddBuckets(buckets, UsageHistory.Bucketize(unknownLegacy, static id => id, notBefore));
+
+        UsageHistoryAccount? NameOf(string key) =>
+            key == UsageHistory.UnknownClaudeAccountKey
+                ? new UsageHistoryAccount(key, UsageProviderKind.Claude, UsageHistory.UnknownClaudeAccountName)
+                : map.AccountFor(key);
+
+        var names = buckets.Keys
+            .Select(key => key.AccountKey)
+            .Distinct(StringComparer.Ordinal)
+            .Select(NameOf)
+            .OfType<UsageHistoryAccount>()
+            .ToList();
+
+        ClaudeConversion? conversion = null;
+        if (view.Status == ClaudeStoreStatus.Absent && claudeComplete)
+        {
+            // Every Claude request with an identity this sync saves becomes a
+            // mark, with the bucket, account, model and tokens it is saved under.
+            var marks = new List<ClaudeRequestRow>();
+            foreach (var sample in live.Samples)
+            {
+                if (sample is { Provider: UsageProviderKind.Claude, DedupKey: not 0 } &&
+                    (notBefore is not { } floor || sample.Timestamp >= floor) &&
+                    map.KeyOf(sample.AccountId) is { } key)
+                {
+                    marks.Add(ClaudeRequestRow.From(sample, key, isMark: true));
+                }
+            }
+
+            foreach (var sample in unknownLegacy)
+            {
+                if (sample.DedupKey != 0 && (notBefore is not { } floor || sample.Timestamp >= floor))
+                {
+                    marks.Add(ClaudeRequestRow.From(sample, sample.AccountId, isMark: true));
+                }
+            }
+
+            // Rounded down to the whole second, the parse cache's resolution,
+            // so every request the cache can present after the conversion is
+            // on the record side. A request this scan read is a mark either way.
+            conversion = new ClaudeConversion(scanStart.ToUnixTimeSeconds() * 1000, marks);
+        }
+
+        // Names of every account the store holds rows for, kept current.
+        var storeKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in view.Requests.Values)
+        {
+            storeKeys.Add(row.Account);
+        }
+
+        foreach (var row in records)
+        {
+            storeKeys.Add(row.Account);
+        }
+
+        foreach (var row in conversion?.Marks ?? [])
+        {
+            storeKeys.Add(row.Account);
+        }
+
+        var storeNames = storeKeys
+            .Select(NameOf)
+            .OfType<UsageHistoryAccount>()
+            .ToList();
+
+        return new HistoryWritePlan(buckets, names, recoveryDone, records, storeNames, conversion);
+    }
+
+    private static void AddBuckets(
+        Dictionary<UsageHistoryKey, UsageHistoryBucket> target,
+        Dictionary<UsageHistoryKey, UsageHistoryBucket> source)
+    {
+        foreach (var (key, bucket) in source)
+        {
+            target[key] = target.TryGetValue(key, out var existing)
+                ? existing.Add(bucket.Tokens, bucket.Requests)
+                : bucket;
         }
     }
 
@@ -514,21 +691,21 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             });
 
     /// <summary>
-    /// Adds Claude usage recovered from the parse cache, under the "account
-    /// unknown" history account. Requests a live log still holds are skipped
-    /// by their request identity. Requests in a month that already has saved
-    /// usage are skipped too: until the recovery is done, a month is only
-    /// ever saved together with its recovered usage, so a saved month already
-    /// holds everything it can, and taking more would count it twice.
+    /// Claude usage recovered from the parse cache, as samples under the
+    /// "account unknown" history key, with their request identities. Requests
+    /// a live log still holds are skipped by their request identity. Requests
+    /// in a month that already has saved usage are skipped too: until the
+    /// recovery is done, a month is only ever saved together with its
+    /// recovered usage, so a saved month already holds everything it can, and
+    /// taking more would count it twice. Identities the Claude request store
+    /// already knows are skipped when the sync writes.
     /// </summary>
     /// <returns>True when every cache entry could be read.</returns>
-    private bool AddRecoveredClaudeUsage(
+    private bool RecoverClaudeUsage(
         UsageScanResult live,
         UsageHistoryStore store,
-        Dictionary<UsageHistoryKey, UsageHistoryBucket> scanned,
-        List<UsageHistoryAccount> names,
-        DateTimeOffset? notBefore,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        out IReadOnlyList<UsageSample> samples)
     {
         // Months with a file on disk, readable or not: a saved month that is
         // only locked right now must still count as saved.
@@ -541,23 +718,17 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
                 UsageProviderKind.Claude,
                 UsageHistory.UnknownClaudeAccountKey,
                 entry.Model,
-                entry.Tokens))
+                entry.Tokens)
+            {
+                DedupKey = entry.DedupKey
+            })
             .ToList();
-        if (recovered.Count == 0)
+        samples = recovered;
+        if (recovered.Count > 0)
         {
-            return complete;
+            _logger.LogInformation("Usage history recovered {Count} earlier Claude requests from the parse cache", recovered.Count);
         }
 
-        foreach (var (key, bucket) in UsageHistory.Bucketize(recovered, id => id, notBefore))
-        {
-            scanned[key] = bucket;
-        }
-
-        names.Add(new UsageHistoryAccount(
-            UsageHistory.UnknownClaudeAccountKey,
-            UsageProviderKind.Claude,
-            UsageHistory.UnknownClaudeAccountName));
-        _logger.LogInformation("Usage history recovered {Count} earlier Claude requests from the parse cache", recovered.Count);
         return complete;
     }
 
@@ -615,7 +786,7 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
     /// with the newest usage on record: not behind it, and not wildly ahead.
     /// A clock that looks wrong keeps everything until it is right again.
     /// </summary>
-    private static bool ClockLooksRight(DateTimeOffset now, UsageHistorySnapshot stored, UsageScanResult live)
+    private static bool ClockLooksRight(DateTimeOffset now, UsageHistorySnapshot stored, UsageScanResult live, long? newestRecordMs)
     {
         long? newest = live.Samples.Count > 0 ? live.Samples[^1].Timestamp.ToUnixTimeSeconds() : null;
         foreach (var key in stored.Buckets.Keys)
@@ -624,6 +795,13 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             {
                 newest = key.BucketStart;
             }
+        }
+
+        // Claude requests kept by identity count too: with the logs gone they
+        // may be the newest usage on record.
+        if (newestRecordMs is { } recordMs && (newest is null || recordMs / 1000 > newest))
+        {
+            newest = recordMs / 1000;
         }
 
         if (newest is not { } latest)
@@ -645,24 +823,95 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         }
 
         UsageHistorySnapshot stored;
+        ClaudeRequestView claude;
         try
         {
-            stored = history.Store.Read();
+            var read = history.Store.ReadForReport();
+            stored = read.Snapshot;
+            claude = read.Claude;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             _logger.LogWarning("Usage history could not be read; reporting from the logs alone: {Error}", exception.GetType().Name);
-            return live;
+            return LogsAfterPendingDelete(live, history.Store);
         }
 
         var map = HistoryAccountMap.Build(scope ?? history.Scope());
         var notBefore = NotBefore(stored.DeletedBefore, history.RetentionDays(), DateTimeOffset.UtcNow);
-        var samples = UsageHistory.Combine(live.Samples, map.KeyOf, stored.Buckets, map.IdOf, notBefore);
+
+        // A sample rebuilt from a mark carries its stored account key, which
+        // may belong to a removed account; it must still meet its own bucket.
+        string? KeyOf(string accountId) =>
+            map.KeyOf(accountId) ??
+            (accountId.StartsWith(UsageHistory.ArchivedAccountIdPrefix, StringComparison.Ordinal)
+                ? accountId[UsageHistory.ArchivedAccountIdPrefix.Length..]
+                : null);
+
+        // The same attribution as a sync: marks stand in for their copies at
+        // their own place and values, records replace their copies, and an
+        // unknown request from after the conversion is shown from its log
+        // until a sync records it. Every other sample follows today's rules.
+        var legacy = new List<UsageSample>(live.Samples.Count);
+        var added = new List<UsageSample>();
+        foreach (var sample in live.Samples)
+        {
+            switch (claude.RouteOf(sample, out var row))
+            {
+                case ClaudeSampleRoute.Mark:
+                    legacy.Add(row!.ToSample(map.IdOf(row.Account)));
+                    break;
+                case ClaudeSampleRoute.Recorded:
+                    break;
+                case ClaudeSampleRoute.New:
+                case ClaudeSampleRoute.Held:
+                    added.Add(sample);
+                    break;
+                default:
+                    legacy.Add(sample);
+                    break;
+            }
+        }
+
+        var samples = UsageHistory.Combine(legacy, KeyOf, stored.Buckets, map.IdOf, notBefore);
+        var storeAccountKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var sample in legacy)
+        {
+            if (sample.AccountId.StartsWith(UsageHistory.ArchivedAccountIdPrefix, StringComparison.Ordinal) &&
+                (notBefore is not { } floor || sample.Timestamp >= floor))
+            {
+                storeAccountKeys.Add(sample.AccountId[UsageHistory.ArchivedAccountIdPrefix.Length..]);
+            }
+        }
+
+        // Records and new requests are added, never compared: a month bucket
+        // after the conversion holds only other usage (requests without an
+        // identity, or what an older version saved).
+        foreach (var sample in added)
+        {
+            if (notBefore is not { } floor || sample.Timestamp >= floor)
+            {
+                samples.Add(sample);
+            }
+        }
+
+        foreach (var row in claude.Requests.Values)
+        {
+            if (!row.IsMark && (notBefore is not { } floor || row.Timestamp >= floor))
+            {
+                samples.Add(row.ToSample(map.IdOf(row.Account)));
+                storeAccountKeys.Add(row.Account);
+            }
+        }
+
+        if (added.Count > 0 || storeAccountKeys.Count > 0 || claude.Requests.Count > 0)
+        {
+            samples.Sort(static (left, right) => left.Timestamp.CompareTo(right.Timestamp));
+        }
 
         var accounts = live.Accounts.ToList();
         var archivedNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var listed = new HashSet<string>(accounts.Select(account => account.AccountId), StringComparer.OrdinalIgnoreCase);
-        foreach (var accountKey in stored.Buckets.Keys.Select(key => key.AccountKey).Distinct(StringComparer.Ordinal))
+        foreach (var accountKey in stored.Buckets.Keys.Select(key => key.AccountKey).Concat(storeAccountKeys).Distinct(StringComparer.Ordinal))
         {
             var info = map.InfoFor(accountKey, stored.Accounts);
             if (info is not null && listed.Add(info.AccountId))
@@ -685,6 +934,29 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         });
 
         return live with { Samples = samples, Accounts = accounts, ArchivedAccountNames = archivedNames };
+    }
+
+    /// <summary>
+    /// The logs alone, without what a delete that is not finished yet removes:
+    /// nothing before its point is shown.
+    /// </summary>
+    private static UsageScanResult LogsAfterPendingDelete(UsageScanResult live, UsageHistoryStore store)
+    {
+        DateTimeOffset? point;
+        try
+        {
+            point = store.PendingDeletionPoint();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // The journal cannot be read either: show nothing rather than
+            // usage that may have been deleted.
+            return live with { Samples = [] };
+        }
+
+        return point is { } floor
+            ? live with { Samples = [.. live.Samples.Where(sample => sample.Timestamp >= floor)] }
+            : live;
     }
 
     public async Task<UsageCacheInfo> ClearCacheAsync(CancellationToken cancellationToken = default)

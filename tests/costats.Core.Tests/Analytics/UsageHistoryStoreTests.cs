@@ -140,6 +140,8 @@ public sealed class UsageHistoryStoreTests : IDisposable
     {
         var store = new UsageHistoryStore(HistoryDir);
         Assert.True(store.NeedsCacheRecovery());
+        // Usage up to 12:05 is deleted; usage at 12:07 is saved after it.
+        store.DeleteAll(DateTimeOffset.FromUnixTimeSeconds(At("2026-08-21T12:05:00Z")));
         store.Merge(new Dictionary<UsageHistoryKey, UsageHistoryBucket> { [Key("2026-08-21T12:07:00Z")] = Bucket(1) }, [Work], cacheRecovered: true);
         Assert.False(store.NeedsCacheRecovery());
 
@@ -147,9 +149,9 @@ public sealed class UsageHistoryStoreTests : IDisposable
         File.Delete(Path.Combine(HistoryDir, "state.json.bak"));
 
         var read = store.Read();
-        // Everything before the oldest surviving bucket is treated as deleted,
-        // and the cache recovery is never run again.
-        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(At("2026-08-21T12:00:00Z")), read.DeletedBefore);
+        // The repair takes the deletion point from the month file's stamp, so
+        // the deleted usage stays hidden, and the cache recovery is never run again.
+        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(At("2026-08-21T12:05:01Z")), read.DeletedBefore);
         Assert.False(store.NeedsCacheRecovery());
     }
 

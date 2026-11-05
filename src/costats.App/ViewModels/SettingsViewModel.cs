@@ -1346,7 +1346,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     public void RefreshUsageCacheInfo()
     {
         UsageCacheSummary = FormatCacheInfo(_analytics.GetCacheInfo());
-        UsageHistorySummary = FormatHistoryInfo(_analytics.GetHistoryInfo());
+        UsageHistorySummary = UsageHistorySummaryText.Describe(_analytics.GetHistoryInfo());
     }
 
     public static IReadOnlyList<RetentionOption> HistoryRetentionOptions { get; } =
@@ -1409,9 +1409,10 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         try
         {
             var deleted = await Task.Run(() => _analytics.DeleteHistoryAsync(CancellationToken.None)).ConfigureAwait(true);
-            UsageHistorySummary = deleted
-                ? "Usage history deleted. Usage from now on will be saved again."
-                : "Usage history could not be fully deleted right now. Try again in a moment.";
+
+            // A delete that could not finish stays recorded and pauses saving;
+            // the summary says so at once rather than after Settings reopens.
+            UsageHistorySummary = UsageHistorySummaryText.AfterDelete(deleted, _analytics.GetHistoryInfo());
         }
         catch (Exception ex)
         {
@@ -1427,23 +1428,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         }
     }
 
-    private static string FormatHistoryInfo(UsageHistoryInfo info)
-    {
-        if (info.FirstBucket is not { } first)
-        {
-            return "No usage history saved yet. It is saved in the background a minute after the app starts, then every 6 hours.";
-        }
-
-        var since = first.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture);
-        return $"Saved usage from {since}, {FormatBytes(info.Bytes)}.";
-    }
-
-    private static string FormatBytes(long bytes) => bytes switch
-    {
-        >= 1024L * 1024L => $"{bytes / (1024d * 1024d):0.##} MB",
-        >= 1024L => $"{bytes / 1024d:0.##} KB",
-        _ => $"{bytes} bytes"
-    };
+    private static string FormatBytes(long bytes) => UsageHistorySummaryText.FormatBytes(bytes);
 
     [RelayCommand]
     private async Task ClearUsageCacheAsync()
