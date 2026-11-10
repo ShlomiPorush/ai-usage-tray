@@ -412,8 +412,10 @@ Each browser subscription follows one of two sets of rules:
 
 `preferences` is `{ "accounts": { "<account id>": { "enabled": true, "thresholdPercent": 90 } },
 "resetAlerts": true }`, with at most 32 accounts and thresholds from 1 to 100. `revision` is a
-positive integer the viewer increases with every save, so a late retry cannot overwrite a newer
-choice. The two wrapped bodies return `200 { "mode": "device" | "desktop", "preferences", "revision" }`.
+positive integer the viewer increases with every save (its clock in milliseconds), so a late retry
+cannot overwrite a newer choice. A revision more than a day ahead of the relay's clock is refused with
+`422 { "error": "clock_skew" }`, so a device with a wrong clock cannot store one that outranks every
+later save. The two wrapped bodies return `200 { "mode": "device" | "desktop", "preferences", "revision" }`.
 Anything else returns `422` with `invalid_subscription` or `invalid_preferences`. A subscription
 that moves to another shared view loses the rules it had for the previous one.
 

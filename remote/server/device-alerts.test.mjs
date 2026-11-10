@@ -323,36 +323,31 @@ test("an account id that grows when lowercased is refused, not stored and then d
   assert.deepEqual(await response.json(), { error: "invalid_preferences" });
 });
 
-test("revisions are capped, and a stored one far beyond the relay's clock cannot lock out saves", async () => {
+test("a revision far ahead of the relay's clock is refused, so it can never outrank later saves", async () => {
   await upload(snapshot(10, 10));
   const subscription = await browserSubscription("https://fcm.googleapis.com/fcm/send/revision");
   const rule = (thresholdPercent) => preferences({ "claude:work": { enabled: true, thresholdPercent } });
-
-  const oversized = await register({ subscription, preferences: rule(50), revision: 2 ** 50 + 1 });
-  assert.equal(oversized.status, 422);
-
-  // The largest accepted revision, from a hand-made request.
-  assert.equal((await register({ subscription, preferences: rule(50), revision: 2 ** 50 })).status, 200);
-  // A normal save with a clock-based revision still lands.
   const now = Date.parse("2026-08-27T12:00:00Z");
-  const saved = await register({ subscription, preferences: rule(75), revision: now });
-  assert.deepEqual(await saved.json(), { mode: "device", preferences: rule(75), revision: now });
+  const DAY = 24 * 60 * 60 * 1000;
 
-  // A revision from yesterday's clock is still ordered normally.
-  const older = await register({ subscription, preferences: rule(95), revision: now - 1 });
-  assert.equal((await older.json()).preferences.accounts["claude:work"].thresholdPercent, 75);
-});
+  const ahead = await register({ subscription, preferences: rule(60), revision: now + DAY + 1 });
+  assert.equal(ahead.status, 422);
+  assert.deepEqual(await ahead.json(), { error: "clock_skew" });
+  assert.equal(storedPreferences(subscription.endpoint), undefined);
 
-test("two saves from a clock that runs ahead keep their order", async () => {
-  await upload(snapshot(10, 10));
-  const subscription = await browserSubscription("https://fcm.googleapis.com/fcm/send/ahead");
-  const rule = (thresholdPercent) => preferences({ "claude:work": { enabled: true, thresholdPercent } });
-  const ahead = Date.parse("2026-08-29T12:00:00Z");
-  await register({ subscription, preferences: rule(60), revision: ahead + 2 });
-  // A late retry of an earlier choice, from the same fast clock.
-  const late = await register({ subscription, preferences: rule(95), revision: ahead + 1 });
-  assert.equal((await late.json()).preferences.accounts["claude:work"].thresholdPercent, 60);
-  // Once the clock is right again, a save lands.
-  const fixed = await register({ subscription, preferences: rule(70), revision: Date.parse("2026-08-27T12:00:00Z") });
-  assert.equal((await fixed.json()).preferences.accounts["claude:work"].thresholdPercent, 70);
+  // Up to a day ahead is accepted and ordered normally.
+  const slightlyAhead = await register({ subscription, preferences: rule(60), revision: now + 20 * 60 * 60 * 1000 });
+  assert.equal(slightlyAhead.status, 200);
+  // A save from a corrected clock is ignored, and the answer carries the
+  // stored revision, which the viewer builds its next save on.
+  const corrected = await register({ subscription, preferences: rule(70), revision: now });
+  const body = await corrected.json();
+  assert.equal(body.preferences.accounts["claude:work"].thresholdPercent, 60);
+  assert.equal(body.revision, now + 20 * 60 * 60 * 1000);
+  const next = await register({ subscription, preferences: rule(70), revision: body.revision + 1 });
+  assert.equal((await next.json()).preferences.accounts["claude:work"].thresholdPercent, 70);
+
+  // A late retry of the earlier choice stays out.
+  const late = await register({ subscription, preferences: rule(95), revision: now + 10 * 60 * 60 * 1000 });
+  assert.equal((await late.json()).preferences.accounts["claude:work"].thresholdPercent, 70);
 });

@@ -1118,7 +1118,6 @@ test("viewer follows the relay's revision only when it is a plausible clock", ()
   assert.equal(adoptableAlertRevision(now - 1000, now), true);
   assert.equal(adoptableAlertRevision(now + 2 * 86400000, now), false);
   assert.equal(adoptableAlertRevision(2 ** 50, now), false);
-  assert.equal(nextAlertRevision(2 ** 50, now), 2 ** 50);
 });
 
 test("viewer leaves out rules equal to the default, so 32 entries hold real choices", () => {
@@ -1136,6 +1135,9 @@ test("viewer leaves out rules equal to the default, so 32 entries hold real choi
   assert.equal(Object.keys(saved.accounts).length, 32);
   assert.deepEqual(saved.accounts["acct-0"], { enabled: false, thresholdPercent: 90 });
   assert.equal(Object.hasOwn(saved.accounts, "new"), false);
+  // A 33rd custom rule cannot be kept: the save is refused, nothing dropped.
+  rows[rows.length - 1] = { id: "new", name: "New", enabled: false, thresholdPercent: 90 };
+  assert.equal(preferencesFromRows(rows, true, stored), null);
   // Setting a stored account back to the default drops its rule.
   const back = preferencesFromRows([{ id: "acct-5", name: "x", enabled: true, thresholdPercent: 90 }], true, stored);
   assert.equal(Object.hasOwn(back.accounts, "acct-5"), false);

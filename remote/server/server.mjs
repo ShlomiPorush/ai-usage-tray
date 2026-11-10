@@ -618,7 +618,7 @@ function parseStoredPreferences(value) {
  * - { subscription, preferences, revision } (Turn on / Save): kind "save".
  * Returns { error } with the API error code for anything else.
  */
-function parseSubscriptionRegistration(data, pushOptions) {
+function parseSubscriptionRegistration(data, pushOptions, nowMs) {
   if (data === null || typeof data !== "object" || Array.isArray(data)) {
     return { error: "invalid_subscription" };
   }
@@ -636,24 +636,16 @@ function parseSubscriptionRegistration(data, pushOptions) {
       : { kind: "device", subscription: data.subscription };
   }
   const preferences = normalizeAlertPreferences(data.preferences);
-  if (
-    preferences === null ||
-    !Number.isSafeInteger(data.revision) ||
-    data.revision <= 0 ||
-    data.revision > MAX_PREFERENCES_REVISION
-  ) {
+  if (preferences === null || !Number.isSafeInteger(data.revision) || data.revision <= 0) {
     return { error: "invalid_preferences" };
   }
+  // Revisions are the viewer's millisecond clock. One far ahead of the relay's
+  // would outrank every later save from a corrected clock, so it is refused
+  // and never stored.
+  if (data.revision > nowMs + PREFERENCES_REVISION_FUTURE_MS) return { error: "clock_skew" };
   return { kind: "save", subscription: data.subscription, preferences, revision: data.revision };
 }
 
-// Revisions are the viewer's millisecond clock, made strictly increasing. The
-// cap leaves room for +1 to stay an exact integer in the browser.
-export const MAX_PREFERENCES_REVISION = 2 ** 50;
-// A stored revision this far beyond the relay's clock came from a broken
-// clock or a hand-made request. It must not lock out every later save, so a
-// save with a plausible revision replaces it; two saves that are both ahead of
-// the clock still keep their order.
 export const PREFERENCES_REVISION_FUTURE_MS = 24 * 60 * 60 * 1000;
 
 export class SnapshotStore {
@@ -727,9 +719,7 @@ export class SnapshotStore {
     // One statement, so a refresh can never undo a concurrent save. SET
     // expressions see the old row: preferences survive a refresh of the same
     // read id, follow the new mode when the endpoint moves to another view,
-    // and a save (?6 = 1) lands only with a newer revision than the stored one
-    // (or, with a revision within ?7, the relay's clock plus a day, over a
-    // stored one beyond it: saves that are both ahead keep their order).
+    // and a save (?6 = 1) lands only with a newer revision than the stored one.
     this.upsertSubscriptionStatement = this.database.prepare(`
       INSERT INTO push_subscriptions (endpoint, read_id, subscription, preferences, preferences_revision)
       VALUES (?1, ?2, ?3, ?4, ?5)
@@ -737,15 +727,13 @@ export class SnapshotStore {
         subscription = excluded.subscription,
         preferences = CASE
           WHEN push_subscriptions.read_id <> excluded.read_id THEN excluded.preferences
-          WHEN ?6 = 1 AND (excluded.preferences_revision > push_subscriptions.preferences_revision
-            OR (push_subscriptions.preferences_revision > ?7 AND excluded.preferences_revision <= ?7))
+          WHEN ?6 = 1 AND excluded.preferences_revision > push_subscriptions.preferences_revision
             THEN excluded.preferences
           ELSE push_subscriptions.preferences
         END,
         preferences_revision = CASE
           WHEN push_subscriptions.read_id <> excluded.read_id THEN excluded.preferences_revision
-          WHEN ?6 = 1 AND (excluded.preferences_revision > push_subscriptions.preferences_revision
-            OR (push_subscriptions.preferences_revision > ?7 AND excluded.preferences_revision <= ?7))
+          WHEN ?6 = 1 AND excluded.preferences_revision > push_subscriptions.preferences_revision
             THEN excluded.preferences_revision
           ELSE push_subscriptions.preferences_revision
         END,
@@ -970,7 +958,6 @@ export class SnapshotStore {
       preferences,
       kind === "save" ? options.revision : 0,
       kind === "save" ? 1 : 0,
-      (options.now ?? Date.now()) + PREFERENCES_REVISION_FUTURE_MS,
     );
     const stored = this.subscriptionPreferencesStatement.get(subscription.endpoint);
     return {
@@ -1800,9 +1787,9 @@ export function createRemoteViewServer({
           if (store.get(readId, now()) === null) {
             return sendJson(response, 404, { error: "not_found" });
           }
-          const registration = parseSubscriptionRegistration(parsed.data, pushOptions);
+          const registration = parseSubscriptionRegistration(parsed.data, pushOptions, now());
           if (registration.error) return sendJson(response, 422, { error: registration.error });
-          const stored = store.putSubscription(readId, registration.subscription, { ...registration, now: now() });
+          const stored = store.putSubscription(readId, registration.subscription, registration);
           if (stored === false) return sendJson(response, 429, { error: "too_many_subscriptions" });
           // The bare body comes from pages older than device preferences, which
           // expect 204; the wrapper gets the row's state back.

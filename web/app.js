@@ -144,12 +144,16 @@ function preferencesFromRows(rows, resetAlerts, stored) {
   var accounts = Object.create(null);
   var seen = Object.create(null);
   var count = 0;
+  var dropped = false;
   var add = function (key, rule) {
     if (seen[key]) return;
     seen[key] = true;
     var normalized = { enabled: rule.enabled === true, thresholdPercent: validAlertThreshold(rule.thresholdPercent) };
     if (normalized.enabled && normalized.thresholdPercent === DEFAULT_ALERT_THRESHOLD) return;
-    if (count >= MAX_ALERT_ACCOUNTS) return;
+    if (count >= MAX_ALERT_ACCOUNTS) {
+      dropped = true;
+      return;
+    }
     accounts[key] = normalized;
     count += 1;
   };
@@ -161,20 +165,20 @@ function preferencesFromRows(rows, resetAlerts, stored) {
       if (rule && typeof rule === "object") add(key, rule);
     });
   }
+  // More custom rules than the relay keeps: saving would drop one of them
+  // without a word, so the caller refuses instead.
+  if (dropped) return null;
   return { accounts: accounts, resetAlerts: resetAlerts === true };
 }
 
-// Matches the relay's limit. Far above any millisecond timestamp, and +1 on it
-// is still an exact integer.
-var MAX_ALERT_REVISION = 1125899906842624; // 2^50
-// A relay revision further ahead than this is not a clock this page should
-// follow (a client with a broken clock, or one that sent a huge value).
+// The relay refuses a revision more than this ahead of its clock, so a stored
+// one beyond it is not a clock this page should follow.
 var ALERT_REVISION_FUTURE_MS = 86400000;
 
 // Each save carries a revision the relay compares, so a late retry of an
 // older choice can never overwrite a newer one.
 function nextAlertRevision(last, now) {
-  return Math.min(MAX_ALERT_REVISION, Math.max(Math.floor(now), (Number(last) || 0) + 1));
+  return Math.max(Math.floor(now), (Number(last) || 0) + 1);
 }
 
 // Whether to build the next revision on the relay's stored one.
@@ -241,6 +245,12 @@ function describeNotificationError(error) {
   if (code === "alerts_clock") {
     return "This change was not saved: a newer one is already stored for this device. " +
       "If this keeps happening, check this device's date and time.";
+  }
+  if (code === "clock_skew") {
+    return "This device's date and time look wrong, so the alerts were not saved. Fix them, then try again.";
+  }
+  if (code === "alerts_too_many") {
+    return "This device can keep custom alerts for up to 32 accounts. Set some back to on at 90%, then save again.";
   }
   if (code === "alerts_retired") {
     return "Alerts were turned off on this device before the change was saved.";
@@ -717,6 +727,9 @@ if (typeof module !== "undefined" && module.exports) {
     return request;
   }
 
+  // Resolves with { ok, status, body } once the whole answer is read, body
+  // parsed as JSON or null. The time limit covers the body as well, since a
+  // stalled body would hold the queue as surely as a stalled request.
   function alertFetch(method, body) {
     var controller = typeof AbortController === "function" ? new AbortController() : null;
     var timer = controller ? setTimeout(function () { controller.abort(); }, ALERT_REQUEST_TIMEOUT_MS) : null;
@@ -726,8 +739,16 @@ if (typeof module !== "undefined" && module.exports) {
       body: JSON.stringify(body),
       signal: controller ? controller.signal : undefined
     }).then(function (response) {
+      return response.text().then(function (text) {
+        var parsed = null;
+        try {
+          parsed = text ? JSON.parse(text) : null;
+        } catch (error) { /* not JSON: treated as no body */ }
+        return { ok: response.ok, status: response.status, body: parsed };
+      });
+    }).then(function (result) {
       clearTimeout(timer);
-      return response;
+      return result;
     }, function (error) {
       clearTimeout(timer);
       throw error;
@@ -747,12 +768,13 @@ if (typeof module !== "undefined" && module.exports) {
       }
       return alertFetch("POST", body).then(function (response) {
         if (!response.ok) {
-          return responseError(response, "subscription_rejected").catch(function (error) {
-            error.status = response.status;
-            throw error;
-          });
+          var refusal = new Error(response.body && typeof response.body.error === "string"
+            ? response.body.error
+            : "subscription_rejected");
+          refusal.status = response.status;
+          throw refusal;
         }
-        return response.json().then(function (state) {
+        return Promise.resolve(response.body).then(function (state) {
           // Turned off while this request was on its way: the answer is moot.
           if (isRetired(subscription)) return null;
           associatedPushReadId = id;
@@ -1068,6 +1090,11 @@ if (typeof module !== "undefined" && module.exports) {
         resetBox.checked,
         mode === "device" ? shownPreferences : null
       );
+      if (preferences === null) {
+        busy(false);
+        show(notificationEl, describeNotificationError(new Error("alerts_too_many")));
+        return;
+      }
       // No promise step before turnOnDeviceAlerts: it asks for permission.
       finish(subscribed ? saveDeviceAlerts(preferences) : turnOnDeviceAlerts(preferences), true);
     });
