@@ -78,7 +78,7 @@ test("viewer builds the device alert panel from the snapshot and the stored rule
     {
       accounts: {
         "claude:work": { enabled: false, thresholdPercent: 85 },
-        "codex:home": { enabled: true, thresholdPercent: 90 },
+        // codex:home is on at 90%, the default, so it needs no rule.
       },
       resetAlerts: true,
     },
@@ -1119,4 +1119,24 @@ test("viewer follows the relay's revision only when it is a plausible clock", ()
   assert.equal(adoptableAlertRevision(now + 2 * 86400000, now), false);
   assert.equal(adoptableAlertRevision(2 ** 50, now), false);
   assert.equal(nextAlertRevision(2 ** 50, now), 2 ** 50);
+});
+
+test("viewer leaves out rules equal to the default, so 32 entries hold real choices", () => {
+  const stored = { accounts: {}, resetAlerts: true };
+  for (let index = 0; index < 32; index += 1) {
+    stored.accounts["acct-" + index] = { enabled: false, thresholdPercent: 90 };
+  }
+  // acct-0 is hidden on the desktop; a new account shows with the default.
+  const rows = [];
+  for (let index = 1; index < 32; index += 1) {
+    rows.push({ id: "acct-" + index, name: "x", enabled: false, thresholdPercent: 90 });
+  }
+  rows.push({ id: "new", name: "New", enabled: true, thresholdPercent: 90 });
+  const saved = preferencesFromRows(rows, true, stored);
+  assert.equal(Object.keys(saved.accounts).length, 32);
+  assert.deepEqual(saved.accounts["acct-0"], { enabled: false, thresholdPercent: 90 });
+  assert.equal(Object.hasOwn(saved.accounts, "new"), false);
+  // Setting a stored account back to the default drops its rule.
+  const back = preferencesFromRows([{ id: "acct-5", name: "x", enabled: true, thresholdPercent: 90 }], true, stored);
+  assert.equal(Object.hasOwn(back.accounts, "acct-5"), false);
 });

@@ -342,3 +342,17 @@ test("revisions are capped, and a stored one far beyond the relay's clock cannot
   const older = await register({ subscription, preferences: rule(95), revision: now - 1 });
   assert.equal((await older.json()).preferences.accounts["claude:work"].thresholdPercent, 75);
 });
+
+test("two saves from a clock that runs ahead keep their order", async () => {
+  await upload(snapshot(10, 10));
+  const subscription = await browserSubscription("https://fcm.googleapis.com/fcm/send/ahead");
+  const rule = (thresholdPercent) => preferences({ "claude:work": { enabled: true, thresholdPercent } });
+  const ahead = Date.parse("2026-08-29T12:00:00Z");
+  await register({ subscription, preferences: rule(60), revision: ahead + 2 });
+  // A late retry of an earlier choice, from the same fast clock.
+  const late = await register({ subscription, preferences: rule(95), revision: ahead + 1 });
+  assert.equal((await late.json()).preferences.accounts["claude:work"].thresholdPercent, 60);
+  // Once the clock is right again, a save lands.
+  const fixed = await register({ subscription, preferences: rule(70), revision: Date.parse("2026-08-27T12:00:00Z") });
+  assert.equal((await fixed.json()).preferences.accounts["claude:work"].thresholdPercent, 70);
+});

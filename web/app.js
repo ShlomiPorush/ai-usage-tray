@@ -136,22 +136,29 @@ function alertResetChoice(accounts, preferences, mode) {
 // The rows shown, plus the stored rules of accounts the snapshot does not list
 // right now (an account hidden on the desktop for a while keeps its rule).
 // A null-prototype map, so an account id like "__proto__" stays a key.
+//
+// A rule equal to the default (on at 90%) is left out: the relay applies the
+// default to any account without a rule, so leaving it out changes nothing and
+// keeps the 32 entries for choices that differ from it.
 function preferencesFromRows(rows, resetAlerts, stored) {
   var accounts = Object.create(null);
+  var seen = Object.create(null);
   var count = 0;
-  rows.slice(0, MAX_ALERT_ACCOUNTS).forEach(function (row) {
-    if (Object.prototype.hasOwnProperty.call(accounts, row.id)) return;
-    accounts[row.id] = { enabled: row.enabled === true, thresholdPercent: validAlertThreshold(row.thresholdPercent) };
+  var add = function (key, rule) {
+    if (seen[key]) return;
+    seen[key] = true;
+    var normalized = { enabled: rule.enabled === true, thresholdPercent: validAlertThreshold(rule.thresholdPercent) };
+    if (normalized.enabled && normalized.thresholdPercent === DEFAULT_ALERT_THRESHOLD) return;
+    if (count >= MAX_ALERT_ACCOUNTS) return;
+    accounts[key] = normalized;
     count += 1;
-  });
+  };
+  rows.forEach(function (row) { add(row.id, row); });
   var kept = stored && stored.accounts ? stored.accounts : null;
   if (kept) {
     Object.keys(kept).forEach(function (key) {
-      if (count >= MAX_ALERT_ACCOUNTS || Object.prototype.hasOwnProperty.call(accounts, key)) return;
       var rule = kept[key];
-      if (!rule || typeof rule !== "object") return;
-      accounts[key] = { enabled: rule.enabled === true, thresholdPercent: validAlertThreshold(rule.thresholdPercent) };
-      count += 1;
+      if (rule && typeof rule === "object") add(key, rule);
     });
   }
   return { accounts: accounts, resetAlerts: resetAlerts === true };
@@ -232,7 +239,11 @@ var HOME_SCREEN_HELP = "On iPhone, alerts work only from the Home Screen. Tap Sh
 function describeNotificationError(error) {
   var code = error && error.message;
   if (code === "alerts_clock") {
-    return "This change was not saved: the relay holds a newer one. Check this device's date and time, then save again.";
+    return "This change was not saved: a newer one is already stored for this device. " +
+      "If this keeps happening, check this device's date and time.";
+  }
+  if (code === "alerts_retired") {
+    return "Alerts were turned off on this device before the change was saved.";
   }
   if (code === "alerts_unconfirmed") {
     return "Alerts are not confirmed yet. The page will try again.";
@@ -423,6 +434,7 @@ if (typeof module !== "undefined" && module.exports) {
   // Unsaved edits in the open panel survive the once-a-minute refresh.
   var alertPanelDirty = false;
   var PENDING_ALERTS_KEY_PREFIX = "aiUsageTray.pendingAlerts.";
+  var ALERT_REQUEST_TIMEOUT_MS = 15000;
   // The unconfirmed choice, kept here too: localStorage can refuse a write.
   var pendingAlertsMemory = null;
   // Endpoints turned off on this page. Requests still queued for them, or a
@@ -673,6 +685,14 @@ if (typeof module !== "undefined" && module.exports) {
     removeStored(pendingAlertsKey());
   }
 
+  // Whether pending is still the newest unconfirmed choice. A request's
+  // outcome decides about its own choice only, never a newer one queued
+  // behind it.
+  function isCurrentPending(pending) {
+    var current = readPendingAlerts();
+    return Boolean(pending && current && current.revision === pending.revision);
+  }
+
   function isRetired(subscription) {
     return Boolean(subscription && retiredAlertEndpoints[subscription.endpoint]);
   }
@@ -689,28 +709,43 @@ if (typeof module !== "undefined" && module.exports) {
 
   // Every request about this device's subscription goes through one queue,
   // so a retry can never overtake the save or the Turn off that follows it.
+  // Each request gives up after ALERT_REQUEST_TIMEOUT_MS, so one that never
+  // answers cannot hold the queue.
   function enqueueAlertRequest(run) {
     var request = alertRequestChain.then(run, run);
     alertRequestChain = request.catch(function () { /* the caller reports it */ });
     return request;
   }
 
+  function alertFetch(method, body) {
+    var controller = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = controller ? setTimeout(function () { controller.abort(); }, ALERT_REQUEST_TIMEOUT_MS) : null;
+    return fetch(API_BASE + "/u/" + id + "/push-subscription", {
+      method: method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller ? controller.signal : undefined
+    }).then(function (response) {
+      clearTimeout(timer);
+      return response;
+    }, function (error) {
+      clearTimeout(timer);
+      throw error;
+    });
+  }
+
   // pending: { preferences, revision } or null (association). Resolves with
-  // the relay's state, or undefined when the subscription was turned off
-  // before the request's turn came.
+  // { state, stale } (stale: a newer choice was sent since), or null when the
+  // subscription was turned off before the request's turn came.
   function sendDeviceRegistration(subscription, pending) {
     return enqueueAlertRequest(function () {
-      if (isRetired(subscription)) return undefined;
+      if (isRetired(subscription)) return null;
       var body = { subscription: subscription.toJSON() };
       if (pending) {
         body.preferences = pending.preferences;
         body.revision = pending.revision;
       }
-      return fetch(API_BASE + "/u/" + id + "/push-subscription", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      }).then(function (response) {
+      return alertFetch("POST", body).then(function (response) {
         if (!response.ok) {
           return responseError(response, "subscription_rejected").catch(function (error) {
             error.status = response.status;
@@ -718,27 +753,31 @@ if (typeof module !== "undefined" && module.exports) {
           });
         }
         return response.json().then(function (state) {
+          // Turned off while this request was on its way: the answer is moot.
+          if (isRetired(subscription)) return null;
           associatedPushReadId = id;
-          var stored = readPendingAlerts();
-          if (pending && stored && stored.revision === pending.revision) clearPendingAlerts();
-          // An answer to an older choice than one already sent is stale.
-          var stale = pending && pending.revision < lastAlertRevision;
+          if (isCurrentPending(pending)) clearPendingAlerts();
+          var stale = Boolean(pending && pending.revision < lastAlertRevision);
           // The next save must beat what the relay holds, even if this
           // device's clock moved back since it was stored.
           if (state && adoptableAlertRevision(state.revision, Date.now())) {
             lastAlertRevision = Math.max(lastAlertRevision, state.revision);
           }
-          if (!stale) {
-            deviceAlertState = {
-              mode: state && state.mode === "device" ? "device" : "desktop",
-              preferences: state ? state.preferences : null,
-              revision: state && Number.isSafeInteger(state.revision) ? state.revision : 0
-            };
-          }
-          return deviceAlertState;
+          var relayState = {
+            mode: state && state.mode === "device" ? "device" : "desktop",
+            preferences: state ? state.preferences : null,
+            revision: state && Number.isSafeInteger(state.revision) ? state.revision : 0
+          };
+          if (!stale) deviceAlertState = relayState;
+          return { state: relayState, stale: stale };
         });
       });
     });
+  }
+
+  // A choice was confirmed only if the relay now holds that very revision.
+  function confirmedChoice(result, pending) {
+    return Boolean(result && !result.stale && result.state.revision === pending.revision);
   }
 
   function syncDeviceNotificationControl() {
@@ -760,19 +799,25 @@ if (typeof module !== "undefined" && module.exports) {
         if (pending) lastAlertRevision = Math.max(lastAlertRevision, pending.revision);
         var request = pending || associatedPushReadId !== id
           ? sendDeviceRegistration(subscription, pending)
-          : Promise.resolve();
-        return request.then(function (state) {
-          // A retry landed: replace the "not confirmed yet" notice.
-          if (pending && state) {
-            show(notificationEl, pending.initial
-              ? "Browser alerts are on for this device."
-              : "Alert settings saved for this device.");
+          : Promise.resolve(null);
+        return request.then(function (result) {
+          // A retry of a pending choice landed: replace the "not confirmed
+          // yet" notice, or say that a newer choice is the one stored.
+          if (pending && result && !result.stale) {
+            if (confirmedChoice(result, pending)) {
+              show(notificationEl, pending.initial
+                ? "Browser alerts are on for this device."
+                : "Alert settings saved for this device.");
+            } else {
+              show(notificationEl, describeNotificationError(new Error("alerts_clock")));
+            }
           }
           applyDeviceAlertControl();
         }, function (error) {
           var refused = isDefiniteRejection(error);
+          var ownChoice = isCurrentPending(pending);
           var cleanup = Promise.resolve();
-          if (refused && pending) {
+          if (refused && ownChoice) {
             // The relay answered no: re-sending the same choice cannot help.
             clearPendingAlerts();
             // A first registration it never stored leaves nothing to keep.
@@ -780,6 +825,8 @@ if (typeof module !== "undefined" && module.exports) {
           }
           return cleanup.then(function () {
             applyDeviceAlertControl();
+            // A newer choice queued behind this one reports its own outcome.
+            if (pending && !ownChoice) return;
             show(notificationEl, describeNotificationError(refused ? error : new Error("alerts_unconfirmed")));
           });
         });
@@ -836,7 +883,7 @@ if (typeof module !== "undefined" && module.exports) {
             if (!isDefiniteRejection(error)) throw new Error("alerts_unconfirmed");
             // Refused, so nothing is stored: do not leave a browser
             // subscription behind that the relay does not know.
-            clearPendingAlerts();
+            if (isCurrentPending(pending)) clearPendingAlerts();
             return retireSubscription(subscription).then(function () { throw error; });
           });
         });
@@ -847,6 +894,7 @@ if (typeof module !== "undefined" && module.exports) {
   }
 
   function saveDeviceAlerts(preferences) {
+    var subscription = pushSubscription;
     lastAlertRevision = nextAlertRevision(lastAlertRevision, Date.now());
     var earlier = readPendingAlerts();
     var pending = {
@@ -856,14 +904,18 @@ if (typeof module !== "undefined" && module.exports) {
       initial: Boolean(earlier && earlier.initial)
     };
     writePendingAlerts(pending);
-    return sendDeviceRegistration(pushSubscription, pending).then(function (state) {
-      // The relay kept a newer revision than this page could produce.
-      if (state && state.revision !== pending.revision) throw new Error("alerts_clock");
+    return sendDeviceRegistration(subscription, pending).then(function (result) {
+      if (!result) throw new Error("alerts_retired");
+      // A newer save follows and reports for itself.
+      if (result.stale) return;
+      if (!confirmedChoice(result, pending)) throw new Error("alerts_clock");
       show(notificationEl, "Alert settings saved for this device.");
     }, function (error) {
       if (!isDefiniteRejection(error)) throw new Error("alerts_unconfirmed");
+      if (!isCurrentPending(pending)) throw error;
       clearPendingAlerts();
-      throw error;
+      if (!pending.initial) throw error;
+      return retireSubscription(subscription).catch(function () {}).then(function () { throw error; });
     });
   }
 
@@ -876,17 +928,14 @@ if (typeof module !== "undefined" && module.exports) {
     pushSubscription = null;
     associatedPushReadId = null;
     deviceAlertState = { mode: null, preferences: null, revision: 0 };
-    return enqueueAlertRequest(function () {
-      return fetch(API_BASE + "/u/" + id + "/push-subscription", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: subscription.endpoint })
-      })
-        .catch(function () { /* unsubscribe locally even if the relay cannot be reached */ })
-        .then(function () { return subscription.unsubscribe(); })
-        .then(function () {
-          show(notificationEl, "Browser alerts are off on this device.");
-        });
+    // The relay is told after any registration still on its way, so none can
+    // land after the DELETE. The browser stops right away, whatever the
+    // network does; a row left behind goes on the next delivery's 410.
+    enqueueAlertRequest(function () {
+      return alertFetch("DELETE", { endpoint: subscription.endpoint }).catch(function () {});
+    });
+    return subscription.unsubscribe().then(function () {
+      show(notificationEl, "Browser alerts are off on this device.");
     });
   }
 
@@ -923,8 +972,16 @@ if (typeof module !== "undefined" && module.exports) {
     alertsPanelEl.textContent = "";
     var subscribed = Boolean(pushSubscription);
     var mode = subscribed ? deviceAlertState.mode : null;
+    var shownPreferences = deviceAlertState.preferences;
+    // A choice the relay has not confirmed yet is what this device asked
+    // for, so the panel shows it rather than the defaults or an older state.
+    var pending = subscribed ? readPendingAlerts() : null;
+    if (pending) {
+      mode = "device";
+      shownPreferences = pending.preferences;
+    }
     var accounts = payload && Array.isArray(payload.accounts) ? payload.accounts : [];
-    var rows = alertPanelRows(accounts, deviceAlertState.preferences, mode);
+    var rows = alertPanelRows(accounts, shownPreferences, mode);
 
     alertsPanelEl.appendChild(panelElement("h2", "alerts-title", "Alerts on this device"));
     alertsPanelEl.appendChild(panelElement("p", "alerts-note", mode === "desktop"
@@ -971,7 +1028,7 @@ if (typeof module !== "undefined" && module.exports) {
     var resetLabel = panelElement("label", "alerts-reset");
     var resetBox = document.createElement("input");
     resetBox.type = "checkbox";
-    resetBox.checked = alertResetChoice(accounts, deviceAlertState.preferences, mode);
+    resetBox.checked = alertResetChoice(accounts, shownPreferences, mode);
     resetBox.addEventListener("change", function () { alertPanelDirty = true; });
     resetLabel.appendChild(resetBox);
     resetLabel.appendChild(panelElement("span", "", "Also notify when weekly usage resets to 0%"));
@@ -1009,7 +1066,7 @@ if (typeof module !== "undefined" && module.exports) {
       var preferences = preferencesFromRows(
         rows,
         resetBox.checked,
-        mode === "device" ? deviceAlertState.preferences : null
+        mode === "device" ? shownPreferences : null
       );
       // No promise step before turnOnDeviceAlerts: it asks for permission.
       finish(subscribed ? saveDeviceAlerts(preferences) : turnOnDeviceAlerts(preferences), true);

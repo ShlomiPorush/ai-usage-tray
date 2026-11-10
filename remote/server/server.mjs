@@ -651,8 +651,9 @@ function parseSubscriptionRegistration(data, pushOptions) {
 // cap leaves room for +1 to stay an exact integer in the browser.
 export const MAX_PREFERENCES_REVISION = 2 ** 50;
 // A stored revision this far beyond the relay's clock came from a broken
-// clock or a hand-made request. It must not lock out every later save, so the
-// next save replaces it whatever its own revision.
+// clock or a hand-made request. It must not lock out every later save, so a
+// save with a plausible revision replaces it; two saves that are both ahead of
+// the clock still keep their order.
 export const PREFERENCES_REVISION_FUTURE_MS = 24 * 60 * 60 * 1000;
 
 export class SnapshotStore {
@@ -727,7 +728,8 @@ export class SnapshotStore {
     // expressions see the old row: preferences survive a refresh of the same
     // read id, follow the new mode when the endpoint moves to another view,
     // and a save (?6 = 1) lands only with a newer revision than the stored one
-    // (or over a stored revision beyond ?7, the relay's clock plus a day).
+    // (or, with a revision within ?7, the relay's clock plus a day, over a
+    // stored one beyond it: saves that are both ahead keep their order).
     this.upsertSubscriptionStatement = this.database.prepare(`
       INSERT INTO push_subscriptions (endpoint, read_id, subscription, preferences, preferences_revision)
       VALUES (?1, ?2, ?3, ?4, ?5)
@@ -736,14 +738,14 @@ export class SnapshotStore {
         preferences = CASE
           WHEN push_subscriptions.read_id <> excluded.read_id THEN excluded.preferences
           WHEN ?6 = 1 AND (excluded.preferences_revision > push_subscriptions.preferences_revision
-            OR push_subscriptions.preferences_revision > ?7)
+            OR (push_subscriptions.preferences_revision > ?7 AND excluded.preferences_revision <= ?7))
             THEN excluded.preferences
           ELSE push_subscriptions.preferences
         END,
         preferences_revision = CASE
           WHEN push_subscriptions.read_id <> excluded.read_id THEN excluded.preferences_revision
           WHEN ?6 = 1 AND (excluded.preferences_revision > push_subscriptions.preferences_revision
-            OR push_subscriptions.preferences_revision > ?7)
+            OR (push_subscriptions.preferences_revision > ?7 AND excluded.preferences_revision <= ?7))
             THEN excluded.preferences_revision
           ELSE push_subscriptions.preferences_revision
         END,
