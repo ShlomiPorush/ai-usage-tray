@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v35: pull the phone sheet down from anywhere to close it.
-var CACHE = "ai-usage-tray-shell-v35";
+// v36: the view manifest is named while the head is parsed (Safari).
+var CACHE = "ai-usage-tray-shell-v36";
 
 var SHELL = [
   "./",
