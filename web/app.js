@@ -2186,14 +2186,23 @@ if (typeof module !== "undefined" && module.exports) {
       .catch(function () { /* The viewer remains usable when an older relay has no version route. */ });
   }
 
+  // Asks the relay for this view's manifest, whose start_url carries the id,
+  // so "Add to Home Screen" opens this view. A relay that does not know the
+  // query (static hosting, the Worker) answers with the static manifest.
+  function pointManifestAtView(readId) {
+    var link = document.querySelector('link[rel="manifest"]');
+    if (link) link.setAttribute("href", "manifest.webmanifest?id=" + encodeURIComponent(readId));
+  }
+
   function resolveId() {
     var params = new URLSearchParams(window.location.search);
     var raw = (params.get("id") || "").trim();
     if (raw === DEMO_ID || ID_PATTERN.test(raw)) return raw;
 
     // An explicit but unusable ?id= means "show me the landing page". Only a
-    // link with no id at all falls back to the last id this device saw. That
-    // is what an installed app opens, because start_url carries no id.
+    // link with no id at all falls back to the last id this device saw: an app
+    // installed before the per-view manifest, or from a relay that does not
+    // serve one, opens without an id.
     if (params.has("id")) return null;
 
     var stored = (readStored(LAST_ID_KEY) || "").trim();
@@ -2251,6 +2260,7 @@ if (typeof module !== "undefined" && module.exports) {
       if (demoBadge) demoBadge.hidden = false;
     } else {
       writeStored(LAST_ID_KEY, id);
+      pointManifestAtView(id);
     }
     setupUsage();
     renderMessage("Loading…", ["Fetching the latest usage snapshot."]);

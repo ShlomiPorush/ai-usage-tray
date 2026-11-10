@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.10.0
+ghcr.io/shlomiporush/ai-usage-tray:1.10.1
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -353,6 +353,7 @@ only when more than half of its pages are free and it is larger than 32 MB. `jou
 | Method | Path | Behaviour |
 | --- | --- | --- |
 | `GET` | `/`, viewer assets | Serves the installable viewer. |
+| `GET` | `/manifest.webmanifest?id={readId}` | Returns the viewer manifest with `start_url` set to that shared view, so a Home Screen install opens it. Any other query returns the static manifest. |
 | `GET` | `/health` | Reads and writes SQLite. `200 {"status":"ok"}`, or `503` when degraded. |
 | `GET` | `/version` | Returns the deployed remote-view version shown in the viewer. |
 | `GET` | `/push/vapid-public-key` | Returns the public VAPID key used for browser subscriptions, and `devicePreferences: true`. See [Browser alerts](#browser-alerts). |
