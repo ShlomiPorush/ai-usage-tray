@@ -984,10 +984,7 @@ if (typeof module !== "undefined" && module.exports) {
   }
 
   function closeAlertPanel() {
-    if (alertsPanelEl && alertsPanelEl.open) {
-      if (typeof alertsPanelEl.close === "function") alertsPanelEl.close();
-      else alertsPanelEl.removeAttribute("open");
-    }
+    if (alertsPanelEl && alertsPanelEl.open) alertsPanelEl.close();
     resetAlertPanel();
   }
 
@@ -996,11 +993,7 @@ if (typeof module !== "undefined" && module.exports) {
     alertPanelOpen = true;
     alertPanelDirty = false;
     renderAlertPanel();
-    if (!alertsPanelEl.open) {
-      // A browser without modal dialogs still shows it, in place.
-      if (typeof alertsPanelEl.showModal === "function") alertsPanelEl.showModal();
-      else alertsPanelEl.setAttribute("open", "");
-    }
+    if (!alertsPanelEl.open) alertsPanelEl.showModal();
     notificationButton.setAttribute("aria-expanded", "true");
     var first = alertsPanelEl.querySelector(".alerts-accounts input, .alerts-actions button");
     if (first) first.focus();
@@ -1008,6 +1001,17 @@ if (typeof module !== "undefined" && module.exports) {
 
   function wireAlertPanel() {
     if (!alertsPanelEl) return;
+    // index.html keeps the older <section hidden> placeholder, so a page and
+    // a script from different cached versions still work together: this
+    // script swaps it for a <dialog>, an older one shows the section.
+    if (alertsPanelEl.tagName !== "DIALOG") {
+      var dialog = document.createElement("dialog");
+      dialog.className = "alerts-panel";
+      dialog.id = "alerts-panel";
+      dialog.setAttribute("aria-labelledby", "alerts-title");
+      alertsPanelEl.replaceWith(dialog);
+      alertsPanelEl = dialog;
+    }
     alertsPanelEl.addEventListener("close", function () {
       // close fires a task after close(): a panel reopened meanwhile stays.
       if (alertsPanelEl.open) return;
@@ -1087,14 +1091,14 @@ if (typeof module !== "undefined" && module.exports) {
       checkbox.type = "checkbox";
       checkbox.checked = row.enabled;
       checkbox.setAttribute("data-account-index", String(index));
-      checkbox.setAttribute("data-focus", "enabled-" + index);
+      checkbox.setAttribute("data-focus", "enabled:" + row.id);
       toggle.appendChild(checkbox);
       toggle.appendChild(panelElement("span", "alerts-account-name", row.name));
 
       var select = document.createElement("select");
       select.className = "alerts-threshold";
       select.setAttribute("aria-label", "Alert threshold for " + row.name);
-      select.setAttribute("data-focus", "threshold-" + index);
+      select.setAttribute("data-focus", "threshold:" + row.id);
       thresholdChoices(row.thresholdPercent).forEach(function (value) {
         var option = panelElement("option", "", "At " + value + "% used");
         option.value = String(value);
@@ -1190,9 +1194,15 @@ if (typeof module !== "undefined" && module.exports) {
       finish(turnOffDeviceAlerts(), true);
     });
 
+    // Matched by account id, not position: a refresh can reorder accounts.
     if (focusedKey) {
-      var again = alertsPanelEl.querySelector("[data-focus=\"" + focusedKey + "\"]");
-      if (again) again.focus();
+      var keyed = alertsPanelEl.querySelectorAll("[data-focus]");
+      for (var k = 0; k < keyed.length; k += 1) {
+        if (keyed[k].getAttribute("data-focus") === focusedKey) {
+          keyed[k].focus();
+          break;
+        }
+      }
     }
   }
 
