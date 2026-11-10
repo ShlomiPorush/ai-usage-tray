@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v34: free threshold entry and drag-to-close sheet.
-var CACHE = "ai-usage-tray-shell-v34";
+// v35: pull the phone sheet down from anywhere to close it.
+var CACHE = "ai-usage-tray-shell-v35";
 
 var SHELL = [
   "./",
