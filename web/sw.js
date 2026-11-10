@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v31: device alert preferences panel.
-var CACHE = "ai-usage-tray-shell-v31";
+// v32: per-view manifest for Home Screen installs.
+var CACHE = "ai-usage-tray-shell-v32";
 
 var SHELL = [
   "./",
@@ -75,6 +75,9 @@ self.addEventListener("fetch", function (event) {
   // /version to the first visit's value until the site data was cleared.
   if (url.origin !== self.location.origin) return;
   if (!SHELL_PATHS[url.pathname]) return;
+  // A view's own manifest (?id=…) is per view, so it never comes from the
+  // cache, which holds the static one.
+  if (url.search && url.pathname === new URL("./manifest.webmanifest", self.location.href).pathname) return;
 
   // ignoreSearch so a shared link (/?id=…) still matches the cached shell.
   event.respondWith(

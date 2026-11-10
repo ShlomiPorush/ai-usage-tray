@@ -1456,6 +1456,20 @@ function parseUsageSeqHeader(raw) {
   return Number.isSafeInteger(seq) ? seq : undefined;
 }
 
+/**
+ * The manifest for one shared view: the static manifest with start_url
+ * pointing at that view, so a Home Screen app opens the view it was added from
+ * (iOS gives such an app its own storage, so the page's remembered last id is
+ * not there). The id stays "./", the identity every install had so far, so an
+ * existing install keeps it. Returns null unless the query holds exactly one
+ * id that is a 32-hex read id; the caller then serves the static manifest.
+ */
+export function viewManifest(baseManifest, searchParams) {
+  const ids = searchParams.getAll("id");
+  if (ids.length !== 1 || !ID_RE.test(ids[0])) return null;
+  return { ...baseManifest, id: "./", start_url: `./?id=${ids[0]}` };
+}
+
 function sendAsset(response, entry, csp) {
   const headers = {
     "Content-Type": entry.type,
@@ -1504,6 +1518,7 @@ export function createRemoteViewServer({
 
   const store = new SnapshotStore(databasePath, { usageTombstoneTtlMs });
   const { assets, csp } = loadAssets(webRoot);
+  const baseManifest = JSON.parse(assets.get("/manifest.webmanifest").body.toString("utf8"));
   store.deleteExpired(now());
 
   if (vapidConfiguration !== null && !validateVapidConfiguration(vapidConfiguration)) {
@@ -1760,6 +1775,18 @@ export function createRemoteViewServer({
           // devicePreferences tells the page this relay stores per-device alert
           // rules; a relay without the field gets only the old bare requests.
           : sendJson(response, 200, { publicKey: vapidConfiguration.publicKey, devicePreferences: true });
+      }
+
+      if (request.method === "GET" && path === "/manifest.webmanifest" && url.search) {
+        const manifest = viewManifest(baseManifest, url.searchParams);
+        if (manifest !== null) {
+          // Per view, so never shared from a cache.
+          writeHead(response, 200, {
+            "Content-Type": "application/manifest+json; charset=utf-8",
+            "Cache-Control": "no-store",
+          });
+          return response.end(JSON.stringify(manifest));
+        }
       }
 
       if (request.method === "GET") {

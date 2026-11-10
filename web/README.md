@@ -59,10 +59,19 @@ manifest makes the page uninstallable.
 ## Installing it as an app
 
 On HTTPS the page registers `sw.js` and can be installed from the browser menu
-("Install app" / "Add to Home Screen"). The manifest's `start_url` carries no id,
-so `app.js` remembers the last id it saw in `localStorage` and reuses it when the
-installed app is opened without one. Opening `/?id=` (an explicit empty id) always
-shows the landing page instead, which is the way back out.
+("Install app" / "Add to Home Screen"). On a shared view, `app.js` points the
+manifest link at `manifest.webmanifest?id=<read id>`. The container relay answers
+that with a manifest whose `start_url` carries the id. On iPhone, where a Home
+Screen app does not share Safari's storage, the app opens the view it was added
+from. Chrome keeps one installed app per site and updates its manifest, so after
+you open another shared view in the browser, the installed app may open that one.
+
+Static hosting, such as the nginx setup above, and the Cloudflare Worker serve the
+static manifest for that request. Its `start_url` carries no id, so `app.js` falls
+back to the last id it saw in `localStorage` when the installed app is opened
+without one. That works where the app shares the browser's storage, but not in an
+iPhone Home Screen app. Opening `/?id=` (an explicit empty id) always shows the
+landing page instead, which is the way back out.
 
 ## Links
 

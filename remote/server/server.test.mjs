@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1141,4 +1142,31 @@ test("viewer leaves out rules equal to the default, so 32 entries hold real choi
   // Setting a stored account back to the default drops its rule.
   const back = preferencesFromRows([{ id: "acct-5", name: "x", enabled: true, thresholdPercent: 90 }], true, stored);
   assert.equal(Object.hasOwn(back.accounts, "acct-5"), false);
+});
+
+test("a view's manifest opens that view from the Home Screen; anything else gets the static one", async () => {
+  const staticManifest = JSON.parse(readFileSync(join(WEB_ROOT, "manifest.webmanifest"), "utf8"));
+  const view = await fetch(`${fixture.baseUrl}/manifest.webmanifest?id=${READ_ID}`);
+  assert.equal(view.status, 200);
+  assert.equal(view.headers.get("content-type"), "application/manifest+json; charset=utf-8");
+  assert.equal(view.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await view.json(), { ...staticManifest, id: "./", start_url: `./?id=${READ_ID}` });
+
+  for (const query of [
+    "",
+    "?id=demo",
+    `?id=${READ_ID.toUpperCase()}`,
+    `?id=${READ_ID}0`,
+    `?id=${READ_ID}&id=${READ_ID}`,
+    "?id=%3Cscript%3E",
+    "?other=1",
+  ]) {
+    const response = await fetch(`${fixture.baseUrl}/manifest.webmanifest${query}`);
+    assert.equal(response.status, 200, query);
+    assert.deepEqual(await response.json(), staticManifest, query);
+    assert.notEqual(response.headers.get("cache-control"), "no-store", query);
+  }
+  // Percent-encoding of the same id is the same id.
+  const encoded = await fetch(`${fixture.baseUrl}/manifest.webmanifest?%69d=${READ_ID}`);
+  assert.equal((await encoded.json()).start_url, `./?id=${READ_ID}`);
 });
