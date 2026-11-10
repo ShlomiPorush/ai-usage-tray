@@ -36,6 +36,7 @@ const {
   hasEnabledAlertAccounts,
   resolveNotificationControl,
   resolvePercentMode,
+  adoptableAlertRevision,
   alertPanelRows,
   alertResetChoice,
   isDefiniteRejection,
@@ -73,7 +74,7 @@ test("viewer builds the device alert panel from the snapshot and the stored rule
   assert.deepEqual(thresholdChoices(85), [50, 75, 80, 85, 90, 95, 100]);
   assert.deepEqual(thresholdChoices(90), [50, 75, 80, 90, 95, 100]);
   assert.deepEqual(
-    preferencesFromRows(alertPanelRows(accounts, stored, "device"), true),
+    JSON.parse(JSON.stringify(preferencesFromRows(alertPanelRows(accounts, stored, "device"), true))),
     {
       accounts: {
         "claude:work": { enabled: false, thresholdPercent: 85 },
@@ -1090,4 +1091,32 @@ test("Cloudflare purge retries transient failures but not rejected credentials",
   assert.equal(await purgeCloudflareCache(config, { fetchImpl: downFetch, log, sleep: noSleep, attempts: 2 }), false);
   assert.equal(down, 2);
   assert.ok(lines.every((line) => !String(line).includes("secret-token-value")));
+});
+
+test("viewer keeps the rules of accounts the snapshot does not show right now", () => {
+  const rows = [{ id: "claude:work", name: "Claude Work", enabled: true, thresholdPercent: 80 }];
+  const stored = {
+    accounts: JSON.parse('{"codex:hidden":{"enabled":false,"thresholdPercent":60},"claude:work":{"enabled":false,"thresholdPercent":50}}'),
+    resetAlerts: true,
+  };
+  const merged = preferencesFromRows(rows, false, stored);
+  assert.deepEqual(JSON.parse(JSON.stringify(merged)), {
+    accounts: {
+      "claude:work": { enabled: true, thresholdPercent: 80 },
+      "codex:hidden": { enabled: false, thresholdPercent: 60 },
+    },
+    resetAlerts: false,
+  });
+
+  // An account id like __proto__ is a real key in the request body.
+  const proto = preferencesFromRows([{ id: "__proto__", name: "x", enabled: false, thresholdPercent: 40 }], true, null);
+  assert.equal(JSON.stringify(proto), '{"accounts":{"__proto__":{"enabled":false,"thresholdPercent":40}},"resetAlerts":true}');
+});
+
+test("viewer follows the relay's revision only when it is a plausible clock", () => {
+  const now = Date.parse("2026-11-10T12:00:00Z");
+  assert.equal(adoptableAlertRevision(now - 1000, now), true);
+  assert.equal(adoptableAlertRevision(now + 2 * 86400000, now), false);
+  assert.equal(adoptableAlertRevision(2 ** 50, now), false);
+  assert.equal(nextAlertRevision(2 ** 50, now), 2 ** 50);
 });

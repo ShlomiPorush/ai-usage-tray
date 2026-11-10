@@ -310,3 +310,35 @@ test("a database from before device preferences opens with its rows on the deskt
   assert.deepEqual(store.listSubscriptionEntries(READ_ID), [{ subscription, preferences: null }]);
   store.close();
 });
+
+test("an account id that grows when lowercased is refused, not stored and then dropped", async () => {
+  await upload(snapshot(10, 10));
+  const subscription = await browserSubscription("https://fcm.googleapis.com/fcm/send/unicode");
+  const response = await register({
+    subscription,
+    preferences: preferences({ ["İ".repeat(128)]: { enabled: false, thresholdPercent: 50 } }),
+    revision: 1,
+  });
+  assert.equal(response.status, 422);
+  assert.deepEqual(await response.json(), { error: "invalid_preferences" });
+});
+
+test("revisions are capped, and a stored one far beyond the relay's clock cannot lock out saves", async () => {
+  await upload(snapshot(10, 10));
+  const subscription = await browserSubscription("https://fcm.googleapis.com/fcm/send/revision");
+  const rule = (thresholdPercent) => preferences({ "claude:work": { enabled: true, thresholdPercent } });
+
+  const oversized = await register({ subscription, preferences: rule(50), revision: 2 ** 50 + 1 });
+  assert.equal(oversized.status, 422);
+
+  // The largest accepted revision, from a hand-made request.
+  assert.equal((await register({ subscription, preferences: rule(50), revision: 2 ** 50 })).status, 200);
+  // A normal save with a clock-based revision still lands.
+  const now = Date.parse("2026-08-27T12:00:00Z");
+  const saved = await register({ subscription, preferences: rule(75), revision: now });
+  assert.deepEqual(await saved.json(), { mode: "device", preferences: rule(75), revision: now });
+
+  // A revision from yesterday's clock is still ordered normally.
+  const older = await register({ subscription, preferences: rule(95), revision: now - 1 });
+  assert.equal((await older.json()).preferences.accounts["claude:work"].thresholdPercent, 75);
+});

@@ -54,7 +54,9 @@ export function normalizeAlertPreferences(value) {
       return null;
     }
     const key = id.toLowerCase();
-    if (Object.hasOwn(normalized, key)) return null;
+    // Lowercasing can lengthen a key ("İ" becomes two code units), and the
+    // stored form is parsed again, so the limit applies to the key kept.
+    if (key.length > MAX_ACCOUNT_ID_LENGTH || Object.hasOwn(normalized, key)) return null;
     normalized[key] = { enabled: rule.enabled, thresholdPercent: rule.thresholdPercent };
   }
   return { accounts: normalized, resetAlerts: value.resetAlerts };
