@@ -61,9 +61,10 @@ manifest makes the page uninstallable.
 On HTTPS the page registers `sw.js` and can be installed from the browser menu
 ("Install app" / "Add to Home Screen"). On a shared view, `app.js` points the
 manifest link at `manifest.webmanifest?id=<read id>`. The container relay answers
-that with a manifest whose `start_url` carries the id, so the installed app opens
-the view it was installed from. This matters on iPhone, where a Home Screen app does
-not share Safari's storage.
+that with a manifest whose `start_url` carries the id. On iPhone, where a Home
+Screen app does not share Safari's storage, the app opens the view it was added
+from. Chrome keeps one installed app per site and updates its manifest, so after
+you open another shared view in the browser, the installed app may open that one.
 
 Static hosting, such as the nginx setup above, and the Cloudflare Worker serve the
 static manifest for that request. Its `start_url` carries no id, so `app.js` falls
