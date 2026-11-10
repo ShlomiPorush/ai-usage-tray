@@ -556,6 +556,8 @@ h1 {
 
 html:has(.alerts-panel[open]) { overflow: hidden; }
 
+.alerts-grab { display: none; }
+
 .alerts-header {
   display: flex;
   align-items: flex-start;
@@ -654,18 +656,36 @@ html:has(.alerts-panel[open]) { overflow: hidden; }
   accent-color: var(--accent);
 }
 
+.alerts-threshold-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+/* 16px text: iOS zooms the page into a smaller field on focus. */
 .alerts-threshold {
+  box-sizing: border-box;
+  width: 56px;
   min-height: 34px;
-  padding: 0 10px;
+  padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--input);
   color: var(--ink);
   font: inherit;
-  font-size: 13px;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
-.alerts-threshold:disabled { opacity: 0.55; }
+.alerts-threshold[aria-invalid="true"] {
+  border-color: var(--stale-ink);
+  box-shadow: 0 0 0 1px var(--stale-ink);
+}
+
+.alerts-threshold-field:has(.alerts-threshold:disabled) { opacity: 0.55; }
 
 .alerts-reset { margin-bottom: 14px; }
 
@@ -2380,7 +2400,35 @@ th[aria-sort="descending"] .usage-sort { color: var(--ink); }
     padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
     border-width: 1px 0 0;
     border-radius: 16px 16px 0 0;
+    padding-top: 8px;
   }
+
+  /* Drag the handle or the title row down to close (app.js). */
+  .alerts-grab {
+    display: block;
+    width: 40px;
+    height: 5px;
+    margin: 0 auto 10px;
+    border-radius: 999px;
+    background: var(--ink-3);
+    opacity: 0.45;
+  }
+
+  .alerts-grab,
+  .alerts-header {
+    touch-action: none;
+    cursor: grab;
+  }
+
+  .alerts-panel[open] { animation: alerts-sheet-in 220ms ease-out; }
+}
+
+@keyframes alerts-sheet-in {
+  from { transform: translateY(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alerts-panel[open] { animation: none; }
 }
 
 /* The narrowest phones: a little less padding so all of it still fits. */
