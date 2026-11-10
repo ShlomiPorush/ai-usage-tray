@@ -104,7 +104,7 @@ test("viewer offers device alerts whatever the desktop settings are", () => {
   assert.equal(resolveDeviceAlertControl({ subscribed: false, permission: "default" }).label, "Enable alerts");
   assert.equal(resolveDeviceAlertControl({ subscribed: false, permission: "denied" }).state, "blocked");
   const on = resolveDeviceAlertControl({ subscribed: true, permission: "granted" });
-  assert.equal(on.label, "Alerts on");
+  assert.equal(on.label, "Alert settings");
   assert.equal(on.testEnabled, true);
 });
 

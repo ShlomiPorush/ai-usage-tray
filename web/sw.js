@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v32: per-view manifest for Home Screen installs.
-var CACHE = "ai-usage-tray-shell-v32";
+// v33: alert settings open as a modal dialog.
+var CACHE = "ai-usage-tray-shell-v33";
 
 var SHELL = [
   "./",

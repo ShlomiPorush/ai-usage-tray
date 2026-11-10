@@ -197,11 +197,11 @@ function resolveDeviceAlertControl(options) {
   if (options.subscribed) {
     return {
       disabled: false,
-      label: "Alerts on",
+      label: "Alert settings",
       state: "on",
       testEnabled: options.permission === "granted",
       testVisible: true,
-      title: "Browser alerts are on. Click to change them or turn them off.",
+      title: "Browser alerts are on. Open alert settings to change them or turn them off.",
       visible: true
     };
   }
@@ -445,6 +445,8 @@ if (typeof module !== "undefined" && module.exports) {
   var alertPanelDirty = false;
   var PENDING_ALERTS_KEY_PREFIX = "aiUsageTray.pendingAlerts.";
   var ALERT_REQUEST_TIMEOUT_MS = 15000;
+  // The bell is the way back to these settings; on a phone it is an icon only.
+  var ALERTS_ON_MESSAGE = "Browser alerts are on for this device. Use the bell button to change them.";
   // The unconfirmed choice, kept here too: localStorage can refuse a write.
   var pendingAlertsMemory = null;
   // Endpoints turned off on this page. Requests still queued for them, or a
@@ -836,7 +838,7 @@ if (typeof module !== "undefined" && module.exports) {
           if (pending && result && !result.stale) {
             if (confirmedChoice(result, pending)) {
               show(notificationEl, pending.initial
-                ? "Browser alerts are on for this device."
+                ? ALERTS_ON_MESSAGE
                 : "Alert settings saved for this device.");
             } else {
               show(notificationEl, describeNotificationError(new Error("alerts_clock")));
@@ -919,7 +921,7 @@ if (typeof module !== "undefined" && module.exports) {
         });
       })
       .then(function () {
-        show(notificationEl, "Browser alerts are on for this device.");
+        show(notificationEl, ALERTS_ON_MESSAGE);
       });
   }
 
@@ -971,23 +973,68 @@ if (typeof module !== "undefined" && module.exports) {
 
   // --- device alerts: panel ---------------------------------------------
 
-  function closeAlertPanel() {
+  // The panel is a modal <dialog>, so it floats over the page instead of
+  // pushing the cards down. Esc, the close button and a tap on the backdrop
+  // all end in resetAlertPanel.
+  function resetAlertPanel() {
     alertPanelOpen = false;
     alertPanelDirty = false;
-    if (alertsPanelEl) {
-      alertsPanelEl.hidden = true;
-      alertsPanelEl.textContent = "";
-    }
+    if (alertsPanelEl) alertsPanelEl.textContent = "";
     if (notificationButton) notificationButton.setAttribute("aria-expanded", "false");
   }
 
+  function closeAlertPanel() {
+    if (alertsPanelEl && alertsPanelEl.open) alertsPanelEl.close();
+    resetAlertPanel();
+  }
+
   function openAlertPanel() {
+    if (!alertsPanelEl) return;
     alertPanelOpen = true;
     alertPanelDirty = false;
     renderAlertPanel();
+    if (!alertsPanelEl.open) alertsPanelEl.showModal();
     notificationButton.setAttribute("aria-expanded", "true");
-    var first = alertsPanelEl && alertsPanelEl.querySelector("input, select, button");
+    var first = alertsPanelEl.querySelector(".alerts-accounts input, .alerts-actions button");
     if (first) first.focus();
+  }
+
+  function wireAlertPanel() {
+    if (!alertsPanelEl) return;
+    // index.html keeps the older <section hidden> placeholder, so a page and
+    // a script from different cached versions still work together: this
+    // script swaps it for a <dialog>, an older one shows the section.
+    if (alertsPanelEl.tagName !== "DIALOG") {
+      var dialog = document.createElement("dialog");
+      dialog.className = "alerts-panel";
+      dialog.id = "alerts-panel";
+      dialog.setAttribute("aria-labelledby", "alerts-title");
+      alertsPanelEl.replaceWith(dialog);
+      alertsPanelEl = dialog;
+    }
+    alertsPanelEl.addEventListener("close", function () {
+      // close fires a task after close(): a panel reopened meanwhile stays.
+      if (alertsPanelEl.open) return;
+      if (alertPanelOpen) resetAlertPanel();
+      if (notificationButton && !notificationButton.hidden &&
+        (document.activeElement === document.body || !document.activeElement)) {
+        notificationButton.focus();
+      }
+    });
+    alertsPanelEl.addEventListener("click", function (event) {
+      if (event.target !== alertsPanelEl) return;
+      var box = alertsPanelEl.getBoundingClientRect();
+      var inside = event.clientX >= box.left && event.clientX <= box.right &&
+        event.clientY >= box.top && event.clientY <= box.bottom;
+      if (!inside) closeAlertPanel();
+    });
+    // Once the viewer starts using the panel, the minute refresh leaves it
+    // alone: rebuilding it would drop focus or close an open list.
+    var touched = function (event) {
+      if (event.target !== alertsPanelEl) alertPanelDirty = true;
+    };
+    alertsPanelEl.addEventListener("pointerdown", touched);
+    alertsPanelEl.addEventListener("keydown", touched);
   }
 
   function panelElement(tag, className, text) {
@@ -999,7 +1046,6 @@ if (typeof module !== "undefined" && module.exports) {
 
   function renderAlertPanel() {
     if (!alertsPanelEl) return;
-    alertsPanelEl.textContent = "";
     var subscribed = Boolean(pushSubscription);
     var mode = subscribed ? deviceAlertState.mode : null;
     var shownPreferences = deviceAlertState.preferences;
@@ -1013,10 +1059,29 @@ if (typeof module !== "undefined" && module.exports) {
     var accounts = payload && Array.isArray(payload.accounts) ? payload.accounts : [];
     var rows = alertPanelRows(accounts, shownPreferences, mode);
 
-    alertsPanelEl.appendChild(panelElement("h2", "alerts-title", "Alerts on this device"));
+    // Keeps focus on the same control when the refresh rebuilds the panel.
+    var focusedKey = alertsPanelEl.contains(document.activeElement)
+      ? document.activeElement.getAttribute("data-focus")
+      : null;
+    alertsPanelEl.textContent = "";
+
+    var header = panelElement("div", "alerts-header");
+    var title = panelElement("h2", "alerts-title", "Alerts on this device");
+    title.id = "alerts-title";
+    var closeButton = panelElement("button", "alerts-close");
+    closeButton.type = "button";
+    closeButton.setAttribute("aria-label", "Close");
+    closeButton.setAttribute("data-focus", "close");
+    closeButton.appendChild(panelElement("span", "", "×")).setAttribute("aria-hidden", "true");
+    closeButton.addEventListener("click", function () { closeAlertPanel(); });
+    header.appendChild(title);
+    header.appendChild(closeButton);
+    alertsPanelEl.appendChild(header);
     alertsPanelEl.appendChild(panelElement("p", "alerts-note", mode === "desktop"
       ? "This device follows the desktop app's alert settings. Save to choose them here instead."
-      : "Choose which accounts alert this device, and at what usage."));
+      : subscribed
+        ? "Alerts are on for this device. Change any account below and save, or turn alerts off."
+        : "Choose which accounts alert this device, and at what usage."));
 
     var list = panelElement("div", "alerts-accounts");
     rows.forEach(function (row, index) {
@@ -1026,12 +1091,14 @@ if (typeof module !== "undefined" && module.exports) {
       checkbox.type = "checkbox";
       checkbox.checked = row.enabled;
       checkbox.setAttribute("data-account-index", String(index));
+      checkbox.setAttribute("data-focus", "enabled:" + row.id);
       toggle.appendChild(checkbox);
       toggle.appendChild(panelElement("span", "alerts-account-name", row.name));
 
       var select = document.createElement("select");
       select.className = "alerts-threshold";
       select.setAttribute("aria-label", "Alert threshold for " + row.name);
+      select.setAttribute("data-focus", "threshold:" + row.id);
       thresholdChoices(row.thresholdPercent).forEach(function (value) {
         var option = panelElement("option", "", "At " + value + "% used");
         option.value = String(value);
@@ -1058,17 +1125,27 @@ if (typeof module !== "undefined" && module.exports) {
     var resetLabel = panelElement("label", "alerts-reset");
     var resetBox = document.createElement("input");
     resetBox.type = "checkbox";
+    resetBox.setAttribute("data-focus", "reset");
     resetBox.checked = alertResetChoice(accounts, shownPreferences, mode);
     resetBox.addEventListener("change", function () { alertPanelDirty = true; });
     resetLabel.appendChild(resetBox);
     resetLabel.appendChild(panelElement("span", "", "Also notify when weekly usage resets to 0%"));
     alertsPanelEl.appendChild(resetLabel);
 
+    // A refusal that keeps the panel open is said here: the page notice
+    // sits behind the modal backdrop.
+    var errorLine = panelElement("p", "alerts-error");
+    errorLine.setAttribute("role", "alert");
+    errorLine.hidden = true;
+    alertsPanelEl.appendChild(errorLine);
+
     var actions = panelElement("div", "alerts-actions");
     var primary = panelElement("button", "button button-primary", subscribed ? "Save" : "Turn on");
     primary.type = "button";
+    primary.setAttribute("data-focus", "primary");
     var secondary = panelElement("button", "button button-secondary", subscribed ? "Turn off" : "Cancel");
     secondary.type = "button";
+    secondary.setAttribute("data-focus", "secondary");
     actions.appendChild(primary);
     actions.appendChild(secondary);
     alertsPanelEl.appendChild(actions);
@@ -1100,7 +1177,8 @@ if (typeof module !== "undefined" && module.exports) {
       );
       if (preferences === null) {
         busy(false);
-        show(notificationEl, describeNotificationError(new Error("alerts_too_many")));
+        errorLine.textContent = describeNotificationError(new Error("alerts_too_many"));
+        errorLine.hidden = false;
         return;
       }
       // No promise step before turnOnDeviceAlerts: it asks for permission.
@@ -1110,14 +1188,22 @@ if (typeof module !== "undefined" && module.exports) {
       if (notificationBusy) return;
       if (!subscribed) {
         closeAlertPanel();
-        notificationButton.focus();
         return;
       }
       busy(true);
       finish(turnOffDeviceAlerts(), true);
     });
 
-    alertsPanelEl.hidden = false;
+    // Matched by account id, not position: a refresh can reorder accounts.
+    if (focusedKey) {
+      var keyed = alertsPanelEl.querySelectorAll("[data-focus]");
+      for (var k = 0; k < keyed.length; k += 1) {
+        if (keyed[k].getAttribute("data-focus") === focusedKey) {
+          keyed[k].focus();
+          break;
+        }
+      }
+    }
   }
 
   function syncLegacyNotificationControl() {
@@ -1249,6 +1335,7 @@ if (typeof module !== "undefined" && module.exports) {
 
   function setupNotifications() {
     if (!notificationButton || (!pushSupported() && !homeScreenRequiredForPush())) return;
+    wireAlertPanel();
     notificationButton.addEventListener("click", function () {
       var state = notificationButton.getAttribute("data-state");
       if (state === "install") {
