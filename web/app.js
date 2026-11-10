@@ -81,7 +81,6 @@ function resolveNotificationControl(options) {
 // one switch for weekly reset alerts. These helpers are pure so the tests can
 // load them without a DOM.
 
-var ALERT_THRESHOLD_CHOICES = [50, 75, 80, 90, 95, 100];
 var DEFAULT_ALERT_THRESHOLD = 90;
 // The relay refuses more account entries than this.
 var MAX_ALERT_ACCOUNTS = 32;
@@ -90,12 +89,13 @@ function validAlertThreshold(value) {
   return Number.isInteger(value) && value >= 1 && value <= 100 ? value : DEFAULT_ALERT_THRESHOLD;
 }
 
-// The select's choices, with a stored value outside the list kept so it shows
-// and saves unchanged.
-function thresholdChoices(current) {
-  var choices = ALERT_THRESHOLD_CHOICES.slice();
-  if (Number.isInteger(current) && choices.indexOf(current) === -1) choices.push(current);
-  return choices.sort(function (left, right) { return left - right; });
+// What the viewer typed as a threshold: a whole number from 1 to 100, an
+// optional "%" after it, or null. The desktop app takes the same range.
+function parseAlertThreshold(text) {
+  var match = /^\s*(\d{1,3})\s*%?\s*$/.exec(String(text));
+  if (!match) return null;
+  var value = Number(match[1]);
+  return value >= 1 && value <= 100 ? value : null;
 }
 
 // One row per account in the snapshot. Device mode reads the stored rule (an
@@ -352,7 +352,7 @@ if (typeof module !== "undefined" && module.exports) {
     nextAlertRevision: nextAlertRevision,
     preferencesFromRows: preferencesFromRows,
     resolveDeviceAlertControl: resolveDeviceAlertControl,
-    thresholdChoices: thresholdChoices,
+    parseAlertThreshold: parseAlertThreshold,
     resolvePercentMode: resolvePercentMode,
     hasEnabledAlertAccounts: hasEnabledAlertAccounts,
     resolveNotificationControl: resolveNotificationControl
@@ -443,6 +443,8 @@ if (typeof module !== "undefined" && module.exports) {
   var alertPanelOpen = false;
   // Unsaved edits in the open panel survive the once-a-minute refresh.
   var alertPanelDirty = false;
+  // Set by wireSheetDrag: cancels a drag or a close still settling.
+  var stopSheetDrag = function () {};
   var PENDING_ALERTS_KEY_PREFIX = "aiUsageTray.pendingAlerts.";
   var ALERT_REQUEST_TIMEOUT_MS = 15000;
   // The bell is the way back to these settings; on a phone it is an icon only.
@@ -979,6 +981,7 @@ if (typeof module !== "undefined" && module.exports) {
   function resetAlertPanel() {
     alertPanelOpen = false;
     alertPanelDirty = false;
+    stopSheetDrag();
     if (alertsPanelEl) alertsPanelEl.textContent = "";
     if (notificationButton) notificationButton.setAttribute("aria-expanded", "false");
   }
@@ -990,6 +993,8 @@ if (typeof module !== "undefined" && module.exports) {
 
   function openAlertPanel() {
     if (!alertsPanelEl) return;
+    // A drag or a close still settling from the last time is over.
+    stopSheetDrag();
     alertPanelOpen = true;
     alertPanelDirty = false;
     renderAlertPanel();
@@ -1021,12 +1026,23 @@ if (typeof module !== "undefined" && module.exports) {
         notificationButton.focus();
       }
     });
-    alertsPanelEl.addEventListener("click", function (event) {
-      if (event.target !== alertsPanelEl) return;
+    // A tap on the backdrop closes the panel. It must start there as well:
+    // a press inside that ends outside (a drag, a text selection) is a click
+    // on the dialog too.
+    var outside = function (event) {
+      if (event.target !== alertsPanelEl) return false;
       var box = alertsPanelEl.getBoundingClientRect();
-      var inside = event.clientX >= box.left && event.clientX <= box.right &&
-        event.clientY >= box.top && event.clientY <= box.bottom;
-      if (!inside) closeAlertPanel();
+      return event.clientX < box.left || event.clientX > box.right ||
+        event.clientY < box.top || event.clientY > box.bottom;
+    };
+    var pressedOutside = false;
+    alertsPanelEl.addEventListener("pointerdown", function (event) {
+      pressedOutside = outside(event);
+    });
+    alertsPanelEl.addEventListener("click", function (event) {
+      var close = pressedOutside && outside(event);
+      pressedOutside = false;
+      if (close) closeAlertPanel();
     });
     // Once the viewer starts using the panel, the minute refresh leaves it
     // alone: rebuilding it would drop focus or close an open list.
@@ -1035,6 +1051,83 @@ if (typeof module !== "undefined" && module.exports) {
     };
     alertsPanelEl.addEventListener("pointerdown", touched);
     alertsPanelEl.addEventListener("keydown", touched);
+    wireSheetDrag();
+  }
+
+  // On a phone the panel is a bottom sheet: dragging its handle or title row
+  // down closes it, as sheets do elsewhere. The close button stays for
+  // everyone who does not drag.
+  function wireSheetDrag() {
+    var sheet = window.matchMedia ? window.matchMedia("(max-width: 719px)") : null;
+    var calm = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+    var drag = null;
+    var settleTimer = null;
+    // Ends any drag and pending close, so neither reaches a panel opened
+    // again. resetAlertPanel calls it on every close.
+    stopSheetDrag = function () {
+      if (drag) {
+        try { alertsPanelEl.releasePointerCapture(drag.id); } catch (error) { /* already released */ }
+      }
+      drag = null;
+      clearTimeout(settleTimer);
+      settleTimer = null;
+      alertsPanelEl.style.transform = "";
+      alertsPanelEl.style.transition = "";
+    };
+    var settle = function (to, after) {
+      var instant = calm && calm.matches;
+      alertsPanelEl.style.transition = instant ? "none" : "transform 180ms ease-out";
+      alertsPanelEl.style.transform = to ? "translateY(" + to + "px)" : "";
+      clearTimeout(settleTimer);
+      settleTimer = null;
+      if (instant) {
+        after();
+        return;
+      }
+      settleTimer = setTimeout(function () {
+        settleTimer = null;
+        after();
+      }, 190);
+    };
+    // Widened past the sheet layout mid-drag: the centred dialog stays put.
+    if (sheet && typeof sheet.addEventListener === "function") {
+      sheet.addEventListener("change", function () {
+        if (!sheet.matches && drag) stopSheetDrag();
+      });
+    }
+    alertsPanelEl.addEventListener("pointerdown", function (event) {
+      if (!sheet || !sheet.matches || !alertsPanelEl.open || !event.isPrimary || drag || settleTimer) return;
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      var target = event.target;
+      if (!target.closest || !target.closest(".alerts-grab, .alerts-header") || target.closest(".alerts-close")) return;
+      drag = { id: event.pointerId, startY: event.clientY, lastY: event.clientY, lastAt: event.timeStamp, speed: 0, moved: 0 };
+      alertsPanelEl.style.transition = "none";
+      try { alertsPanelEl.setPointerCapture(event.pointerId); } catch (error) { /* drag still works without it */ }
+    });
+    alertsPanelEl.addEventListener("pointermove", function (event) {
+      if (!drag || event.pointerId !== drag.id) return;
+      var elapsed = Math.max(1, event.timeStamp - drag.lastAt);
+      drag.speed = (event.clientY - drag.lastY) / elapsed;
+      drag.lastY = event.clientY;
+      drag.lastAt = event.timeStamp;
+      drag.moved = Math.max(0, event.clientY - drag.startY);
+      alertsPanelEl.style.transform = drag.moved ? "translateY(" + drag.moved + "px)" : "";
+    });
+    var end = function (event) {
+      if (!drag || event.pointerId !== drag.id) return;
+      var moved = drag.moved;
+      // A flick is a fast move right before release, not one long ago.
+      var flung = drag.speed > 0.5 && moved > 24 && event.timeStamp - drag.lastAt < 100;
+      drag = null;
+      var height = alertsPanelEl.getBoundingClientRect().height;
+      if (event.type === "pointerup" && (moved > height * 0.3 || flung)) {
+        settle(height, function () { closeAlertPanel(); });
+      } else {
+        settle(0, function () { alertsPanelEl.style.transition = ""; });
+      }
+    };
+    alertsPanelEl.addEventListener("pointerup", end);
+    alertsPanelEl.addEventListener("pointercancel", end);
   }
 
   function panelElement(tag, className, text) {
@@ -1065,6 +1158,9 @@ if (typeof module !== "undefined" && module.exports) {
       : null;
     alertsPanelEl.textContent = "";
 
+    var grab = panelElement("div", "alerts-grab");
+    grab.setAttribute("aria-hidden", "true");
+    alertsPanelEl.appendChild(grab);
     var header = panelElement("div", "alerts-header");
     var title = panelElement("h2", "alerts-title", "Alerts on this device");
     title.id = "alerts-title";
@@ -1095,28 +1191,42 @@ if (typeof module !== "undefined" && module.exports) {
       toggle.appendChild(checkbox);
       toggle.appendChild(panelElement("span", "alerts-account-name", row.name));
 
-      var select = document.createElement("select");
-      select.className = "alerts-threshold";
-      select.setAttribute("aria-label", "Alert threshold for " + row.name);
-      select.setAttribute("data-focus", "threshold:" + row.id);
-      thresholdChoices(row.thresholdPercent).forEach(function (value) {
-        var option = panelElement("option", "", "At " + value + "% used");
-        option.value = String(value);
-        option.selected = value === row.thresholdPercent;
-        select.appendChild(option);
-      });
-      select.disabled = !row.enabled;
+      // Free entry, like the desktop app: "Alert at [90] %".
+      var threshold = panelElement("label", "alerts-threshold-field");
+      threshold.appendChild(panelElement("span", "alerts-threshold-word", "Alert at"));
+      var input = document.createElement("input");
+      input.type = "text";
+      input.className = "alerts-threshold";
+      input.inputMode = "numeric";
+      input.maxLength = 3;
+      input.autocomplete = "off";
+      input.value = String(row.thresholdPercent);
+      // Starts with the visible words, so voice control finds it by them.
+      input.setAttribute("aria-label", "Alert at % used for " + row.name);
+      input.setAttribute("data-focus", "threshold:" + row.id);
+      input.disabled = !row.enabled;
+      threshold.appendChild(input);
+      threshold.appendChild(panelElement("span", "alerts-threshold-unit", "% used"));
+      row.input = input;
       checkbox.addEventListener("change", function () {
         row.enabled = checkbox.checked;
-        select.disabled = !checkbox.checked;
+        input.disabled = !checkbox.checked;
+        input.removeAttribute("aria-invalid");
         alertPanelDirty = true;
       });
-      select.addEventListener("change", function () {
-        row.thresholdPercent = Number(select.value);
+      input.addEventListener("input", function () {
+        input.removeAttribute("aria-invalid");
+        // The last valid number is kept, so turning the account off after
+        // typing one keeps it.
+        var typed = parseAlertThreshold(input.value);
+        if (typed !== null) row.thresholdPercent = typed;
         alertPanelDirty = true;
+      });
+      input.addEventListener("keydown", function (event) {
+        if (event.key === "Enter") primary.click();
       });
       line.appendChild(toggle);
-      line.appendChild(select);
+      line.appendChild(threshold);
       list.appendChild(line);
     });
     if (rows.length === 0) list.appendChild(panelElement("p", "alerts-note", "No accounts are shared yet."));
@@ -1169,6 +1279,21 @@ if (typeof module !== "undefined" && module.exports) {
 
     primary.addEventListener("click", function () {
       if (notificationBusy) return;
+      // Every account that alerts needs a valid number; an account turned
+      // off keeps its last valid one.
+      for (var r = 0; r < rows.length; r += 1) {
+        if (!rows[r].enabled) continue;
+        var typed = parseAlertThreshold(rows[r].input.value);
+        if (typed === null) {
+          rows[r].input.setAttribute("aria-invalid", "true");
+          errorLine.textContent = "Enter a whole number from 1 to 100 for " + rows[r].name + ".";
+          errorLine.hidden = false;
+          rows[r].input.focus();
+          return;
+        }
+        rows[r].thresholdPercent = typed;
+      }
+      errorLine.hidden = true;
       busy(true);
       var preferences = preferencesFromRows(
         rows,
@@ -1344,7 +1469,9 @@ if (typeof module !== "undefined" && module.exports) {
       }
       if (deviceAlertsMode) {
         if (notificationBusy) return;
-        if (alertPanelOpen) closeAlertPanel();
+        // The dialog itself, not alertPanelOpen: Esc closes it a moment
+        // before its close event updates the flag.
+        if (alertsPanelEl && alertsPanelEl.open) closeAlertPanel();
         else openAlertPanel();
         return;
       }

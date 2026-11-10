@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v33: alert settings open as a modal dialog.
-var CACHE = "ai-usage-tray-shell-v33";
+// v34: free threshold entry and drag-to-close sheet.
+var CACHE = "ai-usage-tray-shell-v34";
 
 var SHELL = [
   "./",

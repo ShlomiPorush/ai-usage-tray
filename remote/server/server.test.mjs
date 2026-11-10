@@ -44,7 +44,7 @@ const {
   nextAlertRevision,
   preferencesFromRows,
   resolveDeviceAlertControl,
-  thresholdChoices,
+  parseAlertThreshold,
 } = require("../../web/app.js");
 
 test("viewer builds the device alert panel from the snapshot and the stored rules", () => {
@@ -72,8 +72,13 @@ test("viewer builds the device alert panel from the snapshot and the stored rule
   ]);
   assert.equal(alertResetChoice(accounts, stored, "device"), false);
 
-  assert.deepEqual(thresholdChoices(85), [50, 75, 80, 85, 90, 95, 100]);
-  assert.deepEqual(thresholdChoices(90), [50, 75, 80, 90, 95, 100]);
+  assert.equal(parseAlertThreshold("85"), 85);
+  assert.equal(parseAlertThreshold(" 7 % "), 7);
+  assert.equal(parseAlertThreshold("100"), 100);
+  assert.equal(parseAlertThreshold("1"), 1);
+  for (const bad of ["", " ", "0", "101", "85.5", "-5", "8 5", "abc", "1e2", "0x10"]) {
+    assert.equal(parseAlertThreshold(bad), null, bad);
+  }
   assert.deepEqual(
     JSON.parse(JSON.stringify(preferencesFromRows(alertPanelRows(accounts, stored, "device"), true))),
     {
