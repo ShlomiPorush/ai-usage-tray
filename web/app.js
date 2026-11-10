@@ -772,6 +772,14 @@ if (typeof module !== "undefined" && module.exports) {
             ? response.body.error
             : "subscription_rejected");
           refusal.status = response.status;
+          // The refused revision came from a clock that runs ahead. Building
+          // the next one on it would be refused again after the clock is
+          // fixed, so start over from what the relay is known to hold.
+          if (refusal.message === "clock_skew") {
+            lastAlertRevision = adoptableAlertRevision(deviceAlertState.revision, Date.now())
+              ? deviceAlertState.revision
+              : 0;
+          }
           throw refusal;
         }
         return Promise.resolve(response.body).then(function (state) {
