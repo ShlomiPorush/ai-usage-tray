@@ -534,6 +534,117 @@ h1 {
   color: var(--ink-3);
 }
 
+/* Device alerts panel ------------------------------------------------- */
+
+.alerts-panel {
+  max-width: 560px;
+  margin: 0 0 16px;
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.alerts-panel[hidden] { display: none; }
+
+.alerts-title {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.alerts-note {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.alerts-accounts {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.alerts-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.alerts-account-toggle,
+.alerts-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.alerts-account-name {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.alerts-panel input[type="checkbox"] {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.alerts-threshold {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--input);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.alerts-threshold:disabled { opacity: 0.55; }
+
+.alerts-reset { margin-bottom: 14px; }
+
+.alerts-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.alerts-actions .button {
+  border: 1px solid transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.alerts-actions .button-secondary { border-color: var(--border); }
+
+.alerts-actions .button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.alerts-panel :where(input, select):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* Cards --------------------------------------------------------------- */
 
 /* Masonry: as many ~320px columns as fit, one on phones. Cards fill each

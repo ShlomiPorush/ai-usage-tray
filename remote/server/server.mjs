@@ -4,7 +4,12 @@ import { createServer } from "node:http";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { findResetAlerts, findThresholdCrossings } from "../shared/usage-alerts.mjs";
+import {
+  defaultAlertPreferences,
+  findResetAlerts,
+  findThresholdCrossings,
+  normalizeAlertPreferences,
+} from "../shared/usage-alerts.mjs";
 import {
   MAX_CLOCK_SKEW_SECONDS,
   resolveSigningKey,
@@ -594,6 +599,55 @@ function normalizeAddress(value) {
   return address;
 }
 
+// A stored value is written only by putSubscription from normalized input; one
+// that no longer parses still means "device mode", so it falls back to the
+// defaults rather than silently following the desktop again.
+function parseStoredPreferences(value) {
+  if (value === null || value === undefined) return null;
+  try {
+    return normalizeAlertPreferences(JSON.parse(value)) ?? defaultAlertPreferences();
+  } catch {
+    return defaultAlertPreferences();
+  }
+}
+
+/**
+ * The three POST /u/{readId}/push-subscription bodies:
+ * - a bare PushSubscription (pages older than device preferences): kind "desktop";
+ * - { subscription } (the page re-associating on load): kind "device";
+ * - { subscription, preferences, revision } (Turn on / Save): kind "save".
+ * Returns { error } with the API error code for anything else.
+ */
+function parseSubscriptionRegistration(data, pushOptions, nowMs) {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    return { error: "invalid_subscription" };
+  }
+  if (Object.hasOwn(data, "endpoint")) {
+    return validatePushSubscription(data, pushOptions)
+      ? { kind: "desktop", subscription: data }
+      : { error: "invalid_subscription" };
+  }
+  const allowed = new Set(["subscription", "preferences", "revision"]);
+  if (!Object.keys(data).every((key) => allowed.has(key))) return { error: "invalid_subscription" };
+  if (!validatePushSubscription(data.subscription, pushOptions)) return { error: "invalid_subscription" };
+  if (!Object.hasOwn(data, "preferences")) {
+    return Object.hasOwn(data, "revision")
+      ? { error: "invalid_preferences" }
+      : { kind: "device", subscription: data.subscription };
+  }
+  const preferences = normalizeAlertPreferences(data.preferences);
+  if (preferences === null || !Number.isSafeInteger(data.revision) || data.revision <= 0) {
+    return { error: "invalid_preferences" };
+  }
+  // Revisions are the viewer's millisecond clock. One far ahead of the relay's
+  // would outrank every later save from a corrected clock, so it is refused
+  // and never stored.
+  if (data.revision > nowMs + PREFERENCES_REVISION_FUTURE_MS) return { error: "clock_skew" };
+  return { kind: "save", subscription: data.subscription, preferences, revision: data.revision };
+}
+
+export const PREFERENCES_REVISION_FUTURE_MS = 24 * 60 * 60 * 1000;
+
 export class SnapshotStore {
   constructor(databasePath, { usageTombstoneTtlMs = TTL_MS } = {}) {
     if (databasePath !== ":memory:") mkdirSync(dirname(databasePath), { recursive: true });
@@ -648,21 +702,54 @@ export class SnapshotStore {
     );
     this.deleteStatement = this.database.prepare("DELETE FROM snapshots WHERE read_id = ?");
     this.deleteExpiredStatement = this.database.prepare("DELETE FROM snapshots WHERE expires_at <= ?");
+    // Device alert preferences (added in 1.10.0). NULL preferences = the row
+    // follows the desktop's account.alert, as every row made before did.
+    const subscriptionColumns = new Set(
+      this.database.prepare("PRAGMA table_info(push_subscriptions)").all().map((column) => column.name),
+    );
+    if (!subscriptionColumns.has("preferences")) {
+      this.database.exec("ALTER TABLE push_subscriptions ADD COLUMN preferences TEXT NULL");
+    }
+    if (!subscriptionColumns.has("preferences_revision")) {
+      this.database.exec(
+        "ALTER TABLE push_subscriptions ADD COLUMN preferences_revision INTEGER NOT NULL DEFAULT 0",
+      );
+    }
+
+    // One statement, so a refresh can never undo a concurrent save. SET
+    // expressions see the old row: preferences survive a refresh of the same
+    // read id, follow the new mode when the endpoint moves to another view,
+    // and a save (?6 = 1) lands only with a newer revision than the stored one.
     this.upsertSubscriptionStatement = this.database.prepare(`
-      INSERT INTO push_subscriptions (endpoint, read_id, subscription)
-      VALUES (?, ?, ?)
+      INSERT INTO push_subscriptions (endpoint, read_id, subscription, preferences, preferences_revision)
+      VALUES (?1, ?2, ?3, ?4, ?5)
       ON CONFLICT (endpoint) DO UPDATE SET
-        read_id = excluded.read_id,
-        subscription = excluded.subscription
+        subscription = excluded.subscription,
+        preferences = CASE
+          WHEN push_subscriptions.read_id <> excluded.read_id THEN excluded.preferences
+          WHEN ?6 = 1 AND excluded.preferences_revision > push_subscriptions.preferences_revision
+            THEN excluded.preferences
+          ELSE push_subscriptions.preferences
+        END,
+        preferences_revision = CASE
+          WHEN push_subscriptions.read_id <> excluded.read_id THEN excluded.preferences_revision
+          WHEN ?6 = 1 AND excluded.preferences_revision > push_subscriptions.preferences_revision
+            THEN excluded.preferences_revision
+          ELSE push_subscriptions.preferences_revision
+        END,
+        read_id = excluded.read_id
     `);
+    this.subscriptionPreferencesStatement = this.database.prepare(
+      "SELECT preferences, preferences_revision FROM push_subscriptions WHERE endpoint = ?",
+    );
+    this.listSubscriptionEntriesStatement = this.database.prepare(
+      "SELECT subscription, preferences FROM push_subscriptions WHERE read_id = ? ORDER BY endpoint",
+    );
     this.countSubscriptionsStatement = this.database.prepare(
       "SELECT COUNT(*) AS count FROM push_subscriptions WHERE read_id = ?",
     );
     this.findSubscriptionStatement = this.database.prepare(
       "SELECT read_id FROM push_subscriptions WHERE endpoint = ?",
-    );
-    this.listSubscriptionsStatement = this.database.prepare(
-      "SELECT subscription FROM push_subscriptions WHERE read_id = ? ORDER BY endpoint",
     );
     this.deleteSubscriptionStatement = this.database.prepare(
       "DELETE FROM push_subscriptions WHERE read_id = ? AND endpoint = ?",
@@ -844,22 +931,53 @@ export class SnapshotStore {
     return row === undefined ? null : { seq: row.seq, bytes: row.bytes, tombstone: row.tombstone === 1 };
   }
 
-  putSubscription(readId, subscription) {
+  /**
+   * Stores a subscription. options.kind:
+   * - "desktop" (default, the bare body old clients send): a new row follows
+   *   the desktop; a known row keeps its mode and preferences.
+   * - "device": a new row gets the default device preferences; a known row
+   *   keeps its mode and preferences.
+   * - "save": sets options.preferences when options.revision is newer than
+   *   the stored one.
+   * Returns false when the view is at its subscription cap, otherwise the row's
+   * current state: { preferences } (normalized, or null for desktop mode) and
+   * the revision of the stored preferences (0 when none was ever saved).
+   */
+  putSubscription(readId, subscription, options = {}) {
+    const kind = options.kind ?? "desktop";
     const existing = this.findSubscriptionStatement.get(subscription.endpoint);
     const count = Number(this.countSubscriptionsStatement.get(readId)?.count ?? 0);
     if (existing?.read_id !== readId && count >= MAX_PUSH_SUBSCRIPTIONS) return false;
+    let preferences = null;
+    if (kind === "device") preferences = JSON.stringify(defaultAlertPreferences());
+    if (kind === "save") preferences = JSON.stringify(options.preferences);
     this.upsertSubscriptionStatement.run(
       subscription.endpoint,
       readId,
       JSON.stringify(subscription),
+      preferences,
+      kind === "save" ? options.revision : 0,
+      kind === "save" ? 1 : 0,
     );
-    return true;
+    const stored = this.subscriptionPreferencesStatement.get(subscription.endpoint);
+    return {
+      preferences: parseStoredPreferences(stored?.preferences),
+      revision: Number(stored?.preferences_revision ?? 0),
+    };
   }
 
   listSubscriptions(readId) {
-    return this.listSubscriptionsStatement.all(readId).flatMap((row) => {
+    return this.listSubscriptionEntries(readId).map((entry) => entry.subscription);
+  }
+
+  /** [{ subscription, preferences }], preferences null for desktop-mode rows. */
+  listSubscriptionEntries(readId) {
+    return this.listSubscriptionEntriesStatement.all(readId).flatMap((row) => {
       try {
-        return [JSON.parse(row.subscription)];
+        return [{
+          subscription: JSON.parse(row.subscription),
+          preferences: parseStoredPreferences(row.preferences),
+        }];
       } catch {
         return [];
       }
@@ -1570,17 +1688,28 @@ export function createRemoteViewServer({
     }
   }
 
-  async function deliverAlerts(readId, data, crossings, resets) {
-    if (vapidConfiguration === null || (crossings.length === 0 && resets.length === 0)) return;
-    const message = {
-      type: "usage-alerts",
-      readId,
-      displayMode: data.displayMode === "remaining" ? "remaining" : "used",
-      alerts: crossings,
-      resets,
+  // Each subscription gets the alerts its own rules produce: desktop-mode rows
+  // the desktop's account.alert, device-mode rows their stored preferences.
+  // Rows with the same rules share one evaluation.
+  async function deliverAlerts(readId, previous, data) {
+    if (vapidConfiguration === null || !previous) return;
+    const displayMode = data.displayMode === "remaining" ? "remaining" : "used";
+    const messages = new Map();
+    const messageFor = (preferences) => {
+      const key = preferences === null ? "desktop" : JSON.stringify(preferences);
+      if (!messages.has(key)) {
+        const alerts = findThresholdCrossings(previous, data, preferences);
+        const resets = findResetAlerts(previous, data, preferences);
+        messages.set(key, alerts.length === 0 && resets.length === 0
+          ? null
+          : { type: "usage-alerts", readId, displayMode, alerts, resets });
+      }
+      return messages.get(key);
     };
-    const subscriptions = store.listSubscriptions(readId);
-    await Promise.all(subscriptions.map(async (subscription) => {
+    const entries = store.listSubscriptionEntries(readId);
+    await Promise.all(entries.map(async ({ subscription, preferences }) => {
+      const message = messageFor(preferences);
+      if (message === null) return;
       // Drops rows a narrowed host list, or an older build, would no longer accept.
       if (!validatePushSubscription(subscription, pushOptions)) {
         if (typeof subscription?.endpoint === "string") {
@@ -1628,7 +1757,9 @@ export function createRemoteViewServer({
       if (request.method === "GET" && path === "/push/vapid-public-key") {
         return vapidConfiguration === null
           ? sendJson(response, 503, { error: "push_not_configured" })
-          : sendJson(response, 200, { publicKey: vapidConfiguration.publicKey });
+          // devicePreferences tells the page this relay stores per-device alert
+          // rules; a relay without the field gets only the old bare requests.
+          : sendJson(response, 200, { publicKey: vapidConfiguration.publicKey, devicePreferences: true });
       }
 
       if (request.method === "GET") {
@@ -1656,12 +1787,19 @@ export function createRemoteViewServer({
           if (store.get(readId, now()) === null) {
             return sendJson(response, 404, { error: "not_found" });
           }
-          if (!validatePushSubscription(parsed.data, pushOptions)) {
-            return sendJson(response, 422, { error: "invalid_subscription" });
-          }
-          return store.putSubscription(readId, parsed.data)
+          const registration = parseSubscriptionRegistration(parsed.data, pushOptions, now());
+          if (registration.error) return sendJson(response, 422, { error: registration.error });
+          const stored = store.putSubscription(readId, registration.subscription, registration);
+          if (stored === false) return sendJson(response, 429, { error: "too_many_subscriptions" });
+          // The bare body comes from pages older than device preferences, which
+          // expect 204; the wrapper gets the row's state back.
+          return registration.kind === "desktop"
             ? sendEmpty(response, 204)
-            : sendJson(response, 429, { error: "too_many_subscriptions" });
+            : sendJson(response, 200, {
+              mode: stored.preferences === null ? "desktop" : "device",
+              preferences: stored.preferences,
+              revision: stored.revision,
+            });
         }
 
         if (typeof parsed.data?.endpoint !== "string") {
@@ -1736,10 +1874,8 @@ export function createRemoteViewServer({
           previous = null;
         }
       }
-      const crossings = findThresholdCrossings(previous, data);
-      const resets = findResetAlerts(previous, data);
       store.put(readId, body, now() + ttlMs);
-      await deliverAlerts(readId, data, crossings, resets);
+      await deliverAlerts(readId, previous, data);
       return sendEmpty(response, 204, { "X-Read-Id": readId });
     } catch (error) {
       console.error("Remote-view request failed", error);

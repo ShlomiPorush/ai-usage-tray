@@ -36,7 +36,76 @@ const {
   hasEnabledAlertAccounts,
   resolveNotificationControl,
   resolvePercentMode,
+  adoptableAlertRevision,
+  alertPanelRows,
+  alertResetChoice,
+  isDefiniteRejection,
+  nextAlertRevision,
+  preferencesFromRows,
+  resolveDeviceAlertControl,
+  thresholdChoices,
 } = require("../../web/app.js");
+
+test("viewer builds the device alert panel from the snapshot and the stored rules", () => {
+  const accounts = [
+    { id: "Claude:Work", name: "Claude Work", alert: { enabled: true, thresholdPercent: 80, resetEnabled: true } },
+    { id: "codex:home", name: "", alert: { enabled: false, thresholdPercent: 70 } },
+    { name: "no id" },
+  ];
+  // Not subscribed yet: every account on at 90%.
+  assert.deepEqual(alertPanelRows(accounts, null, null), [
+    { id: "claude:work", name: "Claude Work", enabled: true, thresholdPercent: 90 },
+    { id: "codex:home", name: "codex:home", enabled: true, thresholdPercent: 90 },
+  ]);
+  // Desktop mode starts from the desktop's own settings.
+  assert.deepEqual(alertPanelRows(accounts, null, "desktop").map((row) => [row.enabled, row.thresholdPercent]), [
+    [true, 80],
+    [false, 70],
+  ]);
+  assert.equal(alertResetChoice(accounts, null, "desktop"), true);
+  // Device mode: stored rules, and an account the device never saw at 90%.
+  const stored = { accounts: { "claude:work": { enabled: false, thresholdPercent: 85 } }, resetAlerts: false };
+  assert.deepEqual(alertPanelRows(accounts, stored, "device").map((row) => [row.enabled, row.thresholdPercent]), [
+    [false, 85],
+    [true, 90],
+  ]);
+  assert.equal(alertResetChoice(accounts, stored, "device"), false);
+
+  assert.deepEqual(thresholdChoices(85), [50, 75, 80, 85, 90, 95, 100]);
+  assert.deepEqual(thresholdChoices(90), [50, 75, 80, 90, 95, 100]);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(preferencesFromRows(alertPanelRows(accounts, stored, "device"), true))),
+    {
+      accounts: {
+        "claude:work": { enabled: false, thresholdPercent: 85 },
+        // codex:home is on at 90%, the default, so it needs no rule.
+      },
+      resetAlerts: true,
+    },
+  );
+});
+
+test("viewer orders alert saves and tells a refusal from an unknown outcome", () => {
+  assert.equal(nextAlertRevision(0, 1000), 1000);
+  // A clock that moved back still produces a newer revision.
+  assert.equal(nextAlertRevision(5000, 1000), 5001);
+  assert.equal(isDefiniteRejection(Object.assign(new Error("invalid_preferences"), { status: 422 })), true);
+  assert.equal(isDefiniteRejection(Object.assign(new Error("too_many_subscriptions"), { status: 429 })), true);
+  assert.equal(isDefiniteRejection(Object.assign(new Error("x"), { status: 503 })), false);
+  assert.equal(isDefiniteRejection(new TypeError("Failed to fetch")), false);
+  assert.equal(
+    describeNotificationError(new Error("alerts_unconfirmed")),
+    "Alerts are not confirmed yet. The page will try again.",
+  );
+});
+
+test("viewer offers device alerts whatever the desktop settings are", () => {
+  assert.equal(resolveDeviceAlertControl({ subscribed: false, permission: "default" }).label, "Enable alerts");
+  assert.equal(resolveDeviceAlertControl({ subscribed: false, permission: "denied" }).state, "blocked");
+  const on = resolveDeviceAlertControl({ subscribed: true, permission: "granted" });
+  assert.equal(on.label, "Alerts on");
+  assert.equal(on.testEnabled, true);
+});
 
 test("reset expiry uses calendar days and only warns about unexpired resets through day seven", () => {
   const now = new Date(2026, 8, 17, 12).getTime();
@@ -1022,4 +1091,54 @@ test("Cloudflare purge retries transient failures but not rejected credentials",
   assert.equal(await purgeCloudflareCache(config, { fetchImpl: downFetch, log, sleep: noSleep, attempts: 2 }), false);
   assert.equal(down, 2);
   assert.ok(lines.every((line) => !String(line).includes("secret-token-value")));
+});
+
+test("viewer keeps the rules of accounts the snapshot does not show right now", () => {
+  const rows = [{ id: "claude:work", name: "Claude Work", enabled: true, thresholdPercent: 80 }];
+  const stored = {
+    accounts: JSON.parse('{"codex:hidden":{"enabled":false,"thresholdPercent":60},"claude:work":{"enabled":false,"thresholdPercent":50}}'),
+    resetAlerts: true,
+  };
+  const merged = preferencesFromRows(rows, false, stored);
+  assert.deepEqual(JSON.parse(JSON.stringify(merged)), {
+    accounts: {
+      "claude:work": { enabled: true, thresholdPercent: 80 },
+      "codex:hidden": { enabled: false, thresholdPercent: 60 },
+    },
+    resetAlerts: false,
+  });
+
+  // An account id like __proto__ is a real key in the request body.
+  const proto = preferencesFromRows([{ id: "__proto__", name: "x", enabled: false, thresholdPercent: 40 }], true, null);
+  assert.equal(JSON.stringify(proto), '{"accounts":{"__proto__":{"enabled":false,"thresholdPercent":40}},"resetAlerts":true}');
+});
+
+test("viewer follows the relay's revision only when it is a plausible clock", () => {
+  const now = Date.parse("2026-11-10T12:00:00Z");
+  assert.equal(adoptableAlertRevision(now - 1000, now), true);
+  assert.equal(adoptableAlertRevision(now + 2 * 86400000, now), false);
+  assert.equal(adoptableAlertRevision(2 ** 50, now), false);
+});
+
+test("viewer leaves out rules equal to the default, so 32 entries hold real choices", () => {
+  const stored = { accounts: {}, resetAlerts: true };
+  for (let index = 0; index < 32; index += 1) {
+    stored.accounts["acct-" + index] = { enabled: false, thresholdPercent: 90 };
+  }
+  // acct-0 is hidden on the desktop; a new account shows with the default.
+  const rows = [];
+  for (let index = 1; index < 32; index += 1) {
+    rows.push({ id: "acct-" + index, name: "x", enabled: false, thresholdPercent: 90 });
+  }
+  rows.push({ id: "new", name: "New", enabled: true, thresholdPercent: 90 });
+  const saved = preferencesFromRows(rows, true, stored);
+  assert.equal(Object.keys(saved.accounts).length, 32);
+  assert.deepEqual(saved.accounts["acct-0"], { enabled: false, thresholdPercent: 90 });
+  assert.equal(Object.hasOwn(saved.accounts, "new"), false);
+  // A 33rd custom rule cannot be kept: the save is refused, nothing dropped.
+  rows[rows.length - 1] = { id: "new", name: "New", enabled: false, thresholdPercent: 90 };
+  assert.equal(preferencesFromRows(rows, true, stored), null);
+  // Setting a stored account back to the default drops its rule.
+  const back = preferencesFromRows([{ id: "acct-5", name: "x", enabled: true, thresholdPercent: 90 }], true, stored);
+  assert.equal(Object.hasOwn(back.accounts, "acct-5"), false);
 });

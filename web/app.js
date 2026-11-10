@@ -75,8 +75,192 @@ function resolveNotificationControl(options) {
   };
 }
 
+// --- device alerts -------------------------------------------------------
+// A relay that answers /push/vapid-public-key with devicePreferences: true
+// keeps each browser's own alert rules: per account on/off and threshold, and
+// one switch for weekly reset alerts. These helpers are pure so the tests can
+// load them without a DOM.
+
+var ALERT_THRESHOLD_CHOICES = [50, 75, 80, 90, 95, 100];
+var DEFAULT_ALERT_THRESHOLD = 90;
+// The relay refuses more account entries than this.
+var MAX_ALERT_ACCOUNTS = 32;
+
+function validAlertThreshold(value) {
+  return Number.isInteger(value) && value >= 1 && value <= 100 ? value : DEFAULT_ALERT_THRESHOLD;
+}
+
+// The select's choices, with a stored value outside the list kept so it shows
+// and saves unchanged.
+function thresholdChoices(current) {
+  var choices = ALERT_THRESHOLD_CHOICES.slice();
+  if (Number.isInteger(current) && choices.indexOf(current) === -1) choices.push(current);
+  return choices.sort(function (left, right) { return left - right; });
+}
+
+// One row per account in the snapshot. Device mode reads the stored rule (an
+// account the device has no rule for is on at 90%); desktop mode starts from
+// the desktop's own settings, so saving keeps what the device received so far.
+function alertPanelRows(accounts, preferences, mode) {
+  var rules = preferences && preferences.accounts ? preferences.accounts : {};
+  return (Array.isArray(accounts) ? accounts : [])
+    .filter(function (account) { return account && typeof account.id === "string" && account.id; })
+    .slice(0, MAX_ALERT_ACCOUNTS)
+    .map(function (account) {
+      var key = account.id.toLowerCase();
+      var rule = { enabled: true, thresholdPercent: DEFAULT_ALERT_THRESHOLD };
+      if (mode === "device" && Object.prototype.hasOwnProperty.call(rules, key)) {
+        rule = rules[key];
+      } else if (mode === "desktop" && account.alert) {
+        rule = { enabled: account.alert.enabled === true, thresholdPercent: account.alert.thresholdPercent };
+      }
+      return {
+        id: key,
+        name: typeof account.name === "string" && account.name ? account.name : account.id,
+        enabled: rule.enabled === true,
+        thresholdPercent: validAlertThreshold(rule.thresholdPercent)
+      };
+    });
+}
+
+function alertResetChoice(accounts, preferences, mode) {
+  if (mode === "device" && preferences) return preferences.resetAlerts === true;
+  if (mode === "desktop") {
+    return (Array.isArray(accounts) ? accounts : []).some(function (account) {
+      return account && account.alert && account.alert.enabled === true && account.alert.resetEnabled === true;
+    });
+  }
+  return true;
+}
+
+// The rows shown, plus the stored rules of accounts the snapshot does not list
+// right now (an account hidden on the desktop for a while keeps its rule).
+// A null-prototype map, so an account id like "__proto__" stays a key.
+//
+// A rule equal to the default (on at 90%) is left out: the relay applies the
+// default to any account without a rule, so leaving it out changes nothing and
+// keeps the 32 entries for choices that differ from it.
+function preferencesFromRows(rows, resetAlerts, stored) {
+  var accounts = Object.create(null);
+  var seen = Object.create(null);
+  var count = 0;
+  var dropped = false;
+  var add = function (key, rule) {
+    if (seen[key]) return;
+    seen[key] = true;
+    var normalized = { enabled: rule.enabled === true, thresholdPercent: validAlertThreshold(rule.thresholdPercent) };
+    if (normalized.enabled && normalized.thresholdPercent === DEFAULT_ALERT_THRESHOLD) return;
+    if (count >= MAX_ALERT_ACCOUNTS) {
+      dropped = true;
+      return;
+    }
+    accounts[key] = normalized;
+    count += 1;
+  };
+  rows.forEach(function (row) { add(row.id, row); });
+  var kept = stored && stored.accounts ? stored.accounts : null;
+  if (kept) {
+    Object.keys(kept).forEach(function (key) {
+      var rule = kept[key];
+      if (rule && typeof rule === "object") add(key, rule);
+    });
+  }
+  // More custom rules than the relay keeps: saving would drop one of them
+  // without a word, so the caller refuses instead.
+  if (dropped) return null;
+  return { accounts: accounts, resetAlerts: resetAlerts === true };
+}
+
+// The relay refuses a revision more than this ahead of its clock, so a stored
+// one beyond it is not a clock this page should follow.
+var ALERT_REVISION_FUTURE_MS = 86400000;
+
+// Each save carries a revision the relay compares, so a late retry of an
+// older choice can never overwrite a newer one.
+function nextAlertRevision(last, now) {
+  return Math.max(Math.floor(now), (Number(last) || 0) + 1);
+}
+
+// Whether to build the next revision on the relay's stored one.
+function adoptableAlertRevision(revision, now) {
+  return Number.isSafeInteger(revision) && revision > 0 && revision <= now + ALERT_REVISION_FUTURE_MS;
+}
+
+// The relay did answer and refused: nothing was stored. Anything else (no
+// answer, a 5xx) leaves the outcome unknown.
+function isDefiniteRejection(error) {
+  var status = error && error.status;
+  return typeof status === "number" && status >= 400 && status < 500 && status !== 408;
+}
+
+function resolveDeviceAlertControl(options) {
+  if (options.subscribed) {
+    return {
+      disabled: false,
+      label: "Alerts on",
+      state: "on",
+      testEnabled: options.permission === "granted",
+      testVisible: true,
+      title: "Browser alerts are on. Click to change them or turn them off.",
+      visible: true
+    };
+  }
+  if (options.permission === "denied") {
+    return {
+      disabled: true,
+      label: "Alerts blocked",
+      state: "blocked",
+      testEnabled: false,
+      testVisible: false,
+      title: "Notifications are blocked in this browser's site settings.",
+      visible: true
+    };
+  }
+  return {
+    disabled: false,
+    label: "Enable alerts",
+    state: "off",
+    testEnabled: false,
+    testVisible: false,
+    title: "Choose which usage alerts this device gets.",
+    visible: true
+  };
+}
+
+var HOME_SCREEN_CONTROL = {
+  disabled: false,
+  label: "Enable alerts",
+  state: "install",
+  testEnabled: false,
+  testVisible: false,
+  title: "Alerts on iPhone need the page on the Home Screen. Click to see how.",
+  visible: true
+};
+
+var HOME_SCREEN_HELP = "On iPhone, alerts work only from the Home Screen. Tap Share, then Add to Home Screen, " +
+  "open the page from there and click Enable alerts.";
+
 function describeNotificationError(error) {
   var code = error && error.message;
+  if (code === "alerts_clock") {
+    return "This change was not saved: a newer one is already stored for this device. " +
+      "If this keeps happening, check this device's date and time.";
+  }
+  if (code === "clock_skew") {
+    return "This device's date and time look wrong, so the alerts were not saved. Fix them, then try again.";
+  }
+  if (code === "alerts_too_many") {
+    return "This device can keep custom alerts for up to 32 accounts. Set some back to on at 90%, then save again.";
+  }
+  if (code === "alerts_retired") {
+    return "Alerts were turned off on this device before the change was saved.";
+  }
+  if (code === "alerts_unconfirmed") {
+    return "Alerts are not confirmed yet. The page will try again.";
+  }
+  if (code === "too_many_subscriptions") {
+    return "This shared view already has the most devices it can alert. Turn alerts off on another device first.";
+  }
   if (code === "permission_denied") {
     return "Notifications were not allowed. Change this in the browser's site settings.";
   }
@@ -161,6 +345,14 @@ if (typeof module !== "undefined" && module.exports) {
     resetExpiryInfo: resetExpiryInfo,
     resetExpiryNotice: resetExpiryNotice,
     describeNotificationError: describeNotificationError,
+    alertPanelRows: alertPanelRows,
+    alertResetChoice: alertResetChoice,
+    isDefiniteRejection: isDefiniteRejection,
+    adoptableAlertRevision: adoptableAlertRevision,
+    nextAlertRevision: nextAlertRevision,
+    preferencesFromRows: preferencesFromRows,
+    resolveDeviceAlertControl: resolveDeviceAlertControl,
+    thresholdChoices: thresholdChoices,
     resolvePercentMode: resolvePercentMode,
     hasEnabledAlertAccounts: hasEnabledAlertAccounts,
     resolveNotificationControl: resolveNotificationControl
@@ -227,6 +419,7 @@ if (typeof module !== "undefined" && module.exports) {
   var notificationButton = document.getElementById("notification-toggle");
   var notificationLabel = document.getElementById("notification-label");
   var notificationTestButton = document.getElementById("notification-test");
+  var alertsPanelEl = document.getElementById("alerts-panel");
   var versionEl = document.getElementById("remote-version");
   // The Usage tab lives in usage.js. It reads the snapshot's usage flag and
   // owns its own panel, so the quota re-render below never touches it.
@@ -240,6 +433,24 @@ if (typeof module !== "undefined" && module.exports) {
   var pushSubscription = null;
   var notificationBusy = false;
   var associatedPushReadId = null;
+  // Device alerts (a relay with devicePreferences). The relay's answer for
+  // this subscription: mode "device" or "desktop", and its preferences.
+  var relayConfigurationPromise = null;
+  var deviceAlertsMode = false;
+  var deviceAlertState = { mode: null, preferences: null, revision: 0 };
+  var lastAlertRevision = 0;
+  var alertRequestChain = Promise.resolve();
+  var alertPanelOpen = false;
+  // Unsaved edits in the open panel survive the once-a-minute refresh.
+  var alertPanelDirty = false;
+  var PENDING_ALERTS_KEY_PREFIX = "aiUsageTray.pendingAlerts.";
+  var ALERT_REQUEST_TIMEOUT_MS = 15000;
+  // The unconfirmed choice, kept here too: localStorage can refuse a write.
+  var pendingAlertsMemory = null;
+  // Endpoints turned off on this page. Requests still queued for them, or a
+  // sync that read the subscription before it was removed, must not register
+  // them again.
+  var retiredAlertEndpoints = {};
   var drag = null; // the card being dragged, while a drag is in progress
   var renderPending = false; // a render arrived during a drag
   var orderStatusEl = null;
@@ -396,7 +607,520 @@ if (typeof module !== "undefined" && module.exports) {
     }
   }
 
+  // iOS in a browser tab: navigator.standalone is a boolean only on iOS, false
+  // outside the Home Screen app, and Web Push exists only inside it.
+  function homeScreenRequiredForPush() {
+    return window.isSecureContext && navigator.standalone === false;
+  }
+
+  function relayPushConfiguration() {
+    if (!relayConfigurationPromise) {
+      relayConfigurationPromise = fetchPushConfiguration().catch(function (error) {
+        relayConfigurationPromise = null;
+        throw error;
+      });
+    }
+    return relayConfigurationPromise;
+  }
+
+  function hideNotificationControl() {
+    if (notificationButton) notificationButton.hidden = true;
+    setNotificationTestButton(false, true);
+    closeAlertPanel();
+  }
+
   function syncNotificationControl() {
+    if (!notificationButton || id === DEMO_ID || !payload) {
+      hideNotificationControl();
+      return Promise.resolve();
+    }
+    var pushReady = pushSupported();
+    if (!pushReady && !homeScreenRequiredForPush()) {
+      hideNotificationControl();
+      return Promise.resolve();
+    }
+    return relayPushConfiguration().then(function (configuration) {
+      deviceAlertsMode = Boolean(configuration && configuration.devicePreferences === true);
+      if (!pushReady) {
+        // Offer the Home Screen route only where it leads to alerts.
+        if (deviceAlertsMode || hasEnabledAlertAccounts(payload)) applyNotificationControl(HOME_SCREEN_CONTROL);
+        else hideNotificationControl();
+        return undefined;
+      }
+      return deviceAlertsMode ? syncDeviceNotificationControl() : syncLegacyNotificationControl();
+    }, function (error) {
+      // Without the relay's answer the page cannot tell which protocol it
+      // speaks, so it sends nothing and says alerts are unavailable.
+      var control = resolveNotificationControl({
+        alertsConfigured: hasEnabledAlertAccounts(payload),
+        permission: pushReady ? Notification.permission : "default",
+        pushReady: false,
+        subscribed: Boolean(pushSubscription),
+        supported: pushReady
+      });
+      control.title = describeNotificationError(error);
+      applyNotificationControl(control);
+      closeAlertPanel();
+    });
+  }
+
+  // --- device alerts: requests ------------------------------------------
+
+  function pendingAlertsKey() {
+    return PENDING_ALERTS_KEY_PREFIX + id;
+  }
+
+  // A choice the relay has not confirmed yet, re-sent on the next sync:
+  // { preferences, revision, initial }, initial while the relay may not know
+  // the subscription at all (the first registration never got an answer).
+  function readPendingAlerts() {
+    if (pendingAlertsMemory) return pendingAlertsMemory;
+    try {
+      var value = JSON.parse(readStored(pendingAlertsKey()) || "null");
+      if (value && typeof value.revision === "number" && value.preferences) {
+        pendingAlertsMemory = value;
+        return value;
+      }
+    } catch (error) { /* unreadable: nothing pending */ }
+    return null;
+  }
+
+  function writePendingAlerts(pending) {
+    pendingAlertsMemory = pending;
+    writeStored(pendingAlertsKey(), JSON.stringify(pending));
+  }
+
+  function clearPendingAlerts() {
+    pendingAlertsMemory = null;
+    removeStored(pendingAlertsKey());
+  }
+
+  // Whether pending is still the newest unconfirmed choice. A request's
+  // outcome decides about its own choice only, never a newer one queued
+  // behind it.
+  function isCurrentPending(pending) {
+    var current = readPendingAlerts();
+    return Boolean(pending && current && current.revision === pending.revision);
+  }
+
+  function isRetired(subscription) {
+    return Boolean(subscription && retiredAlertEndpoints[subscription.endpoint]);
+  }
+
+  // Forgets a subscription on this page and in the browser, for one the relay
+  // refused and so never stored.
+  function retireSubscription(subscription) {
+    retiredAlertEndpoints[subscription.endpoint] = true;
+    if (pushSubscription === subscription) pushSubscription = null;
+    associatedPushReadId = null;
+    deviceAlertState = { mode: null, preferences: null, revision: 0 };
+    return subscription.unsubscribe();
+  }
+
+  // Every request about this device's subscription goes through one queue,
+  // so a retry can never overtake the save or the Turn off that follows it.
+  // Each request gives up after ALERT_REQUEST_TIMEOUT_MS, so one that never
+  // answers cannot hold the queue.
+  function enqueueAlertRequest(run) {
+    var request = alertRequestChain.then(run, run);
+    alertRequestChain = request.catch(function () { /* the caller reports it */ });
+    return request;
+  }
+
+  // Resolves with { ok, status, body } once the whole answer is read, body
+  // parsed as JSON or null. The time limit covers the body as well, since a
+  // stalled body would hold the queue as surely as a stalled request.
+  function alertFetch(method, body) {
+    var controller = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = controller ? setTimeout(function () { controller.abort(); }, ALERT_REQUEST_TIMEOUT_MS) : null;
+    return fetch(API_BASE + "/u/" + id + "/push-subscription", {
+      method: method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller ? controller.signal : undefined
+    }).then(function (response) {
+      return response.text().then(function (text) {
+        var parsed = null;
+        try {
+          parsed = text ? JSON.parse(text) : null;
+        } catch (error) { /* not JSON: treated as no body */ }
+        return { ok: response.ok, status: response.status, body: parsed };
+      });
+    }).then(function (result) {
+      clearTimeout(timer);
+      return result;
+    }, function (error) {
+      clearTimeout(timer);
+      throw error;
+    });
+  }
+
+  // pending: { preferences, revision } or null (association). Resolves with
+  // { state, stale } (stale: a newer choice was sent since), or null when the
+  // subscription was turned off before the request's turn came.
+  function sendDeviceRegistration(subscription, pending) {
+    return enqueueAlertRequest(function () {
+      if (isRetired(subscription)) return null;
+      var body = { subscription: subscription.toJSON() };
+      if (pending) {
+        body.preferences = pending.preferences;
+        body.revision = pending.revision;
+      }
+      return alertFetch("POST", body).then(function (response) {
+        if (!response.ok) {
+          var refusal = new Error(response.body && typeof response.body.error === "string"
+            ? response.body.error
+            : "subscription_rejected");
+          refusal.status = response.status;
+          // The refused revision came from a clock that runs ahead. Building
+          // the next one on it would be refused again after the clock is
+          // fixed, so start over from what the relay is known to hold.
+          if (refusal.message === "clock_skew") {
+            lastAlertRevision = adoptableAlertRevision(deviceAlertState.revision, Date.now())
+              ? deviceAlertState.revision
+              : 0;
+          }
+          throw refusal;
+        }
+        return Promise.resolve(response.body).then(function (state) {
+          // Turned off while this request was on its way: the answer is moot.
+          if (isRetired(subscription)) return null;
+          associatedPushReadId = id;
+          if (isCurrentPending(pending)) clearPendingAlerts();
+          var stale = Boolean(pending && pending.revision < lastAlertRevision);
+          // The next save must beat what the relay holds, even if this
+          // device's clock moved back since it was stored.
+          if (state && adoptableAlertRevision(state.revision, Date.now())) {
+            lastAlertRevision = Math.max(lastAlertRevision, state.revision);
+          }
+          var relayState = {
+            mode: state && state.mode === "device" ? "device" : "desktop",
+            preferences: state ? state.preferences : null,
+            revision: state && Number.isSafeInteger(state.revision) ? state.revision : 0
+          };
+          if (!stale) deviceAlertState = relayState;
+          return { state: relayState, stale: stale };
+        });
+      });
+    });
+  }
+
+  // A choice was confirmed only if the relay now holds that very revision.
+  function confirmedChoice(result, pending) {
+    return Boolean(result && !result.stale && result.state.revision === pending.revision);
+  }
+
+  function syncDeviceNotificationControl() {
+    return (serviceWorkerPromise || Promise.reject(new Error("service_worker_unavailable")))
+      .then(function (registration) {
+        if (!registration) throw new Error("service_worker_unavailable");
+        return registration.pushManager.getSubscription();
+      })
+      .then(function (subscription) {
+        // Read before a Turn off on this page finished: it is on its way out.
+        if (isRetired(subscription)) subscription = null;
+        pushSubscription = subscription;
+        if (!subscription) {
+          deviceAlertState = { mode: null, preferences: null, revision: 0 };
+          applyDeviceAlertControl();
+          return undefined;
+        }
+        var pending = readPendingAlerts();
+        if (pending) lastAlertRevision = Math.max(lastAlertRevision, pending.revision);
+        var request = pending || associatedPushReadId !== id
+          ? sendDeviceRegistration(subscription, pending)
+          : Promise.resolve(null);
+        return request.then(function (result) {
+          // A retry of a pending choice landed: replace the "not confirmed
+          // yet" notice, or say that a newer choice is the one stored.
+          if (pending && result && !result.stale) {
+            if (confirmedChoice(result, pending)) {
+              show(notificationEl, pending.initial
+                ? "Browser alerts are on for this device."
+                : "Alert settings saved for this device.");
+            } else {
+              show(notificationEl, describeNotificationError(new Error("alerts_clock")));
+            }
+          }
+          applyDeviceAlertControl();
+        }, function (error) {
+          var refused = isDefiniteRejection(error);
+          var ownChoice = isCurrentPending(pending);
+          var cleanup = Promise.resolve();
+          if (refused && ownChoice) {
+            // The relay answered no: re-sending the same choice cannot help.
+            clearPendingAlerts();
+            // A first registration it never stored leaves nothing to keep.
+            if (pending.initial) cleanup = retireSubscription(subscription).catch(function () {});
+          }
+          return cleanup.then(function () {
+            applyDeviceAlertControl();
+            // A newer choice queued behind this one reports its own outcome.
+            if (pending && !ownChoice) return;
+            show(notificationEl, describeNotificationError(refused ? error : new Error("alerts_unconfirmed")));
+          });
+        });
+      })
+      .catch(function (error) {
+        applyNotificationControl(resolveNotificationControl({
+          alertsConfigured: true,
+          permission: Notification.permission,
+          pushReady: false,
+          subscribed: Boolean(pushSubscription),
+          supported: true
+        }));
+        show(notificationEl, describeNotificationError(error));
+      });
+  }
+
+  function applyDeviceAlertControl() {
+    applyNotificationControl(resolveDeviceAlertControl({
+      permission: Notification.permission,
+      subscribed: Boolean(pushSubscription)
+    }));
+    notificationButton.setAttribute("aria-expanded", alertPanelOpen ? "true" : "false");
+    if (alertPanelOpen && !alertPanelDirty) renderAlertPanel();
+  }
+
+  function turnOnDeviceAlerts(preferences) {
+    lastAlertRevision = nextAlertRevision(lastAlertRevision, Date.now());
+    var pending = { preferences: preferences, revision: lastAlertRevision, initial: true };
+    // requestPermission runs first, inside the click: Safari ignores it later.
+    return Notification.requestPermission()
+      .then(function (permission) {
+        if (permission !== "granted") throw new Error("permission_denied");
+        return Promise.all([serviceWorkerPromise, relayPushConfiguration()]);
+      })
+      .then(function (results) {
+        var registration = results[0];
+        if (!registration) throw new Error("service_worker_unavailable");
+        return registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: applicationServerKey(results[1].publicKey)
+        }).then(function (subscription) {
+          delete retiredAlertEndpoints[subscription.endpoint];
+          pushSubscription = subscription;
+          writePendingAlerts(pending);
+          return sendDeviceRegistration(subscription, pending).then(function () {
+            return registration.showNotification("Browser alerts are ready", {
+              body: "This device will notify you when a chosen account crosses its threshold or has a weekly reset.",
+              icon: "icon-192.png",
+              badge: "icon-192.png",
+              tag: "usage-alert-test",
+              data: { url: window.location.href }
+            });
+          }, function (error) {
+            if (!isDefiniteRejection(error)) throw new Error("alerts_unconfirmed");
+            // Refused, so nothing is stored: do not leave a browser
+            // subscription behind that the relay does not know.
+            if (isCurrentPending(pending)) clearPendingAlerts();
+            return retireSubscription(subscription).then(function () { throw error; });
+          });
+        });
+      })
+      .then(function () {
+        show(notificationEl, "Browser alerts are on for this device.");
+      });
+  }
+
+  function saveDeviceAlerts(preferences) {
+    var subscription = pushSubscription;
+    lastAlertRevision = nextAlertRevision(lastAlertRevision, Date.now());
+    var earlier = readPendingAlerts();
+    var pending = {
+      preferences: preferences,
+      revision: lastAlertRevision,
+      // Still the first registration if that one was never confirmed.
+      initial: Boolean(earlier && earlier.initial)
+    };
+    writePendingAlerts(pending);
+    return sendDeviceRegistration(subscription, pending).then(function (result) {
+      if (!result) throw new Error("alerts_retired");
+      // A newer save follows and reports for itself.
+      if (result.stale) return;
+      if (!confirmedChoice(result, pending)) throw new Error("alerts_clock");
+      show(notificationEl, "Alert settings saved for this device.");
+    }, function (error) {
+      if (!isDefiniteRejection(error)) throw new Error("alerts_unconfirmed");
+      if (!isCurrentPending(pending)) throw error;
+      clearPendingAlerts();
+      if (!pending.initial) throw error;
+      return retireSubscription(subscription).catch(function () {}).then(function () { throw error; });
+    });
+  }
+
+  function turnOffDeviceAlerts() {
+    clearPendingAlerts();
+    var subscription = pushSubscription;
+    if (!subscription) return Promise.resolve();
+    // From here on, queued registrations for it are skipped.
+    retiredAlertEndpoints[subscription.endpoint] = true;
+    pushSubscription = null;
+    associatedPushReadId = null;
+    deviceAlertState = { mode: null, preferences: null, revision: 0 };
+    // The relay is told after any registration still on its way, so none can
+    // land after the DELETE. The browser stops right away, whatever the
+    // network does; a row left behind goes on the next delivery's 410.
+    enqueueAlertRequest(function () {
+      return alertFetch("DELETE", { endpoint: subscription.endpoint }).catch(function () {});
+    });
+    return subscription.unsubscribe().then(function () {
+      show(notificationEl, "Browser alerts are off on this device.");
+    });
+  }
+
+  // --- device alerts: panel ---------------------------------------------
+
+  function closeAlertPanel() {
+    alertPanelOpen = false;
+    alertPanelDirty = false;
+    if (alertsPanelEl) {
+      alertsPanelEl.hidden = true;
+      alertsPanelEl.textContent = "";
+    }
+    if (notificationButton) notificationButton.setAttribute("aria-expanded", "false");
+  }
+
+  function openAlertPanel() {
+    alertPanelOpen = true;
+    alertPanelDirty = false;
+    renderAlertPanel();
+    notificationButton.setAttribute("aria-expanded", "true");
+    var first = alertsPanelEl && alertsPanelEl.querySelector("input, select, button");
+    if (first) first.focus();
+  }
+
+  function panelElement(tag, className, text) {
+    var element = document.createElement(tag);
+    if (className) element.className = className;
+    if (text !== undefined) element.textContent = text;
+    return element;
+  }
+
+  function renderAlertPanel() {
+    if (!alertsPanelEl) return;
+    alertsPanelEl.textContent = "";
+    var subscribed = Boolean(pushSubscription);
+    var mode = subscribed ? deviceAlertState.mode : null;
+    var shownPreferences = deviceAlertState.preferences;
+    // A choice the relay has not confirmed yet is what this device asked
+    // for, so the panel shows it rather than the defaults or an older state.
+    var pending = subscribed ? readPendingAlerts() : null;
+    if (pending) {
+      mode = "device";
+      shownPreferences = pending.preferences;
+    }
+    var accounts = payload && Array.isArray(payload.accounts) ? payload.accounts : [];
+    var rows = alertPanelRows(accounts, shownPreferences, mode);
+
+    alertsPanelEl.appendChild(panelElement("h2", "alerts-title", "Alerts on this device"));
+    alertsPanelEl.appendChild(panelElement("p", "alerts-note", mode === "desktop"
+      ? "This device follows the desktop app's alert settings. Save to choose them here instead."
+      : "Choose which accounts alert this device, and at what usage."));
+
+    var list = panelElement("div", "alerts-accounts");
+    rows.forEach(function (row, index) {
+      var line = panelElement("div", "alerts-account");
+      var toggle = panelElement("label", "alerts-account-toggle");
+      var checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = row.enabled;
+      checkbox.setAttribute("data-account-index", String(index));
+      toggle.appendChild(checkbox);
+      toggle.appendChild(panelElement("span", "alerts-account-name", row.name));
+
+      var select = document.createElement("select");
+      select.className = "alerts-threshold";
+      select.setAttribute("aria-label", "Alert threshold for " + row.name);
+      thresholdChoices(row.thresholdPercent).forEach(function (value) {
+        var option = panelElement("option", "", "At " + value + "% used");
+        option.value = String(value);
+        option.selected = value === row.thresholdPercent;
+        select.appendChild(option);
+      });
+      select.disabled = !row.enabled;
+      checkbox.addEventListener("change", function () {
+        row.enabled = checkbox.checked;
+        select.disabled = !checkbox.checked;
+        alertPanelDirty = true;
+      });
+      select.addEventListener("change", function () {
+        row.thresholdPercent = Number(select.value);
+        alertPanelDirty = true;
+      });
+      line.appendChild(toggle);
+      line.appendChild(select);
+      list.appendChild(line);
+    });
+    if (rows.length === 0) list.appendChild(panelElement("p", "alerts-note", "No accounts are shared yet."));
+    alertsPanelEl.appendChild(list);
+
+    var resetLabel = panelElement("label", "alerts-reset");
+    var resetBox = document.createElement("input");
+    resetBox.type = "checkbox";
+    resetBox.checked = alertResetChoice(accounts, shownPreferences, mode);
+    resetBox.addEventListener("change", function () { alertPanelDirty = true; });
+    resetLabel.appendChild(resetBox);
+    resetLabel.appendChild(panelElement("span", "", "Also notify when weekly usage resets to 0%"));
+    alertsPanelEl.appendChild(resetLabel);
+
+    var actions = panelElement("div", "alerts-actions");
+    var primary = panelElement("button", "button button-primary", subscribed ? "Save" : "Turn on");
+    primary.type = "button";
+    var secondary = panelElement("button", "button button-secondary", subscribed ? "Turn off" : "Cancel");
+    secondary.type = "button";
+    actions.appendChild(primary);
+    actions.appendChild(secondary);
+    alertsPanelEl.appendChild(actions);
+
+    var busy = function (value) {
+      primary.disabled = value;
+      secondary.disabled = value;
+      notificationBusy = value;
+    };
+    var finish = function (action, closeAfter) {
+      return action.then(function () {
+        if (closeAfter) closeAlertPanel();
+      }, function (error) {
+        closeAlertPanel();
+        show(notificationEl, describeNotificationError(error));
+      }).then(function () {
+        busy(false);
+        return syncNotificationControl();
+      });
+    };
+
+    primary.addEventListener("click", function () {
+      if (notificationBusy) return;
+      busy(true);
+      var preferences = preferencesFromRows(
+        rows,
+        resetBox.checked,
+        mode === "device" ? shownPreferences : null
+      );
+      if (preferences === null) {
+        busy(false);
+        show(notificationEl, describeNotificationError(new Error("alerts_too_many")));
+        return;
+      }
+      // No promise step before turnOnDeviceAlerts: it asks for permission.
+      finish(subscribed ? saveDeviceAlerts(preferences) : turnOnDeviceAlerts(preferences), true);
+    });
+    secondary.addEventListener("click", function () {
+      if (notificationBusy) return;
+      if (!subscribed) {
+        closeAlertPanel();
+        notificationButton.focus();
+        return;
+      }
+      busy(true);
+      finish(turnOffDeviceAlerts(), true);
+    });
+
+    alertsPanelEl.hidden = false;
+  }
+
+  function syncLegacyNotificationControl() {
     if (!notificationButton || id === DEMO_ID || !pushSupported() || !payload) {
       if (notificationButton) notificationButton.hidden = true;
       setNotificationTestButton(false, true);
@@ -524,8 +1248,19 @@ if (typeof module !== "undefined" && module.exports) {
   }
 
   function setupNotifications() {
-    if (!notificationButton || !pushSupported()) return;
+    if (!notificationButton || (!pushSupported() && !homeScreenRequiredForPush())) return;
     notificationButton.addEventListener("click", function () {
+      var state = notificationButton.getAttribute("data-state");
+      if (state === "install") {
+        show(notificationEl, HOME_SCREEN_HELP);
+        return;
+      }
+      if (deviceAlertsMode) {
+        if (notificationBusy) return;
+        if (alertPanelOpen) closeAlertPanel();
+        else openAlertPanel();
+        return;
+      }
       if (notificationBusy) return;
       notificationBusy = true;
       notificationButton.disabled = true;

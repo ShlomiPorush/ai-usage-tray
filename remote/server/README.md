@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.9.0
+ghcr.io/shlomiporush/ai-usage-tray:1.10.0
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -355,14 +355,14 @@ only when more than half of its pages are free and it is larger than 32 MB. `jou
 | `GET` | `/`, viewer assets | Serves the installable viewer. |
 | `GET` | `/health` | Reads and writes SQLite. `200 {"status":"ok"}`, or `503` when degraded. |
 | `GET` | `/version` | Returns the deployed remote-view version shown in the viewer. |
-| `GET` | `/push/vapid-public-key` | Returns the public VAPID key used for browser subscriptions. |
+| `GET` | `/push/vapid-public-key` | Returns the public VAPID key used for browser subscriptions, and `devicePreferences: true`. See [Browser alerts](#browser-alerts). |
 | `PUT` | `/u/{writeId}` | Validates and stores a snapshot. Returns `204` and `X-Read-Id`, or `429` over the write limit. |
 | `DELETE` | `/u/{writeId}` | Deletes a snapshot and turns its usage report into a tombstone. Returns `204` for a valid ID, or `429` over the write limit. |
 | `GET` | `/u/{readId}` | Returns unexpired JSON or `404 {"error":"not_found"}`. |
 | `PUT` | `/u/{writeId}/usage` | Validates and stores a usage report. Container relay only; see [Usage reports](#usage-reports). |
 | `GET` | `/u/{readId}/usage` | Returns the stored usage report or `404 {"error":"not_found"}`. Container relay only. |
 | `DELETE` | `/u/{writeId}/usage` | Removes the usage report, leaving a tombstone. Container relay only. |
-| `POST` | `/u/{readId}/push-subscription` | Registers this browser for the shared view. |
+| `POST` | `/u/{readId}/push-subscription` | Registers this browser for the shared view, optionally with its own alert preferences. See [Browser alerts](#browser-alerts). |
 | `DELETE` | `/u/{readId}/push-subscription` | Removes this browser subscription. |
 | `GET` | `/u/demo` | Returns the generated read-only demo snapshot. |
 | `GET` | `/u/demo/usage` | Returns the generated read-only demo usage report. Container relay only. |
@@ -389,6 +389,39 @@ The authoritative test vector is:
 writeId = 0123456789abcdef0123456789abcdef
 readId  = 3eb1bd439947eb762998e566ccc2e099
 ```
+
+## Browser alerts
+
+Each browser subscription follows one of two sets of rules:
+
+- **Device preferences.** The viewer stores the device's own rules: for each account, on or off and
+  a threshold in percent used, and one switch for weekly reset alerts. An account the device has no
+  rule for, such as an account added later, alerts at 90%. The desktop's alert settings do not
+  affect these subscriptions.
+- **Desktop settings.** A subscription made before relay 1.10.0, or by an older viewer, follows the
+  `alert` settings the desktop app uploads with each snapshot, as before. It switches to device
+  preferences when the device saves its own.
+
+`POST /u/{readId}/push-subscription` accepts three bodies:
+
+| Body | Sent by | Effect |
+| --- | --- | --- |
+| A bare `PushSubscription` | Viewers older than 1.10.0 | A new subscription follows the desktop settings. A known one keeps its rules. Returns `204`. |
+| `{ "subscription": {...} }` | The viewer, on page load | A new subscription gets the default device preferences. A known one keeps its rules. |
+| `{ "subscription": {...}, "preferences": {...}, "revision": n }` | The viewer, on Turn on and Save | Stores the preferences when `revision` is newer than the stored one. |
+
+`preferences` is `{ "accounts": { "<account id>": { "enabled": true, "thresholdPercent": 90 } },
+"resetAlerts": true }`, with at most 32 accounts and thresholds from 1 to 100. `revision` is a
+positive integer the viewer increases with every save (its clock in milliseconds), so a late retry
+cannot overwrite a newer choice. A revision more than a day ahead of the relay's clock is refused with
+`422 { "error": "clock_skew" }`, so a device with a wrong clock cannot store one that outranks every
+later save. The two wrapped bodies return `200 { "mode": "device" | "desktop", "preferences", "revision" }`.
+Anything else returns `422` with `invalid_subscription` or `invalid_preferences`. A subscription
+that moves to another shared view loses the rules it had for the previous one.
+
+The Cloudflare Worker does not store device preferences. Its `/push/vapid-public-key` has no
+`devicePreferences` field, and the viewer then keeps the older behaviour: alerts follow the desktop
+settings and are offered only when the desktop has them on.
 
 ## Usage reports
 
