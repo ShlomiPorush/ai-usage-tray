@@ -10,7 +10,26 @@
 <title>AI Usage Tray</title>
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="manifest" href="manifest.webmanifest">
+<script>
+  // The manifest link is written here, while the head is parsed: Safari reads
+  // the first manifest a page names and ignores a later change, so a Home
+  // Screen install opens this view only if its own manifest is named from the
+  // start. The view is the one app.js resolveId picks: the link's ?id=, or
+  // with no id in the link the last view this device opened.
+  (function () {
+    var href = "manifest.webmanifest";
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var id = (params.get("id") || "").trim();
+      if (!params.has("id")) id = (localStorage.getItem("aiUsageTray.lastId") || "").trim();
+      if (/^[0-9a-f]{32}$/.test(id)) href += "?id=" + id;
+    } catch (e) { /* no URLSearchParams or storage: the shared manifest */ }
+    var link = document.createElement("link");
+    link.rel = "manifest";
+    link.href = href;
+    document.head.appendChild(link);
+  })();
+</script>
 <link rel="stylesheet" href="styles.css">
 <script>
   // Applied before first paint so a forced theme never flashes the other palette.
