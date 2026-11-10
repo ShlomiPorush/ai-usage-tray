@@ -36,7 +36,75 @@ const {
   hasEnabledAlertAccounts,
   resolveNotificationControl,
   resolvePercentMode,
+  alertPanelRows,
+  alertResetChoice,
+  isDefiniteRejection,
+  nextAlertRevision,
+  preferencesFromRows,
+  resolveDeviceAlertControl,
+  thresholdChoices,
 } = require("../../web/app.js");
+
+test("viewer builds the device alert panel from the snapshot and the stored rules", () => {
+  const accounts = [
+    { id: "Claude:Work", name: "Claude Work", alert: { enabled: true, thresholdPercent: 80, resetEnabled: true } },
+    { id: "codex:home", name: "", alert: { enabled: false, thresholdPercent: 70 } },
+    { name: "no id" },
+  ];
+  // Not subscribed yet: every account on at 90%.
+  assert.deepEqual(alertPanelRows(accounts, null, null), [
+    { id: "claude:work", name: "Claude Work", enabled: true, thresholdPercent: 90 },
+    { id: "codex:home", name: "codex:home", enabled: true, thresholdPercent: 90 },
+  ]);
+  // Desktop mode starts from the desktop's own settings.
+  assert.deepEqual(alertPanelRows(accounts, null, "desktop").map((row) => [row.enabled, row.thresholdPercent]), [
+    [true, 80],
+    [false, 70],
+  ]);
+  assert.equal(alertResetChoice(accounts, null, "desktop"), true);
+  // Device mode: stored rules, and an account the device never saw at 90%.
+  const stored = { accounts: { "claude:work": { enabled: false, thresholdPercent: 85 } }, resetAlerts: false };
+  assert.deepEqual(alertPanelRows(accounts, stored, "device").map((row) => [row.enabled, row.thresholdPercent]), [
+    [false, 85],
+    [true, 90],
+  ]);
+  assert.equal(alertResetChoice(accounts, stored, "device"), false);
+
+  assert.deepEqual(thresholdChoices(85), [50, 75, 80, 85, 90, 95, 100]);
+  assert.deepEqual(thresholdChoices(90), [50, 75, 80, 90, 95, 100]);
+  assert.deepEqual(
+    preferencesFromRows(alertPanelRows(accounts, stored, "device"), true),
+    {
+      accounts: {
+        "claude:work": { enabled: false, thresholdPercent: 85 },
+        "codex:home": { enabled: true, thresholdPercent: 90 },
+      },
+      resetAlerts: true,
+    },
+  );
+});
+
+test("viewer orders alert saves and tells a refusal from an unknown outcome", () => {
+  assert.equal(nextAlertRevision(0, 1000), 1000);
+  // A clock that moved back still produces a newer revision.
+  assert.equal(nextAlertRevision(5000, 1000), 5001);
+  assert.equal(isDefiniteRejection(Object.assign(new Error("invalid_preferences"), { status: 422 })), true);
+  assert.equal(isDefiniteRejection(Object.assign(new Error("too_many_subscriptions"), { status: 429 })), true);
+  assert.equal(isDefiniteRejection(Object.assign(new Error("x"), { status: 503 })), false);
+  assert.equal(isDefiniteRejection(new TypeError("Failed to fetch")), false);
+  assert.equal(
+    describeNotificationError(new Error("alerts_unconfirmed")),
+    "Alerts are not confirmed yet. The page will try again.",
+  );
+});
+
+test("viewer offers device alerts whatever the desktop settings are", () => {
+  assert.equal(resolveDeviceAlertControl({ subscribed: false, permission: "default" }).label, "Enable alerts");
+  assert.equal(resolveDeviceAlertControl({ subscribed: false, permission: "denied" }).state, "blocked");
+  const on = resolveDeviceAlertControl({ subscribed: true, permission: "granted" });
+  assert.equal(on.label, "Alerts on");
+  assert.equal(on.testEnabled, true);
+});
 
 test("reset expiry uses calendar days and only warns about unexpired resets through day seven", () => {
   const now = new Date(2026, 8, 17, 12).getTime();

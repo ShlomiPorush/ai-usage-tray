@@ -5,8 +5,8 @@
 // Bump CACHE whenever a shell file changes: a new cache name is what makes
 // the update land.
 
-// v25: the desktop date pickers, one-row phone header, scroll lock.
-var CACHE = "ai-usage-tray-shell-v30";
+// v31: device alert preferences panel.
+var CACHE = "ai-usage-tray-shell-v31";
 
 var SHELL = [
   "./",

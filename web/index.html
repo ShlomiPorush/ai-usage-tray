@@ -45,7 +45,8 @@
           <button type="button" class="percent-option" data-percent-mode="left"
                   aria-pressed="false">% left</button>
         </div>
-        <button type="button" class="notification-toggle" id="notification-toggle" hidden>
+        <button type="button" class="notification-toggle" id="notification-toggle"
+                aria-controls="alerts-panel" hidden>
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
                stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"
                aria-hidden="true" focusable="false">
@@ -90,6 +91,7 @@
   <p class="notice notice-stale" id="staleness" role="status" hidden></p>
   <p class="notice notice-quiet" id="connection" role="status" hidden></p>
   <p class="notice notice-quiet" id="notifications" role="status" hidden></p>
+  <section class="alerts-panel" id="alerts-panel" aria-label="Alerts on this device" hidden></section>
 
   <div id="content"></div>
   <section class="usage-panel" id="usage-panel" role="tabpanel" aria-labelledby="tab-usage" hidden></section>

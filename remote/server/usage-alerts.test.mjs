@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { findResetAlerts, findThresholdCrossings } from "../shared/usage-alerts.mjs";
+import {
+  findResetAlerts,
+  findThresholdCrossings,
+  normalizeAlertPreferences,
+} from "../shared/usage-alerts.mjs";
 
 function snapshot(session, weekly, threshold = 80, enabled = true) {
   return {
@@ -109,4 +113,56 @@ test("a scoped weekly reset alone still alerts", () => {
 test("does not detect resets when the account is not opted in", () => {
   assert.deepEqual(findResetAlerts(resetSnapshot(42, 42, false), resetSnapshot(0, 0, false)), []);
   assert.deepEqual(findResetAlerts(resetSnapshot(42, 42, false), resetSnapshot(0, 0, true)), []);
+});
+
+test("device preferences replace the desktop's rules for every account", () => {
+  const devicePreferences = normalizeAlertPreferences({
+    accounts: { "Claude:Work": { enabled: true, thresholdPercent: 50 } },
+    resetAlerts: false,
+  });
+  // The desktop has this account's alerts off; the device decides alone.
+  const previous = snapshot(40, 40, 80, false);
+  const current = snapshot(60, 45, 80, false);
+  assert.deepEqual(findThresholdCrossings(previous, current), []);
+  const crossings = findThresholdCrossings(previous, current, devicePreferences);
+  assert.deepEqual(crossings.map((crossing) => [crossing.windowKey, crossing.thresholdPercent]), [["session", 50]]);
+
+  // A desktop threshold change between uploads is not a device crossing guard.
+  assert.equal(findThresholdCrossings(snapshot(40, 40, 90), snapshot(60, 45, 10), devicePreferences).length, 1);
+});
+
+test("accounts without a device entry alert at 90% and resets follow the device switch", () => {
+  const defaults = normalizeAlertPreferences({ accounts: {}, resetAlerts: true });
+  assert.equal(findThresholdCrossings(snapshot(85, 85), snapshot(89, 89), defaults).length, 0);
+  assert.equal(findThresholdCrossings(snapshot(85, 85), snapshot(91, 89), defaults).length, 1);
+
+  assert.equal(findResetAlerts(resetSnapshot(10, 40, false), resetSnapshot(10, 0, false), defaults).length, 1);
+  const noResets = normalizeAlertPreferences({ accounts: {}, resetAlerts: false });
+  assert.deepEqual(findResetAlerts(resetSnapshot(10, 40), resetSnapshot(10, 0), noResets), []);
+  const disabled = normalizeAlertPreferences({
+    accounts: { "codex:personal": { enabled: false, thresholdPercent: 90 } },
+    resetAlerts: true,
+  });
+  assert.deepEqual(findResetAlerts(resetSnapshot(10, 40), resetSnapshot(10, 0), disabled), []);
+});
+
+test("device preferences parse strictly", () => {
+  const rule = { enabled: true, thresholdPercent: 70 };
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(normalizeAlertPreferences({ accounts: { "B:x": rule, a: rule }, resetAlerts: true }))),
+    { accounts: { a: rule, "b:x": rule }, resetAlerts: true },
+  );
+  for (const invalid of [
+    null,
+    [],
+    { accounts: {} },
+    { accounts: [], resetAlerts: true },
+    { accounts: {}, resetAlerts: "yes" },
+    { accounts: { a: { enabled: true } }, resetAlerts: true },
+    { accounts: { a: { ...rule, note: 1 } }, resetAlerts: true },
+    { accounts: { a: { enabled: true, thresholdPercent: 101 } }, resetAlerts: true },
+    { accounts: { ["x".repeat(129)]: rule }, resetAlerts: true },
+  ]) {
+    assert.equal(normalizeAlertPreferences(invalid), null, JSON.stringify(invalid));
+  }
 });
