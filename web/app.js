@@ -1054,80 +1054,103 @@ if (typeof module !== "undefined" && module.exports) {
     wireSheetDrag();
   }
 
-  // On a phone the panel is a bottom sheet: dragging its handle or title row
-  // down closes it, as sheets do elsewhere. The close button stays for
-  // everyone who does not drag.
+  // On a phone the panel is a bottom sheet, and it closes like the sheets in
+  // the other apps: a pull down on its head, or on its content scrolled to
+  // the top, closes it past a quarter of its height (at most 120 px); a
+  // shorter pull springs back. A second finger cancels the pull.
   function wireSheetDrag() {
     var sheet = window.matchMedia ? window.matchMedia("(max-width: 719px)") : null;
     var calm = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
-    var drag = null;
-    var settleTimer = null;
-    // Ends any drag and pending close, so neither reaches a panel opened
-    // again. resetAlertPanel calls it on every close.
-    stopSheetDrag = function () {
-      if (drag) {
-        try { alertsPanelEl.releasePointerCapture(drag.id); } catch (error) { /* already released */ }
-      }
-      drag = null;
-      clearTimeout(settleTimer);
-      settleTimer = null;
+    var motion = function () { return calm && calm.matches ? "none" : "transform .2s ease"; };
+    var startY = null;
+    var pulled = 0;
+    var ignore = false;
+    var closeTimer = null;
+    var active = function () { return Boolean(sheet && sheet.matches && alertsPanelEl.open); };
+    var springBack = function () {
+      startY = null;
+      pulled = 0;
+      alertsPanelEl.classList.remove("is-held");
+      alertsPanelEl.style.transition = motion();
       alertsPanelEl.style.transform = "";
+    };
+    // Ends a pull and a close still on its way, so neither reaches a panel
+    // opened again. resetAlertPanel and openAlertPanel call it.
+    stopSheetDrag = function () {
+      startY = null;
+      pulled = 0;
+      ignore = false;
+      clearTimeout(closeTimer);
+      closeTimer = null;
+      alertsPanelEl.classList.remove("is-held");
       alertsPanelEl.style.transition = "";
+      alertsPanelEl.style.transform = "";
     };
-    var settle = function (to, after) {
-      var instant = calm && calm.matches;
-      alertsPanelEl.style.transition = instant ? "none" : "transform 180ms ease-out";
-      alertsPanelEl.style.transform = to ? "translateY(" + to + "px)" : "";
-      clearTimeout(settleTimer);
-      settleTimer = null;
-      if (instant) {
-        after();
-        return;
-      }
-      settleTimer = setTimeout(function () {
-        settleTimer = null;
-        after();
-      }, 190);
-    };
-    // Widened past the sheet layout mid-drag: the centred dialog stays put.
+    // Widened past the sheet layout mid-pull or mid-close: the centred
+    // dialog stays put and open.
     if (sheet && typeof sheet.addEventListener === "function") {
       sheet.addEventListener("change", function () {
-        if (!sheet.matches && drag) stopSheetDrag();
+        if (!sheet.matches && (startY !== null || closeTimer)) stopSheetDrag();
       });
     }
-    alertsPanelEl.addEventListener("pointerdown", function (event) {
-      if (!sheet || !sheet.matches || !alertsPanelEl.open || !event.isPrimary || drag || settleTimer) return;
-      if (event.pointerType === "mouse" && event.button !== 0) return;
-      var target = event.target;
-      if (!target.closest || !target.closest(".alerts-grab, .alerts-header") || target.closest(".alerts-close")) return;
-      drag = { id: event.pointerId, startY: event.clientY, lastY: event.clientY, lastAt: event.timeStamp, speed: 0, moved: 0 };
-      alertsPanelEl.style.transition = "none";
-      try { alertsPanelEl.setPointerCapture(event.pointerId); } catch (error) { /* drag still works without it */ }
-    });
-    alertsPanelEl.addEventListener("pointermove", function (event) {
-      if (!drag || event.pointerId !== drag.id) return;
-      var elapsed = Math.max(1, event.timeStamp - drag.lastAt);
-      drag.speed = (event.clientY - drag.lastY) / elapsed;
-      drag.lastY = event.clientY;
-      drag.lastAt = event.timeStamp;
-      drag.moved = Math.max(0, event.clientY - drag.startY);
-      alertsPanelEl.style.transform = drag.moved ? "translateY(" + drag.moved + "px)" : "";
-    });
-    var end = function (event) {
-      if (!drag || event.pointerId !== drag.id) return;
-      var moved = drag.moved;
-      // A flick is a fast move right before release, not one long ago.
-      var flung = drag.speed > 0.5 && moved > 24 && event.timeStamp - drag.lastAt < 100;
-      drag = null;
-      var height = alertsPanelEl.getBoundingClientRect().height;
-      if (event.type === "pointerup" && (moved > height * 0.3 || flung)) {
-        settle(height, function () { closeAlertPanel(); });
-      } else {
-        settle(0, function () { alertsPanelEl.style.transition = ""; });
+    alertsPanelEl.addEventListener("touchstart", function (event) {
+      if (event.touches.length > 1) {
+        ignore = true;
+        springBack();
+        return;
       }
+      if (ignore) return;
+      startY = null;
+      if (!active() || closeTimer) return;
+      var target = event.target;
+      var head = Boolean(target.closest && target.closest(".alerts-grab, .alerts-header"));
+      if (!head) {
+        // From the content only at its top: otherwise the pull scrolls it.
+        for (var el = target; el; el = el === alertsPanelEl ? null : el.parentElement) {
+          if (el.scrollTop > 0) return;
+        }
+      }
+      startY = event.touches[0].clientY;
+      pulled = 0;
+      alertsPanelEl.style.transition = "none";
+      alertsPanelEl.classList.toggle("is-held", head);
+    }, { passive: true });
+    alertsPanelEl.addEventListener("touchmove", function (event) {
+      if (ignore || startY === null) return;
+      pulled = Math.max(0, event.touches[0].clientY - startY);
+      alertsPanelEl.style.transform = pulled ? "translateY(" + pulled + "px)" : "";
+    }, { passive: true });
+    var end = function (event) {
+      if (ignore) {
+        if (!event.touches || event.touches.length === 0) ignore = false;
+        return;
+      }
+      if (startY === null) {
+        alertsPanelEl.classList.remove("is-held");
+        return;
+      }
+      // Only a lifted finger closes: a cancelled touch (the system took it)
+      // springs back, so unsaved edits stay.
+      if (event.type !== "touchend" || pulled <= Math.min(120, alertsPanelEl.offsetHeight / 4)) {
+        springBack();
+        return;
+      }
+      startY = null;
+      pulled = 0;
+      alertsPanelEl.classList.remove("is-held");
+      if (calm && calm.matches) {
+        closeAlertPanel();
+        return;
+      }
+      alertsPanelEl.style.transition = motion();
+      alertsPanelEl.style.transform = "translateY(100%)";
+      closeTimer = setTimeout(function () {
+        closeTimer = null;
+        closeAlertPanel();
+      }, 200);
     };
-    alertsPanelEl.addEventListener("pointerup", end);
-    alertsPanelEl.addEventListener("pointercancel", end);
+    alertsPanelEl.addEventListener("touchend", end);
+    alertsPanelEl.addEventListener("touchcancel", end);
   }
 
   function panelElement(tag, className, text) {
