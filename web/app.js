@@ -1060,6 +1060,8 @@ if (typeof module !== "undefined" && module.exports) {
   // shorter pull springs back. A second finger cancels the pull.
   function wireSheetDrag() {
     var sheet = window.matchMedia ? window.matchMedia("(max-width: 719px)") : null;
+    var calm = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+    var motion = function () { return calm && calm.matches ? "none" : "transform .2s ease"; };
     var startY = null;
     var pulled = 0;
     var ignore = false;
@@ -1069,7 +1071,7 @@ if (typeof module !== "undefined" && module.exports) {
       startY = null;
       pulled = 0;
       alertsPanelEl.classList.remove("is-held");
-      alertsPanelEl.style.transition = "transform .2s ease";
+      alertsPanelEl.style.transition = motion();
       alertsPanelEl.style.transform = "";
     };
     // Ends a pull and a close still on its way, so neither reaches a panel
@@ -1084,10 +1086,11 @@ if (typeof module !== "undefined" && module.exports) {
       alertsPanelEl.style.transition = "";
       alertsPanelEl.style.transform = "";
     };
-    // Widened past the sheet layout mid-pull: the centred dialog stays put.
+    // Widened past the sheet layout mid-pull or mid-close: the centred
+    // dialog stays put and open.
     if (sheet && typeof sheet.addEventListener === "function") {
       sheet.addEventListener("change", function () {
-        if (!sheet.matches && startY !== null) stopSheetDrag();
+        if (!sheet.matches && (startY !== null || closeTimer)) stopSheetDrag();
       });
     }
     alertsPanelEl.addEventListener("touchstart", function (event) {
@@ -1122,20 +1125,29 @@ if (typeof module !== "undefined" && module.exports) {
         if (!event.touches || event.touches.length === 0) ignore = false;
         return;
       }
-      alertsPanelEl.classList.remove("is-held");
-      if (startY === null) return;
-      startY = null;
-      alertsPanelEl.style.transition = "transform .2s ease";
-      if (pulled > Math.min(120, alertsPanelEl.offsetHeight / 4)) {
-        alertsPanelEl.style.transform = "translateY(100%)";
-        closeTimer = setTimeout(function () {
-          closeTimer = null;
-          closeAlertPanel();
-        }, 200);
-      } else {
-        alertsPanelEl.style.transform = "";
+      if (startY === null) {
+        alertsPanelEl.classList.remove("is-held");
+        return;
       }
+      // Only a lifted finger closes: a cancelled touch (the system took it)
+      // springs back, so unsaved edits stay.
+      if (event.type !== "touchend" || pulled <= Math.min(120, alertsPanelEl.offsetHeight / 4)) {
+        springBack();
+        return;
+      }
+      startY = null;
       pulled = 0;
+      alertsPanelEl.classList.remove("is-held");
+      if (calm && calm.matches) {
+        closeAlertPanel();
+        return;
+      }
+      alertsPanelEl.style.transition = motion();
+      alertsPanelEl.style.transform = "translateY(100%)";
+      closeTimer = setTimeout(function () {
+        closeTimer = null;
+        closeAlertPanel();
+      }, 200);
     };
     alertsPanelEl.addEventListener("touchend", end);
     alertsPanelEl.addEventListener("touchcancel", end);
