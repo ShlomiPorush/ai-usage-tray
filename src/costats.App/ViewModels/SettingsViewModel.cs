@@ -1373,7 +1373,9 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         try
         {
             var deleted = await Task.Run(() => _analytics.DeleteHistoryAsync(CancellationToken.None)).ConfigureAwait(true);
-            UsageHistorySummary = UsageHistorySummaryText.AfterDelete(deleted);
+            UsageHistorySummary = deleted
+                ? "Usage history deleted. Usage from now on will be saved again."
+                : "Usage history could not be fully deleted right now. Try again in a moment.";
         }
         catch (Exception ex)
         {
@@ -1388,8 +1390,6 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
             IsDeletingHistory = false;
         }
     }
-
-    private static string FormatBytes(long bytes) => UsageHistorySummaryText.FormatBytes(bytes);
 
     [RelayCommand]
     private async Task ClearUsageCacheAsync()
@@ -1420,7 +1420,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     }
 
     private static string FormatCacheInfo(UsageCacheInfo info) =>
-        $"{info.FileCount:N0} cached files, {FormatBytes(info.Bytes)}.";
+        $"{info.FileCount:N0} cached files, {UsageHistorySummaryText.FormatBytes(info.Bytes)}.";
 
     private async Task ReportRemoteSnapshotDeleteAsync(string? writeId)
     {

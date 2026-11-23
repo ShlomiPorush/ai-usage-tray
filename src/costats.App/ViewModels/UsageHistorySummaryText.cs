@@ -18,11 +18,6 @@ public static class UsageHistorySummaryText
         return $"Saved usage from {since}, {FormatBytes(info.Bytes)}.";
     }
 
-    public static string AfterDelete(bool deleted) =>
-        deleted
-            ? "Usage history deleted. Usage from now on will be saved again."
-            : "Usage history could not be fully deleted right now. Try again in a moment.";
-
     public static string FormatBytes(long bytes) => bytes switch
     {
         >= 1024L * 1024L => $"{bytes / (1024d * 1024d):0.##} MB",

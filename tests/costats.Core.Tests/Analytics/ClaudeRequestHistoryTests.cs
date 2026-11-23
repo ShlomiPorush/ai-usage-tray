@@ -8,7 +8,6 @@ using costats.Infrastructure.Analytics;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace costats.Core.Tests.Analytics;
 
@@ -18,11 +17,8 @@ namespace costats.Core.Tests.Analytics;
 /// </summary>
 public sealed class ClaudeRequestHistoryTests : IDisposable
 {
-    private readonly ITestOutputHelper _output;
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "costats-claude-request-tests", Guid.NewGuid().ToString("n"));
-
-    public ClaudeRequestHistoryTests(ITestOutputHelper output) => _output = output;
 
     private string HistoryDir => Path.Combine(_root, "history");
 
@@ -91,7 +87,7 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
     private static DateTimeOffset QuarterHourAhead() =>
         DateTimeOffset.FromUnixTimeSeconds(UsageHistory.BucketStartOf(DateTimeOffset.UtcNow) + 2 * UsageHistory.BucketSeconds + 60);
 
-    private static DateTimeOffset AfterConversion(double seconds = 5) => DateTimeOffset.UtcNow.AddSeconds(seconds);
+    private static DateTimeOffset AfterConversion() => DateTimeOffset.UtcNow.AddSeconds(5);
 
     private string LogPath(string configDir, string name = "s.jsonl") => Path.Combine(_root, configDir, "projects", "p", name);
 
@@ -227,22 +223,6 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
 
         WriteLog("c2", "s.jsonl", Line("1", "2026-08-21T12:01:00Z"), Line("2", "2026-08-21T12:07:00Z"));
         accounts = [Claude("claude-1", "c2")];
-        await service.SyncHistoryAsync();
-
-        Assert.Equal(2, await Requests(service));
-    }
-
-    [Fact]
-    public async Task Probe_logs_moved_to_another_account()
-    {
-        WriteLog("c1", "s.jsonl", Line("1", "2026-08-21T12:01:00Z"), Line("2", "2026-08-21T12:07:00Z"));
-        EmptyClaudeFolder("c2");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1"), Claude("claude-2", "c2")];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-
-        WriteLog("c2", "s.jsonl", Line("1", "2026-08-21T12:01:00Z"), Line("2", "2026-08-21T12:07:00Z"));
-        File.Delete(LogPath("c1"));
         await service.SyncHistoryAsync();
 
         Assert.Equal(2, await Requests(service));

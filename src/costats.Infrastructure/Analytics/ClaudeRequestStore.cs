@@ -93,16 +93,14 @@ internal enum ClaudeSampleRoute
 internal sealed record ClaudeRequestView(
     ClaudeStoreStatus Status,
     long? FreezeMs,
-    IReadOnlyDictionary<long, ClaudeRequestRow> Requests,
-    IReadOnlyDictionary<string, UsageHistoryAccount> Accounts)
+    IReadOnlyDictionary<long, ClaudeRequestRow> Requests)
 {
     private static readonly IReadOnlyDictionary<long, ClaudeRequestRow> NoRequests = new Dictionary<long, ClaudeRequestRow>();
-    private static readonly IReadOnlyDictionary<string, UsageHistoryAccount> NoAccounts = new Dictionary<string, UsageHistoryAccount>();
 
-    public static readonly ClaudeRequestView Absent = new(ClaudeStoreStatus.Absent, null, NoRequests, NoAccounts);
+    public static readonly ClaudeRequestView Absent = new(ClaudeStoreStatus.Absent, null, NoRequests);
 
     public static ClaudeRequestView Unavailable(long? freezeMs) =>
-        new(ClaudeStoreStatus.Unavailable, freezeMs, NoRequests, NoAccounts);
+        new(ClaudeStoreStatus.Unavailable, freezeMs, NoRequests);
 
     /// <summary>
     /// Compared on whole seconds because the parse cache keeps timestamps to
@@ -391,10 +389,6 @@ internal sealed class ClaudeRequestStore
                 ParseLong(values.GetValueOrDefault("deleted_before_ms")));
             return Check.Ok;
         }
-        catch (SqliteException exception) when (exception.SqliteErrorCode is SqliteCorrupt or SqliteNotADatabase)
-        {
-            return Check.Damaged;
-        }
         catch (SqliteException exception) when (exception.SqliteErrorCode == SqliteError)
         {
             // A database without the expected tables is not this store.
@@ -469,23 +463,6 @@ internal sealed class ClaudeRequestStore
             : ClaudeStoreSession.Unavailable;
     }
 
-    /// <summary>
-    /// Marks go by the start of their bucket, not their timestamp: the same
-    /// rule a month-file prune uses for the bucket the mark is counted in.
-    /// </summary>
-    internal static int DeleteBelow(SqliteConnection connection, SqliteTransaction transaction, long floorMs)
-    {
-        using var command = connection.CreateCommand();
-        command.Transaction = transaction;
-        command.CommandText = "DELETE FROM request WHERE (kind = 0 AND ts_ms < $floor) OR (kind = 1 AND bucket < $floorSeconds);";
-        command.Parameters.AddWithValue("$floor", floorMs);
-        command.Parameters.AddWithValue("$floorSeconds", CeilingSecondsOf(floorMs));
-        return command.ExecuteNonQuery();
-    }
-
-    internal static long CeilingSecondsOf(long milliseconds) =>
-        FloorDiv(milliseconds, 1000) + (milliseconds % 1000 == 0 ? 0 : 1);
-
     // The saved column is no longer read; it stays so the schema needs no
     // migration and stores of earlier versions keep opening.
     /// <returns>How many rows were new.</returns>
@@ -549,11 +526,11 @@ internal sealed class ClaudeRequestStore
         }
     }
 
-    internal static void SetMeta(SqliteConnection connection, SqliteTransaction? transaction, string name, string? value)
+    private static void SetMeta(SqliteConnection connection, SqliteTransaction transaction, string name, string? value)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "INSERT INTO meta(name, value) VALUES($name, $value) ON CONFLICT(name) DO UPDATE SET value = excluded.value;";
+        command.CommandText = "INSERT INTO meta(name, value) VALUES($name, $value);";
         command.Parameters.AddWithValue("$name", name);
         command.Parameters.AddWithValue("$value", (object?)value ?? DBNull.Value);
         command.ExecuteNonQuery();
@@ -656,8 +633,6 @@ internal sealed class ClaudeRequestStore
 
     internal static string? Text(long? value) => value?.ToString(CultureInfo.InvariantCulture);
 
-    private static long FloorDiv(long value, long divisor) =>
-        value >= 0 ? value / divisor : -((-value + divisor - 1) / divisor);
 }
 
 /// <summary>Must be disposed inside the hold of the history lock it was opened in.</summary>
@@ -786,12 +761,17 @@ internal sealed class ClaudeStoreSession : IDisposable
         return added;
     }
 
-    public int Prune(long floorMs)
+    /// <summary>
+    /// Marks go by the start of their bucket, not their timestamp: the same
+    /// rule a month-file prune uses for the bucket the mark is counted in.
+    /// </summary>
+    public int Prune(long floorSeconds)
     {
-        using var transaction = Connection.BeginTransaction();
-        var removed = ClaudeRequestStore.DeleteBelow(Connection, transaction, floorMs);
-        transaction.Commit();
-        return removed;
+        using var command = Connection.CreateCommand();
+        command.CommandText = "DELETE FROM request WHERE (kind = 0 AND ts_ms < $floorMs) OR (kind = 1 AND bucket < $floorSeconds);";
+        command.Parameters.AddWithValue("$floorMs", floorSeconds * 1000);
+        command.Parameters.AddWithValue("$floorSeconds", floorSeconds);
+        return command.ExecuteNonQuery();
     }
 
     public long? EarliestRecordMs(long? notBeforeMs)

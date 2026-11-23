@@ -414,7 +414,7 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             var outcome = history.Store.Save(
                 start,
                 view => PlanHistoryWrite(view, live, recoveredSamples, map, notBefore, scanStart, recoveryDone, claudeComplete));
-            if (outcome is null || outcome.Skipped)
+            if (outcome is null)
             {
                 return;
             }

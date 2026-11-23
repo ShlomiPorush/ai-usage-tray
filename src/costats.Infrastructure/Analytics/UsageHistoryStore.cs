@@ -52,9 +52,8 @@ internal sealed record HistoryWritePlan(
     ClaudeConversion? Conversion);
 
 /// <param name="Changed">Buckets added or replaced.</param>
-/// <param name="Skipped">True when a delete happened since the sync started, so nothing was written.</param>
 /// <param name="NewestRecordMs">The newest record's timestamp, for the clock check before a prune.</param>
-internal sealed record HistorySaveOutcome(int Changed, int RecordsAdded, bool Converted, bool Skipped, long? NewestRecordMs);
+internal sealed record HistorySaveOutcome(int Changed, int RecordsAdded, bool Converted, long? NewestRecordMs);
 
 /// <param name="Snapshot">
 /// <see cref="UsageHistorySnapshot.Accounts"/> includes the request store's names.
@@ -131,7 +130,6 @@ public sealed class UsageHistoryStore
 
     // A month file from an older version has no stamp and reads as 0: it
     // carries the deletion id but not the point.
-    private const int MonthStampOldVersion = 0;
     private const int MonthStampKnown = 1;
     private const int MonthStampUnknown = 2;
     private const string BackupSuffix = ".bak";
@@ -198,10 +196,10 @@ public sealed class UsageHistoryStore
         }
 
         var state = ReadState(out _, out _);
-        return ReadSnapshot(state, EffectiveDeletedBefore(state));
+        return ReadSnapshot(state);
     }
 
-    private UsageHistorySnapshot ReadSnapshot(HistoryState state, DateTimeOffset? deletedBefore)
+    private UsageHistorySnapshot ReadSnapshot(HistoryState state)
     {
         var buckets = new Dictionary<UsageHistoryKey, UsageHistoryBucket>();
         var accounts = new Dictionary<string, UsageHistoryAccount>(StringComparer.Ordinal);
@@ -209,7 +207,7 @@ public sealed class UsageHistoryStore
         // Ascending month order, so the newest month's account name wins.
         foreach (var month in ListMonths())
         {
-            var file = ReadMonth(month, out _, state);
+            var file = ReadMonth(month, out _, out _, state);
             if (file is null)
             {
                 continue;
@@ -218,7 +216,7 @@ public sealed class UsageHistoryStore
             Unpack(file, buckets, accounts);
         }
 
-        return new UsageHistorySnapshot(buckets, accounts, deletedBefore);
+        return new UsageHistorySnapshot(buckets, accounts, EffectiveDeletedBefore(state));
     }
 
     /// <summary>Keeps the larger of the stored and scanned bucket for every key.</summary>
@@ -246,7 +244,7 @@ public sealed class UsageHistoryStore
         }
 
         var merged = MergeLocked(state, scanned, accounts);
-        if (cacheRecovered && merged.AllWritten && !state.CacheRecovered)
+        if (cacheRecovered && merged.BusyMonths.Count == 0 && !state.CacheRecovered)
         {
             WriteState(state with { CacheRecovered = true });
         }
@@ -281,7 +279,7 @@ public sealed class UsageHistoryStore
     /// writes, so it plans from the request store the writes go to.
     /// </summary>
     /// <param name="start">A delete since the sync began makes this write nothing.</param>
-    /// <returns>Null when the lock was busy.</returns>
+    /// <returns>Null when the lock was busy or a delete happened since the sync began.</returns>
     internal HistorySaveOutcome? Save(HistorySyncStart start, Func<ClaudeRequestView, HistoryWritePlan> plan)
     {
         ArgumentNullException.ThrowIfNull(start);
@@ -302,7 +300,7 @@ public sealed class UsageHistoryStore
                 // The history was deleted after this sync read the logs: what
                 // it holds may be usage the user just deleted.
                 _logger.LogInformation("Usage history: deleted while a sync was reading the logs; nothing saved");
-                return new HistorySaveOutcome(0, 0, false, true, null);
+                return null;
             }
 
             if (!stateExisted)
@@ -313,14 +311,14 @@ public sealed class UsageHistoryStore
             var requests = claude.ReadRequests();
             var view = claude.Status switch
             {
-                ClaudeStoreStatus.Available => new ClaudeRequestView(ClaudeStoreStatus.Available, claude.Meta!.FreezeMs, requests, claude.ReadAccounts()),
+                ClaudeStoreStatus.Available => new ClaudeRequestView(ClaudeStoreStatus.Available, claude.Meta!.FreezeMs, requests),
                 ClaudeStoreStatus.Unavailable => ClaudeRequestView.Unavailable(state.ClaudeFreezeMs),
                 _ => ClaudeRequestView.Absent
             };
             var write = plan(view);
 
             var merged = MergeLocked(state, write.Buckets, write.Names);
-            if (write.CacheRecovered && merged.AllWritten && !state.CacheRecovered)
+            if (write.CacheRecovered && merged.BusyMonths.Count == 0 && !state.CacheRecovered)
             {
                 state = state with { CacheRecovered = true };
                 WriteState(state);
@@ -330,8 +328,9 @@ public sealed class UsageHistoryStore
             var converted = false;
             if (claude.Status == ClaudeStoreStatus.Available)
             {
+                var storedNames = claude.ReadAccounts();
                 var names = write.StoreNames
-                    .Where(name => !view.Accounts.TryGetValue(name.Key, out var stored) || stored != name)
+                    .Where(name => !storedNames.TryGetValue(name.Key, out var stored) || stored != name)
                     .ToList();
                 added = claude.AddRecords(write.Records, names);
             }
@@ -369,7 +368,7 @@ public sealed class UsageHistoryStore
                 }
             }
 
-            return new HistorySaveOutcome(merged.Changed, added, converted, false, newest);
+            return new HistorySaveOutcome(merged.Changed, added, converted, newest);
         }
         finally
         {
@@ -389,12 +388,12 @@ public sealed class UsageHistoryStore
             _logger.LogDebug("Usage history is busy; reporting without the saved Claude requests");
             var unlocked = ReadState(out _, out _);
             return new HistoryReportRead(
-                ReadSnapshot(unlocked, EffectiveDeletedBefore(unlocked)),
+                ReadSnapshot(unlocked),
                 _claude.FilesPresent ? ClaudeRequestView.Unavailable(unlocked.ClaudeFreezeMs) : ClaudeRequestView.Absent);
         }
 
         using var claude = OpenLocked(out var state, out _, out _);
-        var snapshot = ReadSnapshot(state, EffectiveDeletedBefore(state));
+        var snapshot = ReadSnapshot(state);
         switch (claude.Status)
         {
             case ClaudeStoreStatus.Available:
@@ -407,7 +406,7 @@ public sealed class UsageHistoryStore
 
                 return new HistoryReportRead(
                     snapshot with { Accounts = accounts },
-                    new ClaudeRequestView(ClaudeStoreStatus.Available, claude.Meta!.FreezeMs, claude.ReadRequests(), storeAccounts));
+                    new ClaudeRequestView(ClaudeStoreStatus.Available, claude.Meta!.FreezeMs, claude.ReadRequests()));
 
             case ClaudeStoreStatus.Unavailable:
                 return new HistoryReportRead(snapshot, ClaudeRequestView.Unavailable(state.ClaudeFreezeMs));
@@ -417,7 +416,7 @@ public sealed class UsageHistoryStore
         }
     }
 
-    private readonly record struct MergeResult(int Changed, bool AllWritten, IReadOnlySet<string> BusyMonths);
+    private readonly record struct MergeResult(int Changed, IReadOnlySet<string> BusyMonths);
 
     private MergeResult MergeLocked(
         HistoryState state,
@@ -426,7 +425,6 @@ public sealed class UsageHistoryStore
     {
         var names = accounts.ToDictionary(account => account.Key, StringComparer.Ordinal);
         var changed = 0;
-        var allWritten = true;
         var busyMonths = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var monthGroup in scanned.GroupBy(pair => MonthOf(pair.Key.BucketStart)))
@@ -435,7 +433,6 @@ public sealed class UsageHistoryStore
             if (busy)
             {
                 // Retried on the next sync; the logs are still on disk meanwhile.
-                allWritten = false;
                 busyMonths.Add(monthGroup.Key);
                 continue;
             }
@@ -473,9 +470,9 @@ public sealed class UsageHistoryStore
             changed += monthChanged;
         }
 
-        // Callers mark the cache recovery done only when AllWritten, so it
-        // runs again until everything it found is saved.
-        return new MergeResult(changed, allWritten, busyMonths);
+        // Callers mark the cache recovery done only when no month was busy, so
+        // it runs again until everything it found is saved.
+        return new MergeResult(changed, busyMonths);
     }
 
     /// <remarks>
@@ -501,7 +498,7 @@ public sealed class UsageHistoryStore
             try
             {
                 var floorSeconds = keptFrom is { } kept ? Math.Min(cutoffSeconds, kept) : cutoffSeconds;
-                removedRequests = claude.Prune(floorSeconds * 1000);
+                removedRequests = claude.Prune(floorSeconds);
             }
             catch (Exception exception) when (ClaudeRequestStore.IsRecoverable(exception))
             {
@@ -711,7 +708,7 @@ public sealed class UsageHistoryStore
         DateTimeOffset? first = null;
         foreach (var month in months)
         {
-            var file = ReadMonth(month, out _, state);
+            var file = ReadMonth(month, out _, out _, state);
             if (file is null)
             {
                 continue;
@@ -890,7 +887,7 @@ public sealed class UsageHistoryStore
         }
 
         var oldest = ListMonths()
-            .Select(month => ReadMonth(month, out _))
+            .Select(month => ReadMonth(month, out _, out _))
             .Select(file => file is null ? null : EarliestBucket(file))
             .Min();
         if (MonthStamp() is { } stamp)
@@ -966,14 +963,13 @@ public sealed class UsageHistoryStore
     }
 
     /// <summary>The caller holds the lock.</summary>
-    /// <returns>True when the main state copy is valid.</returns>
-    private bool SyncStateBackup()
+    private void SyncStateBackup()
     {
         var path = Path.Combine(Directory, StateFileName);
         var backup = path + BackupSuffix;
         if (!IsUsableState(TryReadJson<HistoryState>(path, out _)))
         {
-            return false;
+            return;
         }
 
         try
@@ -981,7 +977,7 @@ public sealed class UsageHistoryStore
             var main = File.ReadAllBytes(path);
             if (File.Exists(backup) && File.ReadAllBytes(backup).AsSpan().SequenceEqual(main))
             {
-                return true;
+                return;
             }
 
             var temp = backup + ".tmp";
@@ -997,8 +993,6 @@ public sealed class UsageHistoryStore
         {
             _logger.LogWarning("Usage history: the backup copy of the state could not be updated: {Error}", exception.GetType().Name);
         }
-
-        return true;
     }
 
     private static bool IsUsableState(HistoryState? state) =>
@@ -1026,9 +1020,6 @@ public sealed class UsageHistoryStore
             .Order(StringComparer.Ordinal)
             .ToList();
     }
-
-    private MonthFile? ReadMonth(string month, out bool damaged, HistoryState? state = null) =>
-        ReadMonth(month, out damaged, out _, state);
 
     /// <summary>
     /// <paramref name="damaged"/> is true only when the main file exists and
