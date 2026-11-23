@@ -42,11 +42,7 @@ internal sealed record ClaudeRequestRow(
 /// The conversion instant: requests logged at or after it are saved as
 /// records, requests before it follow the month-file rules.
 /// </param>
-/// <param name="DeletionId">
-/// The history's deletion id when the store was created. A delete removes
-/// the store, so this is always the latest delete before its creation.
-/// </param>
-internal sealed record ClaudeStoreMeta(long FreezeMs, string? DeletionId, long? DeletedBeforeMs);
+internal sealed record ClaudeStoreMeta(long FreezeMs);
 
 internal enum ClaudeStoreStatus
 {
@@ -267,9 +263,7 @@ internal sealed class ClaudeRequestStore
 
                     SetMeta(connection, transaction, "schema", SchemaVersion);
                     SetMeta(connection, transaction, "key_scheme", KeySchemeVersion);
-                    SetMeta(connection, transaction, "freeze_ms", Text(meta.FreezeMs));
-                    SetMeta(connection, transaction, "deletion_id", meta.DeletionId);
-                    SetMeta(connection, transaction, "deleted_before_ms", Text(meta.DeletedBeforeMs));
+                    SetMeta(connection, transaction, "freeze_ms", meta.FreezeMs.ToString(CultureInfo.InvariantCulture));
                     InsertRows(connection, transaction, marks);
                     UpsertNames(connection, transaction, names);
                     transaction.Commit();
@@ -383,10 +377,7 @@ internal sealed class ClaudeRequestStore
                 return Check.UnknownFormat;
             }
 
-            meta = new ClaudeStoreMeta(
-                freeze,
-                values.GetValueOrDefault("deletion_id"),
-                ParseLong(values.GetValueOrDefault("deleted_before_ms")));
+            meta = new ClaudeStoreMeta(freeze);
             return Check.Ok;
         }
         catch (SqliteException exception) when (exception.SqliteErrorCode == SqliteError)
@@ -631,7 +622,6 @@ internal sealed class ClaudeRequestStore
     internal static long? ParseLong(string? value) =>
         long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
 
-    internal static string? Text(long? value) => value?.ToString(CultureInfo.InvariantCulture);
 
 }
 
@@ -659,7 +649,6 @@ internal sealed class ClaudeStoreSession : IDisposable
 
     public ClaudeStoreStatus Status { get; }
 
-    /// <summary>Null unless <see cref="Status"/> is available.</summary>
     public ClaudeStoreMeta? Meta { get; }
 
     private SqliteConnection Connection =>

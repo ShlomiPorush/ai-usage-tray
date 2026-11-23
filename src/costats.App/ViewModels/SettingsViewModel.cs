@@ -156,6 +156,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     [NotifyCanExecuteChangedFor(nameof(OpenDebugLogFolderCommand))]
     private bool debugLoggingEnabled;
 
+    /// <summary>When debug logging switches itself off, shown while it is on.</summary>
     public string DebugLoggingStatus =>
         DebugLoggingEnabled && _debugLogging?.ExpiresAt is { } expiresAt
             ? DebugLoggingPolicy.FormatStatus(expiresAt.ToLocalTime())
@@ -199,6 +200,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
 
     public bool CanAutoStartZaiFiveHourWindow => _settings.HasZaiCodingKey;
 
+    /// <summary>One row per monitored provider: Claude/Codex accounts plus Z.AI and Copilot when configured.</summary>
     public System.Collections.ObjectModel.ObservableCollection<ProviderRowViewModel> ProviderRows { get; } = new();
 
     [ObservableProperty]
@@ -250,10 +252,15 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     [ObservableProperty]
     private bool remoteViewEnabled;
 
+    /// <summary>Also share the Usage window's report on the remote view.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RemoteViewHint))]
     private bool remoteViewShareUsage;
 
+    /// <summary>
+    /// One line under the usage sharing checkbox when sharing cannot run,
+    /// such as a time zone without an IANA name. Empty means nothing to say.
+    /// </summary>
     [ObservableProperty]
     private string remoteUsageStatus = string.Empty;
 
@@ -263,6 +270,11 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     [ObservableProperty]
     private string remoteViewPageUrl = string.Empty;
 
+    /// <summary>
+    /// One short line under the Remote view section: a rejected endpoint URL, or
+    /// the result of the last "New link" / turn-off action. Empty means nothing
+    /// to say.
+    /// </summary>
     [ObservableProperty]
     private string remoteViewMessage = string.Empty;
 
@@ -272,7 +284,10 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
 
     public bool HasRemoteViewQrCode => RemoteViewQrImage is not null;
 
-    /// <summary>Carries the read id derived from the write id, never the write id itself.</summary>
+    /// <summary>
+    /// The link to open on a phone: the viewer page plus the read id derived
+    /// from the write id. Empty until both exist.
+    /// </summary>
     public string ShareLink => _settings.RemoteViewShareLink ?? string.Empty;
 
     /// <summary>
@@ -282,6 +297,11 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     /// </summary>
     public bool ShowRemoteViewUrlFields => !_settings.HasRemoteViewDefaults;
 
+    /// <summary>
+    /// Explains what leaves the machine, worded for the endpoint actually in
+    /// use: the shipped relay, a self-hosted one, or nothing at all when the
+    /// configured upload endpoint was rejected and uploads are off.
+    /// </summary>
     public string RemoteViewHint
     {
         get
@@ -696,6 +716,10 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     private bool IsPrimaryProvider(string providerId) =>
         string.Equals(_settings.PrimaryAccountId, providerId, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Toggles the primary account: the tray icon shows this account's status
+    /// and it is pinned to the top of the widget overview.
+    /// </summary>
     [RelayCommand]
     private void SetPrimaryRow(ProviderRowViewModel? row)
     {
@@ -837,6 +861,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         _pulseOrchestrator.RepublishLastState();
     }
 
+    /// <summary>Persists account changes and applies them live (no restart needed).</summary>
     private void ApplyAccountsChanged(string message = "Saved and applied.")
     {
         // The stored usage may belong to an account that was just changed.
@@ -864,6 +889,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         }
     }
 
+    /// <summary>Adds a Claude/Codex account from the Add-account dialog.</summary>
     public void AddAccountFromDialog(string type, string displayName, string configDir)
     {
         _settings.Accounts ??= [];
@@ -877,6 +903,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         ApplyAccountsChanged();
     }
 
+    /// <summary>Updates an existing Claude/Codex account from the Edit dialog.</summary>
     public void UpdateAccountFromDialog(string accountId, string displayName, string configDir)
     {
         var account = (_settings.Accounts ?? []).FirstOrDefault(a =>
@@ -891,6 +918,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         ApplyAccountsChanged();
     }
 
+    /// <summary>Stores the Z.AI key + display name. An empty key keeps the existing one (edit mode).</summary>
     public void ConfigureZai(string displayName, string apiKey)
     {
         if (!string.IsNullOrWhiteSpace(apiKey))
@@ -906,6 +934,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         ApplyAccountsChanged("Z.AI configured.");
     }
 
+    /// <summary>Enables Copilot and stores its token. An empty token keeps the existing one (edit mode).</summary>
     public void ConfigureCopilot(string token)
     {
         _settings.CopilotEnabled = true;
@@ -920,9 +949,14 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
 
     private const string AntigravityKind = "antigravity";
 
+    /// <summary>The minimum minutes between two Antigravity checks, for the Edit dialog.</summary>
     public int AntigravityMinIntervalMinutes => _settings.AntigravityMinIntervalMinutes;
 
-    /// <summary>Takes no secret, unlike the other providers: agy keeps its own sign-in.</summary>
+    /// <summary>
+    /// Enables Antigravity with the given minimum check interval. A null
+    /// interval keeps the current one. No secret is involved: agy keeps its
+    /// own sign-in.
+    /// </summary>
     public void ConfigureAntigravity(int? intervalMinutes)
     {
         _settings.AntigravityEnabled = true;
@@ -1216,6 +1250,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         _pulseOrchestrator.RepublishLastState();
     }
 
+    /// <summary>Says truthfully whether the shared usage report is gone.</summary>
     private async Task ReportRemoteUsageDeleteAsync(Task<bool> removal)
     {
         bool removed;
@@ -1311,7 +1346,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     public void RefreshUsageCacheInfo()
     {
         UsageCacheSummary = FormatCacheInfo(_analytics.GetCacheInfo());
-        UsageHistorySummary = UsageHistorySummaryText.Describe(_analytics.GetHistoryInfo());
+        UsageHistorySummary = FormatHistoryInfo(_analytics.GetHistoryInfo());
     }
 
     public static IReadOnlyList<RetentionOption> HistoryRetentionOptions { get; } =
@@ -1347,6 +1382,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     [ObservableProperty]
     private string usageHistorySummary = string.Empty;
 
+    /// <summary>True while the inline "delete history?" confirmation is shown.</summary>
     [ObservableProperty]
     private bool isHistoryDeleteConfirmationVisible;
 
@@ -1391,6 +1427,24 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         }
     }
 
+    private static string FormatHistoryInfo(UsageHistoryInfo info)
+    {
+        if (info.FirstBucket is not { } first)
+        {
+            return "No usage history saved yet. It is saved in the background a minute after the app starts, then every 6 hours.";
+        }
+
+        var since = first.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture);
+        return $"Saved usage from {since}, {FormatBytes(info.Bytes)}.";
+    }
+
+    private static string FormatBytes(long bytes) => bytes switch
+    {
+        >= 1024L * 1024L => $"{bytes / (1024d * 1024d):0.##} MB",
+        >= 1024L => $"{bytes / 1024d:0.##} KB",
+        _ => $"{bytes} bytes"
+    };
+
     [RelayCommand]
     private async Task ClearUsageCacheAsync()
     {
@@ -1420,8 +1474,9 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
     }
 
     private static string FormatCacheInfo(UsageCacheInfo info) =>
-        $"{info.FileCount:N0} cached files, {UsageHistorySummaryText.FormatBytes(info.Bytes)}.";
+        $"{info.FileCount:N0} cached files, {FormatBytes(info.Bytes)}.";
 
+    /// <summary>Deletes the remote snapshot and reports the outcome truthfully.</summary>
     private async Task ReportRemoteSnapshotDeleteAsync(string? writeId)
     {
         if (_remoteViewUploader is null || !RemoteViewIds.IsValidId(writeId))
@@ -1550,6 +1605,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
             return;
         }
 
+        // Cancel any previous in-flight check before starting a new one
         _updateCheckCts?.Cancel();
         _updateCheckCts?.Dispose();
         _updateCheckCts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
@@ -1763,19 +1819,24 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
 
     private CancellationTokenSource? _updateCheckCts;
 
+    /// <summary>Short result line under the export and import actions.</summary>
     [ObservableProperty]
     private string settingsTransferMessage = string.Empty;
 
     [ObservableProperty]
     private bool isSettingsTransferBusy;
 
+    /// <summary>True while a validated file waits for the user to confirm the import.</summary>
     [ObservableProperty]
     private bool isImportConfirmationVisible;
 
     [ObservableProperty]
     private string importConfirmationText = string.Empty;
 
-    /// <summary>Secrets and this machine's remote-view write id are never part of the file.</summary>
+    /// <summary>
+    /// Writes the transferable settings to <paramref name="path"/>. Secrets and
+    /// this machine's remote-view write id are never part of the file.
+    /// </summary>
     public async Task ExportSettingsAsync(string path)
     {
         if (IsSettingsTransferBusy)
@@ -1808,6 +1869,10 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
         }
     }
 
+    /// <summary>
+    /// Reads and validates an export file, then asks for confirmation. Nothing
+    /// changes until <see cref="ConfirmImportCommand"/> runs.
+    /// </summary>
     public async Task PrepareImportAsync(string path)
     {
         if (IsSettingsTransferBusy)
@@ -2153,6 +2218,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
             return;
         }
 
+        // 1. Registry: HKCU\...\Run\AiUsageTray = "path"
         try
         {
             using var key = Registry.CurrentUser.OpenSubKey(StartupRegistryKey, true);
@@ -2174,8 +2240,10 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
             // startup-folder shortcut below is our backup.
         }
 
-        // Some Windows configurations or cleanup tools strip Run-key entries
-        // but leave the Startup folder alone, so the shortcut is written too.
+        // 2. Startup-folder shortcut: belt-and-suspenders. Some Windows
+        // configurations or cleanup tools strip Run-key entries but leave
+        // the Startup folder alone. We write both so the app survives
+        // either path.
         try
         {
             WriteStartupShortcut(enable, exePath);
@@ -2201,7 +2269,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IFloatingPanel
             return;
         }
 
-        // A fresh user profile can lack the Startup folder.
+        // Create the Startup folder if it doesn't exist (rare on a fresh
+        // user profile, but defensively correct).
         Directory.CreateDirectory(startupDir);
 
         // Use WScript.Shell via late-bound COM to create the .lnk without

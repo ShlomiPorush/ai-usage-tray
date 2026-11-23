@@ -136,36 +136,22 @@ public sealed class UsageHistoryStoreTests : IDisposable
     }
 
     [Fact]
-    public void A_lost_state_file_is_repaired_without_bringing_deleted_usage_back()
+    public void A_state_file_that_cannot_be_opened_is_never_replaced()
     {
         var store = new UsageHistoryStore(HistoryDir);
-        Assert.True(store.NeedsCacheRecovery());
-        // Usage up to 12:05 is deleted; usage at 12:07 is saved after it.
-        store.DeleteAll(DateTimeOffset.FromUnixTimeSeconds(At("2026-08-21T12:05:00Z")));
-        store.Merge(new Dictionary<UsageHistoryKey, UsageHistoryBucket> { [Key("2026-08-21T12:07:00Z")] = Bucket(1) }, [Work], cacheRecovered: true);
-        Assert.False(store.NeedsCacheRecovery());
+        Assert.True(store.DeleteAll(DateTimeOffset.FromUnixTimeSeconds(At("2026-08-21T12:05:00Z"))));
+        var statePath = Path.Combine(HistoryDir, "state.json");
+        var before = File.ReadAllBytes(statePath);
 
-        File.Delete(Path.Combine(HistoryDir, "state.json"));
-        File.Delete(Path.Combine(HistoryDir, "state.json.bak"));
+        using (new FileStream(statePath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.Throws<IOException>(() => store.Merge(
+                new Dictionary<UsageHistoryKey, UsageHistoryBucket> { [Key("2026-08-21T12:07:00Z")] = Bucket(1) }, [Work], cacheRecovered: true));
+            Assert.False(store.DeleteAll(DateTimeOffset.FromUnixTimeSeconds(At("2026-08-21T12:10:00Z"))));
+        }
 
-        var read = store.Read();
-        // The repair takes the deletion point from the month file's stamp, so
-        // the deleted usage stays hidden, and the cache recovery is never run again.
-        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(At("2026-08-21T12:05:01Z")), read.DeletedBefore);
-        Assert.False(store.NeedsCacheRecovery());
-    }
-
-    [Fact]
-    public void A_damaged_state_file_after_a_delete_cannot_undo_it()
-    {
-        var store = new UsageHistoryStore(HistoryDir);
-        store.Merge(new Dictionary<UsageHistoryKey, UsageHistoryBucket> { [Key("2026-08-21T12:00:00Z")] = Bucket(1) }, [Work], false);
-        var now = DateTimeOffset.FromUnixTimeSeconds(At("2026-10-27T10:00:00Z"));
-        store.DeleteAll(now);
-
-        File.WriteAllText(Path.Combine(HistoryDir, "state.json"), "{ damaged");
-
-        Assert.Equal(now.AddSeconds(1), store.Read().DeletedBefore);
+        Assert.Equal(before, File.ReadAllBytes(statePath));
+        Assert.Empty(Directory.GetFiles(HistoryDir, "usage-*"));
     }
 
     [Fact]
@@ -182,33 +168,7 @@ public sealed class UsageHistoryStoreTests : IDisposable
             deleted = store.DeleteAll(DateTimeOffset.FromUnixTimeSeconds(At("2026-08-21T12:05:00Z")));
         }
 
-        // A file time far in the future (a clock set back, or a copied file)
-        // must not make the leftover look newer than the delete.
-        File.SetLastWriteTimeUtc(month, new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc));
-
         Assert.False(deleted);
-        Assert.True(File.Exists(month));
-        Assert.Empty(store.Read().Buckets);
-    }
-
-    [Fact]
-    public void A_repaired_state_never_lets_a_later_delete_miss_a_leftover_month()
-    {
-        var store = new UsageHistoryStore(HistoryDir);
-        var key = Key("2026-08-21T12:00:00Z");
-        store.Merge(new Dictionary<UsageHistoryKey, UsageHistoryBucket> { [key] = Bucket(1) }, [Work], false);
-        store.DeleteAll(DateTimeOffset.FromUnixTimeSeconds(At("2026-08-21T12:05:00Z")));
-        // Usage at 12:07 is saved after the first delete, into the 12:00 bucket.
-        store.Merge(new Dictionary<UsageHistoryKey, UsageHistoryBucket> { [key] = Bucket(7) }, [Work], false);
-        File.Delete(Path.Combine(HistoryDir, "state.json"));
-        File.Delete(Path.Combine(HistoryDir, "state.json.bak"));
-
-        var month = Path.Combine(HistoryDir, "usage-2026-08.json");
-        using (new FileStream(month, FileMode.Open, FileAccess.Read, FileShare.Read))
-        {
-            store.DeleteAll(DateTimeOffset.FromUnixTimeSeconds(At("2026-08-21T12:10:00Z")));
-        }
-
         Assert.True(File.Exists(month));
         Assert.Empty(store.Read().Buckets);
     }
