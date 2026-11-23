@@ -1,20 +1,14 @@
 using System.Globalization;
 using System.Text.Json;
-using costats.Application.Diagnostics;
 using costats.Application.Storage;
 using costats.Core.Analytics;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace costats.Infrastructure.Analytics;
 
-/// <summary>Name and provider of one account in the usage history.</summary>
 public sealed record UsageHistoryAccount(string Key, UsageProviderKind Provider, string Name);
 
-/// <summary>Everything read from the usage history at one moment.</summary>
-/// <param name="Buckets">Every stored bucket.</param>
-/// <param name="Accounts">Last known name of every account key, by key.</param>
 /// <param name="DeletedBefore">
 /// Usage before this instant was deleted by the user and must not be shown,
 /// even while its logs are still on disk. Null when nothing was deleted.
@@ -24,48 +18,31 @@ public sealed record UsageHistorySnapshot(
     IReadOnlyDictionary<string, UsageHistoryAccount> Accounts,
     DateTimeOffset? DeletedBefore)
 {
-    /// <summary>No history at all.</summary>
     public static readonly UsageHistorySnapshot Empty = new(
         new Dictionary<UsageHistoryKey, UsageHistoryBucket>(),
         new Dictionary<string, UsageHistoryAccount>(),
         null);
 }
 
-/// <summary>Size and span of the stored usage history, for Settings.</summary>
-/// <param name="MonthCount">Month files on disk.</param>
-/// <param name="Bytes">Size of every history file.</param>
+/// <param name="Bytes">Size of every file in the history folder, not only the months.</param>
 /// <param name="FirstBucket">The earliest saved usage, or null when none is shown.</param>
-/// <param name="SavingPaused">
-/// True while a delete of the history could not be finished yet: nothing is
-/// saved for any provider until it is.
-/// </param>
-public sealed record UsageHistoryInfo(int MonthCount, long Bytes, DateTimeOffset? FirstBucket, bool SavingPaused = false)
+public sealed record UsageHistoryInfo(int MonthCount, long Bytes, DateTimeOffset? FirstBucket)
 {
     public static readonly UsageHistoryInfo Empty = new(0, 0, null);
-
-    /// <summary>Saving is paused and nothing about the stored history can be told.</summary>
-    public static readonly UsageHistoryInfo Paused = new(0, 0, null, SavingPaused: true);
 }
 
 /// <summary>
-/// What a sync read under the history lock before its scan: the deletion
-/// point it scans against. A sync whose point changed by the time it writes
-/// writes nothing.
+/// The deletion point a sync scans against. A sync whose point changed by the
+/// time it writes writes nothing.
 /// </summary>
 /// <param name="DeletionId">The state's deletion id, after any repair was saved.</param>
-/// <param name="DeletedBefore">The later of the state's and the request store's deletion points.</param>
 internal sealed record HistorySyncStart(string? DeletionId, DateTimeOffset? DeletedBefore);
 
-/// <summary>The one-time conversion a sync asks for: the instant it froze at and the marks.</summary>
 internal sealed record ClaudeConversion(long FreezeMs, IReadOnlyList<ClaudeRequestRow> Marks);
 
-/// <summary>Everything one sync writes, computed from what the store holds.</summary>
-/// <param name="Buckets">Buckets for the month files, merged larger-wins.</param>
 /// <param name="Names">Current names of the accounts in <paramref name="Buckets"/>.</param>
-/// <param name="CacheRecovered">Marks the one-time cache recovery as done.</param>
-/// <param name="Records">New Claude records.</param>
 /// <param name="StoreNames">Current names of the accounts the request store holds rows for.</param>
-/// <param name="Conversion">The conversion, when this sync may perform it.</param>
+/// <param name="Conversion">Null when this sync may not perform the conversion.</param>
 internal sealed record HistoryWritePlan(
     IReadOnlyDictionary<UsageHistoryKey, UsageHistoryBucket> Buckets,
     IReadOnlyCollection<UsageHistoryAccount> Names,
@@ -74,21 +51,14 @@ internal sealed record HistoryWritePlan(
     IReadOnlyCollection<UsageHistoryAccount> StoreNames,
     ClaudeConversion? Conversion);
 
-/// <summary>What a sync's write did.</summary>
 /// <param name="Changed">Buckets added or replaced.</param>
-/// <param name="RecordsAdded">Claude records added.</param>
-/// <param name="Converted">True when the conversion was committed.</param>
 /// <param name="Skipped">True when a delete happened since the sync started, so nothing was written.</param>
 /// <param name="NewestRecordMs">The newest record's timestamp, for the clock check before a prune.</param>
 internal sealed record HistorySaveOutcome(int Changed, int RecordsAdded, bool Converted, bool Skipped, long? NewestRecordMs);
 
-/// <summary>Everything a report reads from the history, from one hold of the lock.</summary>
 /// <param name="Snapshot">
-/// Month files and state. <see cref="UsageHistorySnapshot.DeletedBefore"/> is
-/// the later of the state's and the request store's deletion points, and
-/// <see cref="UsageHistorySnapshot.Accounts"/> includes the store's names.
+/// <see cref="UsageHistorySnapshot.Accounts"/> includes the request store's names.
 /// </param>
-/// <param name="Claude">The request store.</param>
 internal sealed record HistoryReportRead(UsageHistorySnapshot Snapshot, ClaudeRequestView Claude);
 
 /// <summary>
@@ -118,19 +88,17 @@ internal sealed record HistoryReportRead(UsageHistorySnapshot Snapshot, ClaudeRe
 /// only the identity hash, timestamp, bucket, account key, model and token
 /// counts, plus account names. Every connection to it is opened and closed
 /// while holding the lock file, so a restore or a delete never meets an open
-/// connection. After each change it is copied to <c>.bak</c> through a checked
-/// temporary file; a damaged store is replaced by that copy, trimmed again to
-/// the latest delete and prune points so a stale copy brings nothing back.
+/// connection. Its records exist nowhere else once Claude Code deletes their
+/// logs, so every sync copies it to <c>.bak</c>, and a damaged store is
+/// replaced by that copy.
 /// </para>
 /// <para>
-/// Deleting the history is recorded first in <c>deletion-journal.json</c> (two
-/// copies), then carried out: the request store, every month file and both
-/// state copies take the new deletion id and point, and the journal is
-/// removed last. Every locked open finishes a journal it finds before it
-/// reads or writes anything else; until it can be finished, nothing is saved
-/// and reports show only the logs after the deletion point. A lost state is
-/// rebuilt from the request store or the month files' stamps, never from a
-/// guess, and an unknown deletion id never leads to removing anything.
+/// Deleting the history first saves the new deletion point and id in the
+/// state, then removes every other file. Reports hide everything before the
+/// point, so a file a delete could not remove shows nothing it deleted. A
+/// lost state is rebuilt from the request store or the month files' stamps,
+/// never from a guess, and an unknown deletion id never leads to removing
+/// anything.
 /// </para>
 /// <para>
 /// What it guarantees: a Claude request with an identity that is logged at or
@@ -160,20 +128,15 @@ public sealed class UsageHistoryStore
     private const string MonthPrefix = "usage-";
     private const string StateFileName = "state.json";
     private const string LockFileName = "history.lock";
-    private const string JournalFileName = "deletion-journal.json";
-    private const int JournalSchemaVersion = 1;
 
-    // How a month file was stamped: by an older version (deletion id only),
-    // by a state that knew its deletion id and point, or by a state that
-    // did not know them.
+    // A month file from an older version has no stamp and reads as 0: it
+    // carries the deletion id but not the point.
     private const int MonthStampOldVersion = 0;
     private const int MonthStampKnown = 1;
     private const int MonthStampUnknown = 2;
     private const string BackupSuffix = ".bak";
 
     private static readonly TimeSpan LockTimeout = TimeSpan.FromSeconds(10);
-
-    /// <summary>How long Settings waits for the lock before it shows the month files alone.</summary>
     private static readonly TimeSpan InspectLockTimeout = TimeSpan.FromSeconds(1);
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -185,10 +148,6 @@ public sealed class UsageHistoryStore
     private readonly ILogger _logger;
     private readonly ClaudeRequestStore _claude;
 
-    /// <summary>
-    /// Creates a store rooted at <paramref name="directory"/>, or at the default
-    /// <c>%LOCALAPPDATA%\AIUsageTray\history</c> when null.
-    /// </summary>
     public UsageHistoryStore(string? directory = null, ILogger? logger = null)
     {
         Directory = directory ?? DefaultDirectory();
@@ -196,47 +155,25 @@ public sealed class UsageHistoryStore
         _claude = new ClaudeRequestStore(Directory, _logger);
     }
 
-    /// <summary>Where the history files live.</summary>
     public string Directory { get; }
 
-    /// <summary>How long a report waits for the lock before it reports without the request store.</summary>
     internal TimeSpan ReportLockTimeout { get; init; } = LockTimeout;
 
-    /// <summary>
-    /// Test hook, called with the name of a step at the points where a stopped
-    /// app would leave the files half written. Null outside tests.
-    /// </summary>
-    internal Action<string>? StopAt { get; init; }
-
-    /// <summary>
-    /// Whether a deletion journal copy exists: true, false, or null when that
-    /// cannot be determined (access denied, say). Replaceable in tests.
-    /// </summary>
-    internal Func<string, bool?> JournalProbe { get; init; } = ProbeFile;
-
-    /// <summary>The default history location.</summary>
     public static string DefaultDirectory() => AppDataPaths.Combine("history");
 
     /// <summary>
-    /// True until the one-time recovery of older usage from the parse cache
-    /// has run. False for a store whose state had to be repaired, so a repair
-    /// can never bring deleted usage back through that recovery.
+    /// False for a store whose state had to be repaired, so a repair can never
+    /// bring deleted usage back through the cache recovery.
     /// </summary>
     public bool NeedsCacheRecovery()
     {
-        var state = ReadState(out _);
+        var state = ReadState(out _, out _);
         return !state.CacheRecovered;
     }
 
-    /// <summary>
-    /// Every UTC month ("yyyy-MM") that has a history file on disk, whether or
-    /// not it can be read right now.
-    /// </summary>
+    /// <summary>Includes months whose files cannot be read right now.</summary>
     public IReadOnlyList<string> SavedMonths() => ListMonths();
 
-    /// <summary>
-    /// Records that a sync had to postpone the cache recovery.
-    /// </summary>
     /// <returns>How many syncs have postponed it so far, or null when the lock was busy.</returns>
     public int? RecordPostponedCacheRecovery()
     {
@@ -246,18 +183,13 @@ public sealed class UsageHistoryStore
             return null;
         }
 
-        using var claude = OpenLocked(out var state, out _, out _, out var pending);
-        if (pending is not null)
-        {
-            return null;
-        }
-
+        using var claude = OpenLocked(out var state, out _, out _);
         var updated = state with { RecoveryAttempts = state.RecoveryAttempts + 1 };
         WriteState(updated);
         return updated.RecoveryAttempts;
     }
 
-    /// <summary>Reads every month and the state. Never throws for damaged files.</summary>
+    /// <summary>Never throws for damaged files.</summary>
     public UsageHistorySnapshot Read()
     {
         if (!System.IO.Directory.Exists(Directory))
@@ -266,20 +198,8 @@ public sealed class UsageHistoryStore
         }
 
         var state = ReadState(out _, out _);
-        return ReadJournal(persist: false) is { } journal
-            ? LogsOnly(state, journal)
-            : ReadSnapshot(state, EffectiveDeletedBefore(state));
+        return ReadSnapshot(state, EffectiveDeletedBefore(state));
     }
-
-    /// <summary>
-    /// What a delete that is not finished yet leaves visible: no saved usage
-    /// at all, and nothing from the logs before its point.
-    /// </summary>
-    private static UsageHistorySnapshot LogsOnly(HistoryState state, DeletionJournal journal) =>
-        new(
-            new Dictionary<UsageHistoryKey, UsageHistoryBucket>(),
-            new Dictionary<string, UsageHistoryAccount>(StringComparer.Ordinal),
-            FromUnix(Math.Max(EffectiveDeletedBefore(state)?.ToUnixTimeSeconds() ?? long.MinValue, journal.DeletedBefore)));
 
     private UsageHistorySnapshot ReadSnapshot(HistoryState state, DateTimeOffset? deletedBefore)
     {
@@ -301,13 +221,7 @@ public sealed class UsageHistoryStore
         return new UsageHistorySnapshot(buckets, accounts, deletedBefore);
     }
 
-    /// <summary>
-    /// Merges scanned buckets into the stored months, keeping the larger bucket
-    /// for every key, and records the latest account names.
-    /// </summary>
-    /// <param name="scanned">Buckets from the current logs.</param>
-    /// <param name="accounts">Current names of the accounts in <paramref name="scanned"/>.</param>
-    /// <param name="cacheRecovered">Marks the one-time cache recovery as done.</param>
+    /// <summary>Keeps the larger of the stored and scanned bucket for every key.</summary>
     /// <returns>How many buckets were added or replaced, or null when the lock was busy.</returns>
     public int? Merge(
         IReadOnlyDictionary<UsageHistoryKey, UsageHistoryBucket> scanned,
@@ -323,12 +237,7 @@ public sealed class UsageHistoryStore
             return null;
         }
 
-        using var claude = OpenLocked(out var state, out var stateExisted, out _, out var pending);
-        if (pending is not null)
-        {
-            return null;
-        }
-
+        using var claude = OpenLocked(out var state, out var stateExisted, out _);
         if (!stateExisted)
         {
             // The state goes first, so a history whose first sync is cut short
@@ -346,14 +255,10 @@ public sealed class UsageHistoryStore
     }
 
     /// <summary>
-    /// Starts a sync: takes the lock, saves a repaired state so its deletion id
-    /// stays the same from now on, and returns the deletion point the sync
-    /// scans against.
+    /// Saves a repaired state, so the deletion id that <see cref="Save"/>
+    /// compares against stays the same from now on.
     /// </summary>
-    /// <returns>
-    /// Null when the lock was busy, or a delete could not be finished yet; the
-    /// sync then skips this round and saves nothing for any provider.
-    /// </returns>
+    /// <returns>Null when the lock was busy; the sync then skips this round.</returns>
     internal HistorySyncStart? BeginSync()
     {
         using var gate = TryLock();
@@ -362,12 +267,7 @@ public sealed class UsageHistoryStore
             return null;
         }
 
-        using var claude = OpenLocked(out var state, out _, out var repaired, out var pending);
-        if (pending is not null)
-        {
-            return null;
-        }
-
+        using var claude = OpenLocked(out var state, out _, out var repaired);
         if (repaired)
         {
             WriteState(state);
@@ -377,14 +277,10 @@ public sealed class UsageHistoryStore
     }
 
     /// <summary>
-    /// Writes one sync under a single hold of the lock: reads the request
-    /// store, lets <paramref name="plan"/> decide what to write from it, then
-    /// merges the month files, adds the Claude records, and performs the
-    /// one-time conversion when the plan asks for it and every month with
-    /// Claude usage was written.
+    /// <paramref name="plan"/> runs under the same hold of the lock as the
+    /// writes, so it plans from the request store the writes go to.
     /// </summary>
-    /// <param name="start">What the sync read before its scan. A delete since then makes this write nothing.</param>
-    /// <param name="plan">Computes the writes from the store's content.</param>
+    /// <param name="start">A delete since the sync began makes this write nothing.</param>
     /// <returns>Null when the lock was busy.</returns>
     internal HistorySaveOutcome? Save(HistorySyncStart start, Func<ClaudeRequestView, HistoryWritePlan> plan)
     {
@@ -397,14 +293,9 @@ public sealed class UsageHistoryStore
             return null;
         }
 
-        var claude = OpenLocked(out var state, out var stateExisted, out _, out var pending);
+        var claude = OpenLocked(out var state, out var stateExisted, out _);
         try
         {
-            if (pending is not null)
-            {
-                return null;
-            }
-
             if (!string.Equals(state.DeletionId, start.DeletionId, StringComparison.Ordinal) ||
                 EffectiveDeletedBefore(state) != start.DeletedBefore)
             {
@@ -453,29 +344,21 @@ public sealed class UsageHistoryStore
             {
                 // Every month with Claude usage holds this scan's buckets now,
                 // so each mark points at a bucket that really counts it.
-                var meta = new ClaudeStoreMeta(
-                    conversion.FreezeMs,
-                    state.DeletionId,
-                    state.DeletedBefore * 1000,
-                    PruneFloors: FloorsOf(state));
+                var meta = new ClaudeStoreMeta(conversion.FreezeMs, state.DeletionId, state.DeletedBefore * 1000);
                 if (_claude.Create(meta, [.. conversion.Marks], write.StoreNames))
                 {
                     converted = true;
                     state = state with { ClaudeFreezeMs = conversion.FreezeMs };
                     WriteState(state);
                     claude.Dispose();
-                    claude = OpenClaude();
-                    claude.Backup();
+                    claude = _claude.Open();
                     _logger.LogInformation(
                         "Usage history: Claude requests are now kept by identity ({Marks} requests marked as already saved)",
                         conversion.Marks.Count);
                 }
             }
 
-            if (!converted)
-            {
-                claude.Backup();
-            }
+            claude.Backup();
 
             long? newest = null;
             foreach (var row in requests.Values.Concat(write.Records))
@@ -495,9 +378,8 @@ public sealed class UsageHistoryStore
     }
 
     /// <summary>
-    /// Reads the state, every month and the request store under one hold of
-    /// the lock, for a report. When the lock is busy, the month files are read
-    /// without it and the store is left out.
+    /// When the lock is busy, the month files are read without it and the
+    /// request store is left out.
     /// </summary>
     internal HistoryReportRead ReadForReport()
     {
@@ -506,23 +388,12 @@ public sealed class UsageHistoryStore
         {
             _logger.LogDebug("Usage history is busy; reporting without the saved Claude requests");
             var unlocked = ReadState(out _, out _);
-            if (ReadJournal(persist: false) is { } unfinished)
-            {
-                return new HistoryReportRead(LogsOnly(unlocked, unfinished), ClaudeRequestView.Absent);
-            }
-
             return new HistoryReportRead(
                 ReadSnapshot(unlocked, EffectiveDeletedBefore(unlocked)),
                 _claude.FilesPresent ? ClaudeRequestView.Unavailable(unlocked.ClaudeFreezeMs) : ClaudeRequestView.Absent);
         }
 
-        using var claude = OpenLocked(out var state, out _, out _, out var pending);
-        if (pending is not null)
-        {
-            // A delete that could not be finished yet: the logs alone, after its point.
-            return new HistoryReportRead(LogsOnly(state, pending), ClaudeRequestView.Absent);
-        }
-
+        using var claude = OpenLocked(out var state, out _, out _);
         var snapshot = ReadSnapshot(state, EffectiveDeletedBefore(state));
         switch (claude.Status)
         {
@@ -602,22 +473,15 @@ public sealed class UsageHistoryStore
             changed += monthChanged;
         }
 
-        // The cache recovery counts as done only once everything it found is
-        // saved (callers check AllWritten); otherwise it runs again on the next sync.
+        // Callers mark the cache recovery done only when AllWritten, so it
+        // runs again until everything it found is saved.
         return new MergeResult(changed, allWritten, busyMonths);
     }
 
-    /// <summary>
-    /// Drops every bucket that starts before <paramref name="cutoff"/>: whole
-    /// months are deleted, the month the cutoff falls in is rewritten.
-    /// </summary>
     /// <remarks>
-    /// Claude requests kept by identity go too: records logged before the
-    /// cutoff, and marks whose bucket starts before it, but nothing from the
-    /// earliest month that could not be pruned onwards, so a mark never goes
-    /// while its bucket stays. That floor is saved in
-    /// the state before any row goes, and in the request store with the
-    /// delete, so a backup restored later is always trimmed to it.
+    /// Claude requests before the cutoff go too, but nothing from the earliest
+    /// month that could not be pruned onwards, so a mark never goes while its
+    /// bucket stays.
     /// </remarks>
     /// <returns>How many buckets and requests were removed, or null when the lock was busy.</returns>
     public int? Prune(DateTimeOffset cutoff)
@@ -628,12 +492,7 @@ public sealed class UsageHistoryStore
             return null;
         }
 
-        using var claude = OpenLocked(out var state, out _, out _, out var pending);
-        if (pending is not null)
-        {
-            return null;
-        }
-
+        using var claude = OpenLocked(out var state, out _, out _);
         var cutoffSeconds = cutoff.ToUnixTimeSeconds();
         var removedMonths = PruneMonths(state, cutoff, out var keptFrom);
         var removedRequests = 0;
@@ -641,37 +500,18 @@ public sealed class UsageHistoryStore
         {
             try
             {
-                // Rows go only below what the month prune really removed: a
-                // mark whose bucket is still in a month that could not be
-                // pruned (busy, say) must stay, or a copy of its request
-                // would be counted again next to that bucket.
                 var floorSeconds = keptFrom is { } kept ? Math.Min(cutoffSeconds, kept) : cutoffSeconds;
-                var floorMs = floorSeconds * 1000;
-                if (claude.CountBelow(floorMs) > 0)
-                {
-                    // The prune is saved in the state before any row goes, so
-                    // a backup restored after a stop is always trimmed to it.
-                    var floor = claude.PruneFloorAt(floorSeconds);
-                    state = state with { PruneFloors = FloorsToState(ClaudePruneFloor.Merge(FloorsOf(state), [floor])) };
-                    WriteState(state);
-
-                    removedRequests = claude.Prune(floor);
-                    Step("prune-rows-removed");
-                }
+                removedRequests = claude.Prune(floorSeconds * 1000);
             }
             catch (Exception exception) when (ClaudeRequestStore.IsRecoverable(exception))
             {
                 _logger.LogWarning("Usage history: expired Claude requests could not be removed: {Error}", exception.GetType().Name);
             }
-
-            claude.Backup();
         }
 
         return removedMonths + removedRequests;
     }
 
-    /// <param name="state">The current state.</param>
-    /// <param name="cutoff">Buckets starting before it go.</param>
     /// <param name="keptFrom">
     /// Unix seconds of the start of the earliest month that should have been
     /// pruned but could not be (busy, unreadable, or its file could not be
@@ -685,8 +525,7 @@ public sealed class UsageHistoryStore
         var removed = 0;
 
         // Every write happens under this lock, so a temporary file seen here is
-        // from a write that stopped halfway; its month is rewritten by the
-        // next sync. Damaged copies set aside for an expired month go too.
+        // from a write that stopped halfway and is safe to delete.
         foreach (var path in System.IO.Directory.EnumerateFiles(Directory, MonthPrefix + "*").ToList())
         {
             var name = Path.GetFileName(path);
@@ -763,21 +602,13 @@ public sealed class UsageHistoryStore
     }
 
     /// <summary>
-    /// Deletes all stored history and records that usage before
-    /// <paramref name="now"/> must not be shown again, so logs still on disk
-    /// cannot bring it back. The deletion point only ever moves forward.
+    /// Usage before <paramref name="now"/> stays hidden afterwards, so logs
+    /// still on disk cannot bring it back. The deletion point only moves forward.
     /// </summary>
-    /// <remarks>
-    /// The delete is recorded first in a deletion journal (two copies, each
-    /// written through a flushed temporary file) and only then carried out:
-    /// the request store, every month file and both state copies. The
-    /// journal is removed last. Stopped at any point, the next locked open
-    /// finishes it before it reads or writes anything else.
-    /// </remarks>
     /// <returns>
-    /// False when the lock was busy and nothing was deleted, or when some
-    /// files could not be removed yet. The delete then stays recorded: no
-    /// saved usage is shown and nothing is saved until it is finished.
+    /// False when the lock was busy or the state could not be written, or when
+    /// some files could not be removed; those stay hidden behind the new
+    /// deletion point.
     /// </returns>
     public bool DeleteAll(DateTimeOffset now)
     {
@@ -787,49 +618,45 @@ public sealed class UsageHistoryStore
             return false;
         }
 
-        HistoryState state;
-        DeletionJournal? pending;
-        using (OpenLocked(out state, out _, out _, out pending, restore: false))
-        {
-            // Opened only to finish an earlier delete and read the state; the
-            // connection is closed before any store file is removed.
-        }
-
-        if (pending is { Undetermined: true })
-        {
-            // A delete may already be pending with a later point than this
-            // one would get (a clock set back): replacing its journal could
-            // bring its usage back. Everything is left as it is.
-            _logger.LogWarning("Usage history: whether a delete is pending cannot be checked; the history was not deleted");
-            return false;
-        }
-
-        // One second past now so a request logged in this very second is
-        // gone too. The deletion point only ever moves forward.
-        var point = Math.Max(
-            Math.Max(
-                EffectiveDeletedBefore(state)?.ToUnixTimeSeconds() ?? long.MinValue,
-                pending is { Undetermined: false } known ? known.DeletedBefore : long.MinValue),
-            now.ToUnixTimeSeconds() + 1);
         try
         {
-            WriteJournal(new DeletionJournal
+            var state = ReadState(out _, out _);
+
+            // One second past now so a request logged in this very second is gone too.
+            var point = Math.Max(EffectiveDeletedBefore(state)?.ToUnixTimeSeconds() ?? long.MinValue, now.ToUnixTimeSeconds() + 1);
+
+            // The state goes first: from here on the deleted usage is hidden,
+            // whatever happens to the files below.
+            WriteState(new HistoryState
             {
-                Schema = JournalSchemaVersion,
+                Schema = StateSchemaVersion,
+                DeletedBefore = point,
                 DeletionId = Guid.NewGuid().ToString("n"),
-                DeletedBefore = point
+                CacheRecovered = true
             });
+
+            string[] kept = [StateFileName, StateFileName + BackupSuffix, LockFileName];
+            foreach (var path in System.IO.Directory.EnumerateFiles(Directory).ToList())
+            {
+                if (!kept.Contains(Path.GetFileName(path)))
+                {
+                    TryDelete(path);
+                }
+            }
+
+            if (System.IO.Directory.EnumerateFiles(Directory).All(path => kept.Contains(Path.GetFileName(path))))
+            {
+                return true;
+            }
+
+            _logger.LogWarning("Usage history: some files could not be deleted; the deleted usage stays hidden");
+            return false;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            // Nothing was removed; a copy written before the failure is
-            // finished like any other journal.
-            _logger.LogWarning("Usage history: the delete could not be recorded: {Error}", exception.GetType().Name);
+            _logger.LogWarning("Usage history could not be deleted: {Error}", exception.GetType().Name);
             return false;
         }
-
-        Step("journal-written");
-        return CompleteJournal(out _);
     }
 
     private static long MonthStart(string month) =>
@@ -837,41 +664,13 @@ public sealed class UsageHistoryStore
             DateTime.ParseExact(month, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal),
             TimeSpan.Zero).ToUnixTimeSeconds();
 
-    /// <summary>Size and span of the stored history.</summary>
     public UsageHistoryInfo Inspect()
     {
-        // The journal first: a pending delete, or one whose presence cannot
-        // be checked, pauses saving whatever else can be read.
-        var journal = ReadJournal(persist: false);
-        if (journal is { Undetermined: true })
+        if (!System.IO.Directory.Exists(Directory))
         {
-            return UsageHistoryInfo.Paused;
+            return UsageHistoryInfo.Empty;
         }
 
-        switch (ProbeFile(Directory))
-        {
-            case false:
-                return UsageHistoryInfo.Empty;
-            case null:
-                return UsageHistoryInfo.Paused;
-        }
-
-        try
-        {
-            return InspectFiles(paused: journal is not null);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // The folder cannot be listed, so neither can it be told whether
-            // a delete is pending: the paused state shows, not "no history".
-            _logger.LogWarning("Usage history could not be inspected: {Error}", exception.GetType().Name);
-            return UsageHistoryInfo.Paused;
-        }
-    }
-
-    private UsageHistoryInfo InspectFiles(bool paused)
-    {
-        Step("inspect-enumerate");
         var months = ListMonths();
         long bytes = 0;
         foreach (var path in System.IO.Directory.EnumerateFiles(Directory))
@@ -886,20 +685,20 @@ public sealed class UsageHistoryStore
             }
         }
 
-        // The request store is opened only under the lock, and Settings does
-        // not wait long for it: when busy, the month files alone are shown.
+        // Settings does not wait long for the lock; when busy, it shows the
+        // month files alone.
         long? earliestRecordMs = null;
-        ClaudeStoreMeta? meta = null;
+        HistoryState? state = null;
         if (_claude.FilesPresent)
         {
             using var gate = TryLock(InspectLockTimeout, quiet: true);
             if (gate is not null)
             {
-                using var claude = _claude.Open(_ => default, restore: false);
-                meta = claude.Meta;
+                using var claude = _claude.Open(restore: false);
+                state = ReadState(out _, out _, claude.Meta);
                 try
                 {
-                    earliestRecordMs = claude.EarliestRecordMs();
+                    earliestRecordMs = claude.EarliestRecordMs(EffectiveDeletedBefore(state)?.ToUnixTimeMilliseconds());
                 }
                 catch (Exception exception) when (ClaudeRequestStore.IsRecoverable(exception))
                 {
@@ -908,7 +707,7 @@ public sealed class UsageHistoryStore
             }
         }
 
-        var state = ReadState(out _, out _, meta);
+        state ??= ReadState(out _, out _);
         DateTimeOffset? first = null;
         foreach (var month in months)
         {
@@ -934,37 +733,17 @@ public sealed class UsageHistoryStore
             }
         }
 
-        // A delete that is not finished yet hides all saved usage and pauses saving.
-        return new UsageHistoryInfo(months.Count, bytes, paused ? null : first, paused);
+        return new UsageHistoryInfo(months.Count, bytes, first);
     }
 
-    // -- State --------------------------------------------------------------
-
     /// <summary>
-    /// Opens the request store and reads the state; the caller holds the lock.
-    /// A deletion journal is finished first, before anything else is read or
-    /// written. When it cannot be finished yet (a store or month file is
-    /// locked, say), <paramref name="pending"/> is that journal: the caller
-    /// then writes nothing at all, and reports show the logs alone after its
-    /// point. A state rebuilt without knowing its deletion id takes it from
-    /// the request store once that can be read; nothing is ever removed on
-    /// account of an unknown id.
+    /// The caller holds the lock. A state rebuilt without knowing its deletion
+    /// id takes it from the request store once that can be read.
     /// </summary>
-    private ClaudeStoreSession OpenLocked(
-        out HistoryState state,
-        out bool existed,
-        out bool repaired,
-        out DeletionJournal? pending,
-        bool restore = true)
+    private ClaudeStoreSession OpenLocked(out HistoryState state, out bool existed, out bool repaired)
     {
-        if (!CompleteJournal(out pending))
-        {
-            state = ReadState(out existed, out repaired);
-            return ClaudeStoreSession.Unavailable;
-        }
-
         SyncStateBackup();
-        var claude = OpenClaude(restore);
+        var claude = _claude.Open();
         state = ReadState(out existed, out repaired, claude.Meta);
         if (state.DeletionUnknown && claude.Meta is { } meta)
         {
@@ -975,7 +754,6 @@ public sealed class UsageHistoryStore
                 DeletionId = meta.DeletionId,
                 DeletionUnknown = false,
                 RepairFloor = null,
-                PruneFloors = FloorsToState(ClaudePruneFloor.Merge(FloorsOf(state), meta.Floors)),
                 ClaudeFreezeMs = meta.FreezeMs
             };
             WriteState(state);
@@ -984,29 +762,12 @@ public sealed class UsageHistoryStore
             repaired = false;
         }
 
-        // A write sequence is never reused once a prune record has seen it.
-        if (claude.Status == ClaudeStoreStatus.Available &&
-            ClaudePruneFloor.HighestSeq(FloorsOf(state)) > claude.Meta!.WriteSeq)
-        {
-            try
-            {
-                claude.AdvanceWriteSeq(ClaudePruneFloor.HighestSeq(FloorsOf(state)));
-            }
-            catch (Exception exception) when (ClaudeRequestStore.IsRecoverable(exception))
-            {
-                _logger.LogWarning("Usage history: the Claude request store could not be updated: {Error}", exception.GetType().Name);
-                claude.Dispose();
-                return ClaudeStoreSession.Unavailable;
-            }
-        }
-
         return claude;
     }
 
     /// <summary>
-    /// Rewrites every month written while the deletion id was unknown with the
-    /// id and point just adopted, keeping all of its usage. A month that
-    /// cannot be rewritten now keeps its unknown stamp and stays whole.
+    /// Keeps all of each month's usage. A month that cannot be rewritten now
+    /// keeps its unknown stamp and stays whole.
     /// </summary>
     private void RestampUnknownMonths(HistoryState state)
     {
@@ -1032,259 +793,7 @@ public sealed class UsageHistoryStore
         }
     }
 
-    /// <summary>
-    /// The point of a delete that is not finished yet, read without the lock
-    /// and without writing anything, or null when there is none. The last
-    /// instant there is when it cannot be told whether a delete is pending.
-    /// </summary>
-    public DateTimeOffset? PendingDeletionPoint() =>
-        ReadJournal(persist: false) is { } journal ? FromUnix(journal.DeletedBefore) : null;
-
-    // -- Deletion journal ---------------------------------------------------
-
-    private string JournalPath => Path.Combine(Directory, JournalFileName);
-
-    /// <summary>
-    /// Finishes the delete the journal records: the request store goes unless
-    /// it was created after this delete, every month copy not written after
-    /// it goes, both state copies take its id and point, and only then is the
-    /// journal removed. Each step may run again after a stop: a store or a
-    /// month stamped with the journal's id is kept, and a state that already
-    /// holds the id is not rewritten.
-    /// </summary>
-    /// <param name="journal">The delete still to finish, or null when none is left.</param>
-    /// <returns>True when no journal is left.</returns>
-    /// <remarks>
-    /// Any failure on the way (a locked or read-only file, say) leaves the
-    /// journal in place and the delete pending; it never escapes to the caller.
-    /// </remarks>
-    private bool CompleteJournal(out DeletionJournal? journal)
-    {
-        journal = null;
-        try
-        {
-            return CompleteJournalSteps(out journal);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or SqliteException)
-        {
-            _logger.LogWarning(
-                "Usage history: a delete could not be finished yet: {ErrorKind}: {Error}",
-                exception.GetType().Name,
-                LogRedaction.Redact(exception.Message));
-            journal ??= ReadJournal(persist: false);
-            return journal is null;
-        }
-    }
-
-    private bool CompleteJournalSteps(out DeletionJournal? journal)
-    {
-        journal = ReadJournal(persist: true);
-        if (journal is null)
-        {
-            return true;
-        }
-
-        if (journal.Undetermined)
-        {
-            _logger.LogWarning("Usage history: whether a delete is pending cannot be checked; nothing is saved meanwhile");
-            return false;
-        }
-
-        // Every store file counts, leftovers and set-aside copies included;
-        // all of them stay only when the store was created after this delete.
-        if (_claude.AnyFiles && !_claude.CarriesDeletionId(journal.DeletionId) && _claude.DeleteAllFiles() > 0)
-        {
-            _logger.LogWarning("Usage history: a delete is waiting for the Claude request store; nothing is saved until it is finished");
-            return false;
-        }
-
-        Step("store-removed");
-        if (!RemoveMonthsNotStampedWith(journal.DeletionId))
-        {
-            _logger.LogWarning("Usage history: a delete is waiting for a month file; nothing is saved until it is finished");
-            return false;
-        }
-
-        Step("months-removed");
-        var state = ReadState(out var existed, out _);
-        if (!existed || state.DeletionUnknown || !string.Equals(state.DeletionId, journal.DeletionId, StringComparison.Ordinal))
-        {
-            WriteState(state with
-            {
-                DeletedBefore = Math.Max(state.DeletedBefore ?? long.MinValue, journal.DeletedBefore),
-                DeletionId = journal.DeletionId,
-                DeletionUnknown = false,
-                RepairFloor = null,
-                CacheRecovered = true,
-                ClaudeFreezeMs = null,
-
-                // Every row is gone, so no earlier prune can claim anything.
-                PruneFloors = null
-            });
-        }
-        else if (!StateCopiesMatch())
-        {
-            // Already this delete's state, but a copy is missing or damaged.
-            WriteState(state);
-        }
-
-        if (!StateCopiesMatch())
-        {
-            _logger.LogWarning("Usage history: a delete is waiting for the state files; nothing is saved until it is finished");
-            return false;
-        }
-
-        Step("state-written");
-        if (!RemoveJournal())
-        {
-            return false;
-        }
-
-        _logger.LogInformation("Usage history delete finished");
-        journal = null;
-        return true;
-    }
-
-    /// <summary>
-    /// The deletion journal, or null when there is none. When copies exist
-    /// but none can be read, a delete was still intended: it is rebuilt with
-    /// a new id and the newer copy's write time as its point (saved again
-    /// when <paramref name="persist"/>, which needs the lock).
-    /// </summary>
-    /// <remarks>
-    /// When it cannot even be determined whether a copy exists, a delete may
-    /// be pending with any point, even one later than the clock says now (a
-    /// clock set back). The result is then an undetermined journal whose
-    /// point is the last instant there is: nothing at all shows and nothing
-    /// is saved until the journal can be checked again.
-    /// </remarks>
-    private DeletionJournal? ReadJournal(bool persist)
-    {
-        string[] copies = [JournalPath, JournalPath + BackupSuffix];
-        var found = copies.Select(copy => JournalProbe(copy)).ToList();
-        if (found.Any(exists => exists is null))
-        {
-            return new DeletionJournal
-            {
-                Schema = JournalSchemaVersion,
-                DeletedBefore = MaxUnixSeconds,
-                Undetermined = true
-            };
-        }
-
-        var present = copies.Where((_, index) => found[index] == true).ToList();
-        if (present.Count == 0)
-        {
-            return null;
-        }
-
-        var readable = copies
-            .Select(copy => TryReadJson<DeletionJournal>(copy, out _))
-            .Where(journal => journal is { Schema: JournalSchemaVersion, DeletionId.Length: > 0 } && IsValidInstant(journal.DeletedBefore))
-            .ToList();
-        if (readable.Count > 0)
-        {
-            return readable.MaxBy(journal => journal!.DeletedBefore);
-        }
-
-        var written = present
-            .Select(copy =>
-            {
-                try
-                {
-                    return File.GetLastWriteTimeUtc(copy);
-                }
-                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-                {
-                    return DateTime.UtcNow;
-                }
-            })
-            .Max();
-        var rebuilt = new DeletionJournal
-        {
-            Schema = JournalSchemaVersion,
-            DeletionId = Guid.NewGuid().ToString("n"),
-            DeletedBefore = CeilingSeconds(new DateTimeOffset(DateTime.SpecifyKind(written, DateTimeKind.Utc)).ToUnixTimeMilliseconds())
-        };
-        if (persist)
-        {
-            _logger.LogWarning("Usage history: the deletion journal was damaged; the delete is finished from its write time");
-            try
-            {
-                WriteJournal(rebuilt);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                _logger.LogWarning("Usage history: the deletion journal could not be rewritten: {Error}", exception.GetType().Name);
-            }
-        }
-
-        return rebuilt;
-    }
-
-    private void WriteJournal(DeletionJournal journal)
-    {
-        WriteFileAtomically(JournalPath, journal);
-        Step("journal-main-written");
-        WriteFileAtomically(JournalPath + BackupSuffix, journal);
-    }
-
-    /// <returns>True when both copies are gone.</returns>
-    private bool RemoveJournal()
-    {
-        TryDelete(JournalPath);
-        Step("journal-main-removed");
-        TryDelete(JournalPath + BackupSuffix);
-        TryDelete(JournalPath + ".tmp");
-        TryDelete(JournalPath + BackupSuffix + ".tmp");
-        return JournalProbe(JournalPath) == false && JournalProbe(JournalPath + BackupSuffix) == false;
-    }
-
-    /// <summary>True when the file exists, false when it does not, null when that cannot be told.</summary>
-    private static bool? ProbeFile(string path)
-    {
-        try
-        {
-            File.GetAttributes(path);
-            return true;
-        }
-        catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
-        {
-            return false;
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-        {
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Deletes every month file (main, backup, temporary and set-aside
-    /// copies) that is not a readable month stamped with
-    /// <paramref name="deletionId"/>, the ones written after that delete.
-    /// </summary>
-    /// <returns>True when nothing else is left.</returns>
-    private bool RemoveMonthsNotStampedWith(string deletionId)
-    {
-        var allGone = true;
-        foreach (var path in System.IO.Directory.EnumerateFiles(Directory, MonthPrefix + "*").ToList())
-        {
-            if (MonthOfCopy(Path.GetFileName(path)) is { } month &&
-                TryReadJson<MonthFile>(path, out _) is var file &&
-                IsValid(file, month) &&
-                string.Equals(file!.DeletionId, deletionId, StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            TryDelete(path);
-            allGone &= !File.Exists(path);
-        }
-
-        return allGone;
-    }
-
-    /// <summary>The month a main or backup month file holds, or null for any other file.</summary>
+    /// <summary>Null for any file that is not a month file or its backup.</summary>
     private static string? MonthOfCopy(string? name)
     {
         if (name is null)
@@ -1302,70 +811,12 @@ public sealed class UsageHistoryStore
         return IsMonthName(month) ? month : null;
     }
 
-    private bool StateCopiesMatch()
-    {
-        var path = Path.Combine(Directory, StateFileName);
-        try
-        {
-            return IsUsableState(TryReadJson<HistoryState>(path, out _)) &&
-                File.Exists(path + BackupSuffix) &&
-                File.ReadAllBytes(path).AsSpan().SequenceEqual(File.ReadAllBytes(path + BackupSuffix));
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
-    private static void WriteFileAtomically<T>(string path, T value)
-    {
-        var temp = path + ".tmp";
-        using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
-        {
-            JsonSerializer.Serialize(stream, value, SerializerOptions);
-            stream.Flush(flushToDisk: true);
-        }
-
-        File.Move(temp, path, overwrite: true);
-    }
-
-    private static IReadOnlyList<ClaudePruneFloor> FloorsOf(HistoryState state) =>
-        ClaudePruneFloor.Merge(
-            (state.PruneFloors ?? []).Where(entry => entry is { Length: 2 }).Select(entry => new ClaudePruneFloor(entry[0], entry[1])),
-            []);
-
-    private static long[][] FloorsToState(IEnumerable<ClaudePruneFloor> floors) =>
-        [.. floors.Select(floor => new[] { floor.Seq, floor.FloorSeconds })];
-
-    /// <summary>Runs the test hook for a named step; a test throws from it to simulate the app stopping there.</summary>
-    private void Step(string name) => StopAt?.Invoke(name);
-
-    /// <summary>Opens the request store; the caller holds the lock.</summary>
-    private ClaudeStoreSession OpenClaude(bool restore = true) =>
-        _claude.Open(backupMeta => BarrierOf(ReadState(out _, out _, backupMeta)), restore);
-
-    /// <summary>
-    /// What a restore may apply from the state. A state that does not know its
-    /// deletion id applies neither the id nor a point.
-    /// </summary>
-    private static ClaudeStoreBarrier BarrierOf(HistoryState state) =>
-        state.DeletionUnknown
-            ? new(null, null, false, FloorsOf(state))
-            : new(state.DeletionId, state.DeletedBefore * 1000, true, FloorsOf(state));
-
-    /// <summary>
-    /// The instant before which usage is hidden: the deletion point, or the
-    /// floor a repair could not do without, whichever is later.
-    /// </summary>
     private static DateTimeOffset? EffectiveDeletedBefore(HistoryState state) =>
         FromUnix(Max(state.DeletedBefore, state.RepairFloor));
 
     private static long CeilingSeconds(long milliseconds) =>
         milliseconds / 1000 + (milliseconds % 1000 > 0 ? 1 : 0);
 
-    private HistoryState ReadState(out bool existed) => ReadState(out existed, out _);
-
-    /// <param name="existed">True when a state file was read.</param>
     /// <param name="repaired">True when history files exist but the state had to be rebuilt.</param>
     /// <param name="storeMeta">
     /// The request store's meta when the caller holds the lock and the store
@@ -1398,7 +849,6 @@ public sealed class UsageHistoryStore
                         : merged.DeletionId,
                     CacheRecovered = merged.CacheRecovered || state.CacheRecovered,
                     RecoveryAttempts = Math.Max(merged.RecoveryAttempts, state.RecoveryAttempts),
-                    PruneFloors = FloorsToState(ClaudePruneFloor.Merge(FloorsOf(merged), FloorsOf(state))),
                     DeletionUnknown = merged.DeletionUnknown && state.DeletionUnknown,
                     RepairFloor = Max(merged.RepairFloor, state.RepairFloor),
                     ClaudeFreezeMs = (state.DeletedBefore ?? long.MinValue) > (merged.DeletedBefore ?? long.MinValue)
@@ -1417,7 +867,7 @@ public sealed class UsageHistoryStore
 
         if (!File.Exists(path) && !File.Exists(path + BackupSuffix) && ListMonths().Count == 0 && !_claude.FilesPresent)
         {
-            // A brand-new history: nothing deleted yet, cache recovery pending.
+            // A brand-new history, so the cache recovery may still run.
             return new HistoryState { Schema = StateSchemaVersion };
         }
 
@@ -1435,7 +885,6 @@ public sealed class UsageHistoryStore
                 DeletedBefore = storeMeta.DeletedBeforeMs is { } ms && IsValidInstant(CeilingSeconds(ms)) ? CeilingSeconds(ms) : null,
                 DeletionId = storeMeta.DeletionId,
                 CacheRecovered = true,
-                PruneFloors = FloorsToState(storeMeta.Floors),
                 ClaudeFreezeMs = storeMeta.FreezeMs
             };
         }
@@ -1470,10 +919,7 @@ public sealed class UsageHistoryStore
         };
     }
 
-    /// <summary>
-    /// The deletion id and point the newest readable month copies were written
-    /// under, or null when no month copy carries a known stamp.
-    /// </summary>
+    /// <summary>Null when no readable month copy carries a known stamp.</summary>
     private (string? DeletionId, long? DeletedBefore, bool PointKnown)? MonthStamp()
     {
         (int Kind, long Point, DateTime Written, string? Id, long? DeletedBefore)? best = null;
@@ -1510,21 +956,16 @@ public sealed class UsageHistoryStore
     }
 
     /// <summary>
-    /// Writes the state, then makes the backup copy equal to it, so the two
-    /// copies only differ if the app stops in between; the next locked open
-    /// repairs that before reading anything.
+    /// The two state copies differ only if the app stops between these
+    /// writes; the next locked open makes them equal before reading anything.
     /// </summary>
     private void WriteState(HistoryState state)
     {
         WriteJsonAtomically(Path.Combine(Directory, StateFileName), state);
-        Step("state-main-written");
         SyncStateBackup();
     }
 
-    /// <summary>
-    /// When <c>state.json</c> is valid, rewrites <c>state.json.bak</c> to the
-    /// same bytes if it differs. The caller holds the lock.
-    /// </summary>
+    /// <summary>The caller holds the lock.</summary>
     /// <returns>True when the main state copy is valid.</returns>
     private bool SyncStateBackup()
     {
@@ -1564,8 +1005,6 @@ public sealed class UsageHistoryStore
         state is { Schema: StateSchemaVersion } &&
         (state.DeletedBefore is not { } point || IsValidInstant(point));
 
-    // -- Months -------------------------------------------------------------
-
     private List<string> ListMonths()
     {
         if (!System.IO.Directory.Exists(Directory))
@@ -1588,35 +1027,30 @@ public sealed class UsageHistoryStore
             .ToList();
     }
 
+    private MonthFile? ReadMonth(string month, out bool damaged, HistoryState? state = null) =>
+        ReadMonth(month, out damaged, out _, state);
+
     /// <summary>
-    /// Reads one month, falling back to its <c>.bak</c> copy.
     /// <paramref name="damaged"/> is true only when the main file exists and
     /// its content is invalid; a file that merely could not be opened (locked
     /// by a virus scanner, say) sets <paramref name="busy"/> instead, so a
     /// writer skips the month rather than rebuilding it from an older copy.
     /// </summary>
-    private MonthFile? ReadMonth(string month, out bool damaged, HistoryState? state = null) =>
-        ReadMonth(month, out damaged, out _, state);
-
     /// <param name="state">
-    /// The current state. A month copy not stamped with the latest delete's id
-    /// was written before that delete: a leftover the delete could not remove
-    /// (locked, or the app stopped halfway). Every bucket starting before the
-    /// deletion point is dropped from it, including the one the point falls
-    /// in. A copy written after the delete carries its id and keeps that
-    /// bucket: it then holds usage saved after the delete.
+    /// A month copy not stamped with the latest delete's id is a leftover the
+    /// delete could not remove, so every bucket starting before the deletion
+    /// point is dropped from it, including the one the point falls in. A copy
+    /// written after the delete carries its id and keeps that bucket, which
+    /// then holds usage saved after the delete.
     /// </param>
     private MonthFile? ReadMonth(string month, out bool damaged, out bool busy, HistoryState? state = null)
     {
         var file = ReadMonthCopy(month, out damaged, out busy);
 
-        // Only a month stamped with another known deletion id was written
-        // before the current delete. One written by a state that did not know
-        // its deletion id, or with no id at all, is kept whole.
+        // One written by a state that did not know its deletion id is kept whole.
         return file is not null &&
             state is { DeletedBefore: { } point } &&
             file.Stamp != MonthStampUnknown &&
-            !string.IsNullOrEmpty(file.DeletionId) &&
             !string.Equals(file.DeletionId, state.DeletionId, StringComparison.Ordinal)
             ? file with { Rows = file.Rows.Where(row => row is { Length: RowWidth } && row[0] >= point).ToArray() }
             : file;
@@ -1788,7 +1222,6 @@ public sealed class UsageHistoryStore
             backup!.Rows.Any(row => row is { Length: RowWidth } && row[0] < cutoffSeconds);
     }
 
-    /// <summary>Start of the earliest valid bucket in a month file, or null when it has none.</summary>
     private static long? EarliestBucket(MonthFile file)
     {
         var buckets = new Dictionary<UsageHistoryKey, UsageHistoryBucket>();
@@ -1812,23 +1245,18 @@ public sealed class UsageHistoryStore
 
     private string MonthPath(string month) => Path.Combine(Directory, MonthPrefix + month + ".json");
 
-    /// <summary>"yyyy-MM" of the UTC month a bucket starts in.</summary>
     public static string MonthOf(long bucketStartUnixSeconds) =>
         DateTimeOffset.FromUnixTimeSeconds(bucketStartUnixSeconds).UtcDateTime.ToString("yyyy-MM", CultureInfo.InvariantCulture);
 
     private static bool IsMonthName(string value) =>
         DateTime.TryParseExact(value, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
 
-    // -- Files --------------------------------------------------------------
-
-    /// <summary>
-    /// Takes the cross-process write lock, waiting up to ten seconds. Returns
-    /// null when another writer holds it; callers skip their write and try
-    /// again on the next cycle rather than writing unlocked.
-    /// </summary>
+    /// <returns>
+    /// Null when another process holds the lock; callers skip their write and
+    /// try again on the next cycle rather than write unlocked.
+    /// </returns>
     private FileStream? TryLock() => TryLock(LockTimeout, quiet: false);
 
-    /// <param name="timeout">How long to wait for another writer.</param>
     /// <param name="quiet">True to leave the "busy" message to the caller.</param>
     private FileStream? TryLock(TimeSpan timeout, bool quiet)
     {
@@ -1882,10 +1310,6 @@ public sealed class UsageHistoryStore
         }
     }
 
-    /// <summary>
-    /// Writes <paramref name="value"/> to a temporary file, flushes it to disk
-    /// and swaps it in, keeping the previous version as <c>.bak</c>.
-    /// </summary>
     private static void WriteJsonAtomically<T>(string path, T value)
     {
         var temp = path + ".tmp";
@@ -1941,7 +1365,6 @@ public sealed class UsageHistoryStore
     private static readonly long MinUnixSeconds = DateTimeOffset.MinValue.ToUnixTimeSeconds();
     private static readonly long MaxUnixSeconds = DateTimeOffset.MaxValue.ToUnixTimeSeconds();
 
-    /// <summary>True when unix seconds fit in a <see cref="DateTimeOffset"/>.</summary>
     private static bool IsValidInstant(long seconds) => seconds >= MinUnixSeconds && seconds <= MaxUnixSeconds;
 
     private static long? Max(long? left, long? right) =>
@@ -1958,34 +1381,23 @@ public sealed class UsageHistoryStore
     {
         public int Schema { get; init; }
 
-        /// <summary>Unix seconds; usage before this was deleted by the user.</summary>
+        /// <summary>Unix seconds.</summary>
         public long? DeletedBefore { get; init; }
 
-        /// <summary>True once the one-time recovery from the parse cache has run.</summary>
         public bool CacheRecovered { get; init; }
 
-        /// <summary>Syncs that had to postpone the cache recovery so far.</summary>
         public int RecoveryAttempts { get; init; }
 
         /// <summary>
-        /// Random id of the latest delete; month files carry the id they were
-        /// written under. Random rather than counted, so a repaired state can
-        /// never reuse an id that an older file still carries.
+        /// Random rather than counted, so a repaired state can never reuse an
+        /// id that an older month file still carries.
         /// </summary>
         public string? DeletionId { get; init; }
 
         /// <summary>
-        /// The prunes committed in the Claude request store, as
-        /// <c>[writeSeq, floorUnixSeconds]</c> pairs; a backup restored later
-        /// is trimmed to exactly what they removed.
-        /// </summary>
-        public long[][]? PruneFloors { get; init; }
-
-        /// <summary>
-        /// True for a state rebuilt with nothing to take its deletion id and
-        /// point from (no readable request store or month file). It never
-        /// leads to removing anything; the id and point are taken from the
-        /// request store as soon as it can be read.
+        /// True for a state rebuilt with no readable request store or month
+        /// file to take its deletion id and point from. It never leads to
+        /// removing anything.
         /// </summary>
         public bool DeletionUnknown { get; init; }
 
@@ -1997,37 +1409,14 @@ public sealed class UsageHistoryStore
         public long? RepairFloor { get; init; }
 
         /// <summary>
-        /// A copy of the request store's conversion instant, in Unix
-        /// milliseconds, for when the store exists but cannot be opened.
-        /// Cleared by a delete, which removes the store.
+        /// A copy of the request store's conversion instant, for when the store
+        /// exists but cannot be opened. Cleared by a delete, which removes the store.
         /// </summary>
         public long? ClaudeFreezeMs { get; init; }
     }
 
     /// <summary>
-    /// A delete in progress: written before anything is removed, removed once
-    /// the request store, every month file and both state copies reflect it.
-    /// </summary>
-    private sealed record DeletionJournal
-    {
-        public int Schema { get; init; }
-
-        /// <summary>The new deletion id; only a delete makes one.</summary>
-        public string DeletionId { get; init; } = string.Empty;
-
-        /// <summary>Unix seconds; usage before this is deleted.</summary>
-        public long DeletedBefore { get; init; }
-
-        /// <summary>
-        /// Not read from a file: whether a journal exists could not be
-        /// determined, so a delete may be pending.
-        /// </summary>
-        [System.Text.Json.Serialization.JsonIgnore]
-        public bool Undetermined { get; init; }
-    }
-
-    /// <summary>
-    /// On-disk month. Rows are positional so a busy month stays small:
+    /// Rows are positional so a busy month stays small:
     /// <c>[bucketStartUnixSeconds, accountIndex, modelIndex, uncachedInput,
     /// cacheRead, cacheWrite5m, cacheWrite1h, output, reasoning, requests]</c>.
     /// </summary>
@@ -2036,16 +1425,12 @@ public sealed class UsageHistoryStore
         public int Schema { get; init; }
         public string Month { get; init; } = string.Empty;
 
-        /// <summary>The state's delete id when this file was written.</summary>
+        /// <summary>The state's deletion id when this file was written.</summary>
         public string? DeletionId { get; init; }
 
         /// <summary>The state's deletion point when this file was written, in Unix seconds.</summary>
         public long? DeletedBefore { get; init; }
 
-        /// <summary>
-        /// How this file was stamped: 0 by an older version (id only), 1 with a
-        /// known id and point, 2 by a state that did not know them.
-        /// </summary>
         public int Stamp { get; init; }
         public MonthAccount[] Accounts { get; init; } = [];
         public string[] Models { get; init; } = [];

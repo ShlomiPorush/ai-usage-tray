@@ -7,62 +7,36 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace costats.Infrastructure.Analytics;
 
 /// <summary>
-/// The usage analytics entry point. Scans the local agent logs and answers
-/// questions about them.
+/// Repeat calls reuse the scanned samples for a short while, so changing the
+/// range or filter does not touch disk.
 /// </summary>
-/// <remarks>
-/// This is the whole surface a UI needs. A typical caller resolves the service
-/// once, calls <see cref="GetAccountsAsync"/> to build a filter, then calls
-/// <see cref="GetReportAsync"/> whenever the range or filter changes. Repeat
-/// calls reuse the scanned samples for a short while, so changing the range is
-/// instant and does not touch disk.
-/// </remarks>
 public interface IUsageAnalyticsService
 {
-    /// <summary>
-    /// Builds a report for a range of local days, optionally restricted to some
-    /// accounts.
-    /// </summary>
-    /// <param name="range">
-    /// Local calendar days to include. Use <see cref="UsageDateRange.All"/> for
-    /// everything the logs hold.
-    /// </param>
+    /// <param name="range">Local calendar days, in <see cref="TimeZone"/>.</param>
     /// <param name="accountIds">
-    /// Accounts to include, from <see cref="GetAccountsAsync"/>. Null or empty
-    /// means every account.
+    /// Ids from <see cref="GetAccountsAsync"/>. Null or empty means every account.
     /// </param>
-    /// <param name="cancellationToken">Cancels an in-flight scan.</param>
     Task<UsageReport> GetReportAsync(
         UsageDateRange range,
         IReadOnlyCollection<string>? accountIds = null,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Builds a report for an exact rolling window, with hourly buckets, such
-    /// as the past 24 hours.
-    /// </summary>
-    /// <param name="window">Instants to include.</param>
+    /// <summary>Uses hourly buckets over the exact window, such as the past 24 hours.</summary>
     /// <param name="accountIds">As for <see cref="GetReportAsync"/>.</param>
-    /// <param name="cancellationToken">Cancels an in-flight scan.</param>
     Task<UsageReport> GetWindowReportAsync(
         UsageTimeWindow window,
         IReadOnlyCollection<string>? accountIds = null,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// The accounts that have local logs, for an account picker. Codex profiles
-    /// collapse into one merged entry.
-    /// </summary>
+    /// <summary>Codex profiles collapse into one merged entry.</summary>
     Task<IReadOnlyList<UsageAccountInfo>> GetAccountsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The earliest and latest local day any matching account has usage on, or
-    /// null when there is none. A period that starts before the earliest day
-    /// may be missing data whose logs were already deleted, and an empty range
-    /// can name the days that do hold usage.
+    /// Null when there is no usage. A period that starts before the earliest
+    /// day may be missing data whose logs were already deleted, and an empty
+    /// range can name the days that do hold usage.
     /// </summary>
     /// <param name="accountIds">As for <see cref="GetReportAsync"/>.</param>
-    /// <param name="cancellationToken">Cancels an in-flight scan.</param>
     Task<UsageActivityDays?> GetActivityDaysAsync(
         IReadOnlyCollection<string>? accountIds = null,
         CancellationToken cancellationToken = default);
@@ -71,21 +45,18 @@ public interface IUsageAnalyticsService
     TimeZoneInfo TimeZone { get; }
 
     /// <summary>
-    /// What the remote usage report is composed from: the same combined
-    /// samples (after the deletion floor), prices and accounts the reports
-    /// use, from the same scan cache.
+    /// The same samples (after the deletion point), prices and accounts the
+    /// reports use, from the same scan cache.
     /// </summary>
     Task<RemoteUsageSource> GetRemoteUsageSourceAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Returns the current on-disk parse cache size.</summary>
     UsageCacheInfo GetCacheInfo();
 
-    /// <summary>Clears memory and disk caches. The next report performs a cold scan.</summary>
     Task<UsageCacheInfo> ClearCacheAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Drops the in-memory scan so the next call re-reads the logs. The on-disk
-    /// per-file cache is kept, so this is cheap.
+    /// Drops only the in-memory scan. The on-disk per-file cache is kept, so
+    /// this is cheap.
     /// </summary>
     void Invalidate();
 
@@ -96,43 +67,30 @@ public interface IUsageAnalyticsService
     event EventHandler? HistoryChanged;
 
     /// <summary>
-    /// Scans the logs and saves their usage into the local history, so it is
-    /// kept after the agents delete the logs. Also removes history older than
-    /// the retention setting. Does nothing when history is not configured.
+    /// Saves the logs' usage into the local history so it outlives the logs
+    /// the agents delete, and removes history older than the retention setting.
     /// </summary>
     Task SyncHistoryAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Deletes the stored usage history. Usage before now stops appearing even
-    /// while its logs are still on disk.
-    /// </summary>
-    /// <returns>False when the history was busy or some files could not be removed yet.</returns>
+    /// <summary>Usage before now stops appearing even while its logs are still on disk.</summary>
+    /// <returns>False when the history was busy or could not be fully deleted yet.</returns>
     Task<bool> DeleteHistoryAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>Size and span of the stored usage history.</summary>
     UsageHistoryInfo GetHistoryInfo();
 }
 
-/// <summary>
-/// Where the usage history lives and what it needs to know about the app.
-/// </summary>
-/// <param name="Store">The on-disk history.</param>
-/// <param name="Accounts">The configured accounts, read on every use.</param>
-/// <param name="RetentionDays">
-/// Days of history to keep, read on every use; 0 keeps everything.
-/// </param>
+/// <param name="Accounts">Read on every use.</param>
+/// <param name="RetentionDays">Read on every use; 0 keeps everything.</param>
 public sealed record UsageHistoryOptions(
     UsageHistoryStore Store,
     Func<IReadOnlyList<MonitoredAccountSettings>> Accounts,
     Func<int> RetentionDays)
 {
-    /// <summary>Whether Antigravity is turned on, read on every use. Off when not set.</summary>
     public Func<bool> AntigravityEnabled { get; init; } = static () => false;
 
     /// <summary>
-    /// The scope one scan and its history mapping share. The accounts are
-    /// copied, so an edit in Settings while the scan runs cannot change the
-    /// folder or name the scan's usage is filed under.
+    /// The accounts are copied, so an edit in Settings while a scan runs
+    /// cannot change the folder or name the scan's usage is filed under.
     /// </summary>
     public UsageScanScope Scope() => new(
         [.. (Accounts() ?? []).Select(account => account is null
@@ -148,28 +106,16 @@ public sealed record UsageHistoryOptions(
         AntigravityEnabled());
 }
 
-/// <summary>
-/// Default <see cref="IUsageAnalyticsService"/>: a
-/// <see cref="UsageLogCollector"/> behind a short-lived in-memory scan cache,
-/// combined with the local usage history when <see cref="History"/> is set,
-/// feeding <see cref="UsageAggregator"/>.
-/// </summary>
 /// <remarks>
-/// Thread safety: one scan runs at a time behind a semaphore, and the scan
-/// itself runs on the thread pool, so several callers can await concurrently
-/// from any thread without duplicating the work. History writes run behind the
-/// same semaphore and take the history's file lock inside it, never the other
-/// way round, so the two locks cannot deadlock.
+/// One scan runs at a time behind a semaphore, so concurrent callers do not
+/// duplicate the work. History writes take the history's file lock inside that
+/// semaphore, never the other way round, so the two locks cannot deadlock.
 /// </remarks>
 public sealed class UsageAnalyticsService : IUsageAnalyticsService
 {
-    /// <summary>How long a scan is reused before the logs are read again.</summary>
     public static readonly TimeSpan DefaultScanFreshness = TimeSpan.FromMinutes(2);
 
-    /// <summary>
-    /// Syncs that may postpone the one-time cache recovery before it is given
-    /// up: eight syncs, six hours apart, is two days.
-    /// </summary>
+    /// <summary>Eight syncs, six hours apart, give the cache recovery two days.</summary>
     public const int MaxRecoveryAttempts = 8;
 
     private readonly UsageLogCollector _collector;
@@ -185,7 +131,6 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
     /// <inheritdoc />
     public event EventHandler? HistoryChanged;
 
-    /// <summary>Creates the service over the app's configured accounts.</summary>
     public UsageAnalyticsService(
         AppSettings settings,
         ModelPricingProvider pricing,
@@ -200,7 +145,6 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
     {
     }
 
-    /// <summary>Creates the service over an explicit collector and pricing table.</summary>
     public UsageAnalyticsService(
         UsageLogCollector collector,
         ModelPricingTable pricing,
@@ -224,10 +168,10 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         _logger = logger ?? NullLogger<UsageAnalyticsService>.Instance;
     }
 
-    /// <summary>The time zone whose calendar days the reports bucket by.</summary>
+    /// <inheritdoc />
     public TimeZoneInfo TimeZone { get; init; } = TimeZoneInfo.Local;
 
-    /// <summary>The local usage history, or null to report from the logs alone.</summary>
+    /// <summary>Null to report from the logs alone.</summary>
     public UsageHistoryOptions? History { get; init; }
 
     /// <inheritdoc />
@@ -294,8 +238,8 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
     }
 
     /// <summary>
-    /// The account as the remote report may name it. A removed account saved
-    /// without a nickname was saved under its id, which is not a name.
+    /// A removed account saved without a nickname was saved under its id,
+    /// which must not be shared as a name.
     /// </summary>
     private static RemoteUsageAccountSource ShareAccountOf(UsageAccountInfo account, UsageScanResult scan)
     {
@@ -429,17 +373,14 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             var notBefore = NotBefore(start.DeletedBefore, retentionDays, now);
 
             // The one-time recovery of older Claude usage from the parse cache
-            // runs only when every Claude root and file was read, with every
-            // Claude folder present: a log the scan could not reach would
-            // otherwise look deleted and be counted twice once it is back.
-            // Other providers do not hold it up: a broken Antigravity database
-            // must not use up the attempts and lose the Claude recovery.
+            // runs only when every Claude root and file was read: a log the
+            // scan could not reach would otherwise look deleted and be counted
+            // twice once it is back. Other providers do not hold it up, so a
+            // broken Antigravity database cannot use up the attempts.
             //
-            // It is all or nothing: until it succeeds, nothing at all is saved,
-            // so a later attempt never meets usage it would count twice. The
-            // logs stay on disk meanwhile, and any that Claude Code deletes in
-            // between are still in the cache. After MaxRecoveryAttempts
-            // postponed syncs (two days) it is given up and saving starts.
+            // Until it succeeds nothing at all is saved, so a later attempt
+            // never meets usage it would count twice. Logs Claude Code deletes
+            // meanwhile are still in the cache.
             var claudeComplete = live.IsCompleteFor(UsageProviderKind.Claude) && AllClaudeLogsReachable(accounts);
             var recoveryDone = false;
             IReadOnlyList<UsageSample> recoveredSamples = [];
@@ -504,9 +445,6 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         }
     }
 
-    /// <summary>
-    /// Decides what one sync writes, given what the Claude request store holds.
-    /// </summary>
     /// <remarks>
     /// Every sample other than a Claude request with an identity follows the
     /// month-file rules exactly as before (bucketize, larger bucket wins). A
@@ -594,8 +532,8 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         ClaudeConversion? conversion = null;
         if (view.Status == ClaudeStoreStatus.Absent && claudeComplete)
         {
-            // Every Claude request with an identity this sync saves becomes a
-            // mark, with the bucket, account, model and tokens it is saved under.
+            // Each mark must match the bucket, account, model and tokens this
+            // sync saves the request under, or it would point at the wrong count.
             var marks = new List<ClaudeRequestRow>();
             foreach (var sample in live.Samples)
             {
@@ -621,7 +559,6 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             conversion = new ClaudeConversion(scanStart.ToUnixTimeSeconds() * 1000, marks);
         }
 
-        // Names of every account the store holds rows for, kept current.
         var storeKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var row in view.Requests.Values)
         {
@@ -659,10 +596,9 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
     }
 
     /// <summary>
-    /// True when every configured Claude account's logs can be read: its
-    /// folder exists, and its <c>projects</c> folder either exists or is
-    /// simply absent (an account that never ran). A <c>projects</c> link whose
-    /// target is gone, such as a disconnected drive, means logs are out of reach.
+    /// A missing <c>projects</c> folder is fine (an account that never ran),
+    /// but a <c>projects</c> link whose target is gone, such as a disconnected
+    /// drive, means logs are out of reach.
     /// </summary>
     private static bool AllClaudeLogsReachable(IReadOnlyList<MonitoredAccountSettings> accounts) =>
         accounts
@@ -691,14 +627,10 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             });
 
     /// <summary>
-    /// Claude usage recovered from the parse cache, as samples under the
-    /// "account unknown" history key, with their request identities. Requests
-    /// a live log still holds are skipped by their request identity. Requests
-    /// in a month that already has saved usage are skipped too: until the
+    /// Requests in a month that already has saved usage are skipped: until the
     /// recovery is done, a month is only ever saved together with its
     /// recovered usage, so a saved month already holds everything it can, and
-    /// taking more would count it twice. Identities the Claude request store
-    /// already knows are skipped when the sync writes.
+    /// taking more would count it twice.
     /// </summary>
     /// <returns>True when every cache entry could be read.</returns>
     private bool RecoverClaudeUsage(
@@ -759,8 +691,8 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             _logger.LogInformation("Usage history deleted");
         }
 
-        // Raised either way: even a partial delete moves the deletion point,
-        // so open views must reload.
+        // Raised even on failure: a partial delete has already moved the
+        // deletion point, so open views must reload.
         HistoryChanged?.Invoke(this, EventArgs.Empty);
         return deleted;
     }
@@ -813,7 +745,6 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         return now >= newestInstant && now <= newestInstant.AddDays(90);
     }
 
-    /// <summary>Adds the stored history to a fresh log scan.</summary>
     private UsageScanResult CombineWithHistory(UsageScanResult live, UsageScanScope? scope)
     {
         var history = History;
@@ -832,8 +763,9 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            _logger.LogWarning("Usage history could not be read; reporting from the logs alone: {Error}", exception.GetType().Name);
-            return LogsAfterPendingDelete(live, history.Store);
+            // Without the deletion point, any log could be usage the user deleted.
+            _logger.LogWarning("Usage history could not be read; reporting nothing: {Error}", exception.GetType().Name);
+            return live with { Samples = [] };
         }
 
         var map = HistoryAccountMap.Build(scope ?? history.Scope());
@@ -934,29 +866,6 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         });
 
         return live with { Samples = samples, Accounts = accounts, ArchivedAccountNames = archivedNames };
-    }
-
-    /// <summary>
-    /// The logs alone, without what a delete that is not finished yet removes:
-    /// nothing before its point is shown.
-    /// </summary>
-    private static UsageScanResult LogsAfterPendingDelete(UsageScanResult live, UsageHistoryStore store)
-    {
-        DateTimeOffset? point;
-        try
-        {
-            point = store.PendingDeletionPoint();
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // The journal cannot be read either: show nothing rather than
-            // usage that may have been deleted.
-            return live with { Samples = [] };
-        }
-
-        return point is { } floor
-            ? live with { Samples = [.. live.Samples.Where(sample => sample.Timestamp >= floor)] }
-            : live;
     }
 
     public async Task<UsageCacheInfo> ClearCacheAsync(CancellationToken cancellationToken = default)

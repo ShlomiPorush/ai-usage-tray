@@ -5,20 +5,15 @@ using Microsoft.Extensions.Logging;
 
 namespace costats.Infrastructure.Analytics;
 
-/// <summary>
-/// One Claude request the usage history knows by its identity.
-/// </summary>
 /// <param name="Key">The request identity, <see cref="UsageSample.DedupKey"/>; never 0.</param>
 /// <param name="IsMark">
 /// True for a mark: a request that was already counted in a month-file bucket
 /// when the store was created, and stays counted there. False for a record:
 /// a request first seen after that, counted from this row alone.
 /// </param>
-/// <param name="TimestampMs">The request's log timestamp, in Unix milliseconds.</param>
-/// <param name="BucketStart">Unix seconds of the 15-minute bucket the request belongs to.</param>
-/// <param name="Account">The history account key it is counted under.</param>
-/// <param name="Model">The model id, as a bucket stores it.</param>
-/// <param name="Tokens">The token counts it is counted with.</param>
+/// <param name="BucketStart">Unix seconds, not milliseconds, of the 15-minute bucket.</param>
+/// <param name="Account">The history account key, not the account id.</param>
+/// <param name="Model">Normalized the way a bucket stores it.</param>
 internal sealed record ClaudeRequestRow(
     long Key,
     bool IsMark,
@@ -28,10 +23,8 @@ internal sealed record ClaudeRequestRow(
     string Model,
     UsageTokens Tokens)
 {
-    /// <summary>The request's log timestamp.</summary>
     public DateTimeOffset Timestamp => DateTimeOffset.FromUnixTimeMilliseconds(TimestampMs);
 
-    /// <summary>The row for a sample counted under <paramref name="account"/>.</summary>
     public static ClaudeRequestRow From(UsageSample sample, string account, bool isMark) => new(
         sample.DedupKey,
         isMark,
@@ -41,122 +34,25 @@ internal sealed record ClaudeRequestRow(
         UsageHistory.NormalizeModel(sample.Model),
         sample.Tokens);
 
-    /// <summary>
-    /// The row as a sample under <paramref name="accountId"/>: one request at
-    /// its exact timestamp, with the values it is counted with.
-    /// </summary>
     public UsageSample ToSample(string accountId) =>
         new(Timestamp, UsageProviderKind.Claude, accountId, Model, Tokens) { DedupKey = Key };
 }
 
-/// <summary>What the request store's <c>meta</c> table says.</summary>
 /// <param name="FreezeMs">
-/// Unix milliseconds of the conversion: requests logged at or after it are
-/// saved as records, requests before it follow the month-file rules.
+/// The conversion instant: requests logged at or after it are saved as
+/// records, requests before it follow the month-file rules.
 /// </param>
 /// <param name="DeletionId">
 /// The history's deletion id when the store was created. A delete removes
-/// the store, so a store only ever carries the id of the latest delete
-/// before it was created.
+/// the store, so this is always the latest delete before its creation.
 /// </param>
-/// <param name="DeletedBeforeMs">That delete's point, in Unix milliseconds.</param>
-/// <param name="WriteSeq">
-/// Sequence of the last write transaction; every row carries the sequence
-/// it was saved under.
-/// </param>
-/// <param name="PruneFloors">The prunes committed so far, see <see cref="ClaudePruneFloor"/>.</param>
-internal sealed record ClaudeStoreMeta(
-    long FreezeMs,
-    string? DeletionId,
-    long? DeletedBeforeMs,
-    long WriteSeq = 0,
-    IReadOnlyList<ClaudePruneFloor>? PruneFloors = null)
-{
-    /// <summary>The prunes committed so far; never null.</summary>
-    public IReadOnlyList<ClaudePruneFloor> Floors => PruneFloors ?? [];
-}
+internal sealed record ClaudeStoreMeta(long FreezeMs, string? DeletionId, long? DeletedBeforeMs);
 
-/// <summary>
-/// One committed prune: it removed every row saved up to write sequence
-/// <paramref name="Seq"/> that lies below <paramref name="FloorSeconds"/>
-/// (records by timestamp, marks by bucket start). A row saved later, for
-/// example after the retention was extended, was not removed by it, so a
-/// restore never removes it either.
-/// </summary>
-internal readonly record struct ClaudePruneFloor(long Seq, long FloorSeconds)
-{
-    /// <summary>
-    /// The smallest list that removes the same rows: an entry is dropped when
-    /// a later prune (higher sequence) has a floor at least as high.
-    /// </summary>
-    public static IReadOnlyList<ClaudePruneFloor> Merge(IEnumerable<ClaudePruneFloor> left, IEnumerable<ClaudePruneFloor> right)
-    {
-        var kept = new List<ClaudePruneFloor>();
-        long? highest = null;
-        foreach (var floor in left.Concat(right).OrderByDescending(entry => entry.Seq).ThenByDescending(entry => entry.FloorSeconds))
-        {
-            if (highest is null || floor.FloorSeconds > highest)
-            {
-                kept.Add(floor);
-                highest = floor.FloorSeconds;
-            }
-        }
-
-        kept.Reverse();
-        return kept;
-    }
-
-    /// <summary>The highest write sequence any of <paramref name="floors"/> covers, or 0.</summary>
-    public static long HighestSeq(IEnumerable<ClaudePruneFloor> floors) =>
-        floors.Select(floor => floor.Seq).DefaultIfEmpty(0).Max();
-
-    /// <summary>"seq:floor;seq:floor", the meta table's form.</summary>
-    public static string Format(IEnumerable<ClaudePruneFloor> floors) =>
-        string.Join(';', floors.Select(floor =>
-            floor.Seq.ToString(CultureInfo.InvariantCulture) + ":" + floor.FloorSeconds.ToString(CultureInfo.InvariantCulture)));
-
-    /// <summary>Reads <see cref="Format"/>; malformed entries are skipped.</summary>
-    public static IReadOnlyList<ClaudePruneFloor> Parse(string? text)
-    {
-        var floors = new List<ClaudePruneFloor>();
-        foreach (var part in (text ?? string.Empty).Split(';', StringSplitOptions.RemoveEmptyEntries))
-        {
-            var pieces = part.Split(':');
-            if (pieces.Length == 2 &&
-                long.TryParse(pieces[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var seq) &&
-                long.TryParse(pieces[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var floor))
-            {
-                floors.Add(new ClaudePruneFloor(seq, floor));
-            }
-        }
-
-        return Merge(floors, []);
-    }
-}
-
-/// <summary>
-/// What the history state knows about deletes and prunes, for a restore.
-/// </summary>
-/// <param name="DeletionId">The state's deletion id.</param>
-/// <param name="DeletedBeforeMs">The state's deletion point.</param>
-/// <param name="DeletionKnown">
-/// False when the state could not be rebuilt from anything and its deletion
-/// id is unknown; then neither the id nor the point is applied.
-/// </param>
-/// <param name="PruneFloors">The prunes the state knows.</param>
-internal readonly record struct ClaudeStoreBarrier(
-    string? DeletionId,
-    long? DeletedBeforeMs,
-    bool DeletionKnown,
-    IReadOnlyList<ClaudePruneFloor> PruneFloors);
-
-/// <summary>Whether the request store can be used.</summary>
 internal enum ClaudeStoreStatus
 {
     /// <summary>No store files: the one-time conversion has not happened (or the store was deleted).</summary>
     Absent,
 
-    /// <summary>The store is open and its format is known.</summary>
     Available,
 
     /// <summary>
@@ -166,7 +62,6 @@ internal enum ClaudeStoreStatus
     Unavailable
 }
 
-/// <summary>Where one Claude sample goes, given the request store.</summary>
 internal enum ClaudeSampleRoute
 {
     /// <summary>Today's month-file rules: bucketize, larger bucket wins.</summary>
@@ -194,10 +89,7 @@ internal enum ClaudeSampleRoute
     Unclassified
 }
 
-/// <summary>
-/// What the request store holds at one moment, as a sync or a report sees it
-/// while holding the history lock.
-/// </summary>
+/// <summary>The request store as read under one hold of the history lock.</summary>
 internal sealed record ClaudeRequestView(
     ClaudeStoreStatus Status,
     long? FreezeMs,
@@ -207,30 +99,24 @@ internal sealed record ClaudeRequestView(
     private static readonly IReadOnlyDictionary<long, ClaudeRequestRow> NoRequests = new Dictionary<long, ClaudeRequestRow>();
     private static readonly IReadOnlyDictionary<string, UsageHistoryAccount> NoAccounts = new Dictionary<string, UsageHistoryAccount>();
 
-    /// <summary>No store: every sample follows today's rules.</summary>
     public static readonly ClaudeRequestView Absent = new(ClaudeStoreStatus.Absent, null, NoRequests, NoAccounts);
 
-    /// <summary>A store that exists but cannot be used, converted at <paramref name="freezeMs"/> when known.</summary>
     public static ClaudeRequestView Unavailable(long? freezeMs) =>
         new(ClaudeStoreStatus.Unavailable, freezeMs, NoRequests, NoAccounts);
 
     /// <summary>
-    /// True when <paramref name="timestamp"/> falls in a whole second before
-    /// the conversion's second. Compared on whole seconds because the parse
-    /// cache keeps timestamps to the second: the same request must land on
-    /// the same side whether it was parsed fresh or read from the cache. A
-    /// request in the conversion's own second is on the record side.
+    /// Compared on whole seconds because the parse cache keeps timestamps to
+    /// the second: the same request must land on the same side whether it was
+    /// parsed fresh or read from the cache. A request in the conversion's own
+    /// second is on the record side.
     /// </summary>
     public static bool IsBeforeFreeze(DateTimeOffset timestamp, long freezeMs) =>
         timestamp.ToUnixTimeSeconds() < FreezeSecondOf(freezeMs);
 
-    /// <summary>The whole Unix second the conversion falls in, rounded down.</summary>
     public static long FreezeSecondOf(long freezeMs) =>
         freezeMs >= 0 ? freezeMs / 1000 : -((-freezeMs + 999) / 1000);
 
-    /// <summary>Where <paramref name="sample"/> goes.</summary>
-    /// <param name="sample">A live or recovered sample.</param>
-    /// <param name="row">The store row of its identity, for <see cref="ClaudeSampleRoute.Mark"/> and <see cref="ClaudeSampleRoute.Recorded"/>.</param>
+    /// <param name="row">Set only for <see cref="ClaudeSampleRoute.Mark"/> and <see cref="ClaudeSampleRoute.Recorded"/>.</param>
     public ClaudeSampleRoute RouteOf(UsageSample sample, out ClaudeRequestRow? row)
     {
         row = null;
@@ -261,15 +147,13 @@ internal sealed record ClaudeRequestView(
 }
 
 /// <summary>
-/// The SQLite file that keeps Claude requests by identity:
-/// <c>history\claude-requests.db</c>. Every method must be called while the
-/// caller holds the usage history's lock file, and every connection is opened
-/// and disposed inside that hold, so no other connection is ever open while a
-/// file here is replaced, restored or deleted.
+/// Every method must be called while the caller holds the usage history's
+/// lock file, and every connection is opened and disposed inside that hold,
+/// so no other connection is ever open while a file here is replaced,
+/// restored or deleted.
 /// </summary>
 internal sealed class ClaudeRequestStore
 {
-    /// <summary>File name of the store, beside the month files.</summary>
     public const string FileName = "claude-requests.db";
 
     private const string SchemaVersion = "1";
@@ -302,29 +186,16 @@ internal sealed class ClaudeRequestStore
 
     private string RestoreTempPath => MainPath + ".restore";
 
-    /// <summary>True when the store or its backup exists, usable or not.</summary>
     public bool FilesPresent => File.Exists(MainPath) || File.Exists(BackupPath);
 
     /// <summary>
-    /// True when any store file is left: the store, its journal files, the
-    /// backup, temporary files or damaged copies set aside.
+    /// A main file that fails its integrity check, or is missing beside a
+    /// backup, is replaced by the backup. A backup a delete could not remove
+    /// may hold rows from before that delete; the deletion point hides them.
     /// </summary>
-    public bool AnyFiles => Directory.Exists(_directory) && Directory.EnumerateFiles(_directory, FileName + "*").Any();
-
-    /// <summary>
-    /// Opens the store. A main file that fails its integrity check, or is
-    /// missing beside a backup, is replaced by the backup with the deletion and
-    /// prune points of <paramref name="barrierOf"/> applied again, so a backup
-    /// taken before a delete or a prune never brings rows back.
-    /// </summary>
-    /// <param name="barrierOf">
-    /// The history state's points, given the backup's own meta (the state may
-    /// need it for its repair).
-    /// </param>
     /// <param name="restore">False to never touch the files, for read-only callers.</param>
-    public ClaudeStoreSession Open(Func<ClaudeStoreMeta?, ClaudeStoreBarrier> barrierOf, bool restore = true)
+    public ClaudeStoreSession Open(bool restore = true)
     {
-        ArgumentNullException.ThrowIfNull(barrierOf);
         if (restore)
         {
             // Leftovers of a create or a restore that stopped halfway; no
@@ -362,13 +233,12 @@ internal sealed class ClaudeRequestStore
             return ClaudeStoreSession.Unavailable;
         }
 
-        return Restore(barrierOf);
+        return Restore();
     }
 
     /// <summary>
-    /// Creates the store in one transaction: meta, the conversion's marks and
-    /// the account names. It is built under a temporary name and moved into
-    /// place only once committed, so a stopped conversion leaves no store.
+    /// Built under a temporary name and moved into place only once committed,
+    /// so a stopped conversion leaves no store.
     /// </summary>
     /// <returns>False when it could not be created; nothing is left behind then.</returns>
     public bool Create(ClaudeStoreMeta meta, IReadOnlyCollection<ClaudeRequestRow> marks, IEnumerable<UsageHistoryAccount> names)
@@ -402,12 +272,7 @@ internal sealed class ClaudeRequestStore
                     SetMeta(connection, transaction, "freeze_ms", Text(meta.FreezeMs));
                     SetMeta(connection, transaction, "deletion_id", meta.DeletionId);
                     SetMeta(connection, transaction, "deleted_before_ms", Text(meta.DeletedBeforeMs));
-                    // The first write comes after every prune the history
-                    // already knows, so none of them can claim these rows.
-                    var first = ClaudePruneFloor.HighestSeq(meta.Floors) + 1;
-                    SetMeta(connection, transaction, "write_seq", Text(first));
-                    SetMeta(connection, transaction, "prune_floors", ClaudePruneFloor.Format(meta.Floors));
-                    InsertRows(connection, transaction, marks, saved: first);
+                    InsertRows(connection, transaction, marks);
                     UpsertNames(connection, transaction, names);
                     transaction.Commit();
                 }
@@ -428,97 +293,20 @@ internal sealed class ClaudeRequestStore
     }
 
     /// <summary>
-    /// True when the store or its backup can be read and carries
-    /// <paramref name="deletionId"/>: it was created after that delete, so a
-    /// delete being finished again must leave it alone.
+    /// The records exist nowhere else once Claude Code deletes its logs, so a
+    /// damaged store is replaced by this copy. It goes through a temporary
+    /// file, so a copy cut short never replaces the previous backup.
     /// </summary>
-    public bool CarriesDeletionId(string deletionId)
-    {
-        foreach (var path in new[] { MainPath, BackupPath })
-        {
-            if (!File.Exists(path))
-            {
-                continue;
-            }
-
-            if (TryOpen(path, out var connection, out var meta) == Check.Ok)
-            {
-                connection!.Dispose();
-                if (string.Equals(meta!.DeletionId, deletionId, StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// Deletes every store file: the store, its journal files, the backup,
-    /// temporary files and damaged copies set aside.
-    /// </summary>
-    /// <returns>How many could not be removed.</returns>
-    public int DeleteAllFiles()
-    {
-        if (!Directory.Exists(_directory))
-        {
-            return 0;
-        }
-
-        foreach (var path in Directory.EnumerateFiles(_directory, FileName + "*").ToList())
-        {
-            try
-            {
-                File.Delete(path);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                // Counted below.
-            }
-        }
-
-        return Directory.EnumerateFiles(_directory, FileName + "*").Count();
-    }
-
-    /// <summary>
-    /// Copies the store to <c>.bak</c> through a checked temporary file, when
-    /// <paramref name="changed"/> or when the store is newer than its backup.
-    /// </summary>
-    internal void Backup(SqliteConnection connection, bool changed)
+    internal void Backup(SqliteConnection connection)
     {
         try
         {
-            if (!changed && File.Exists(BackupPath) &&
-                LastWrite(MainPath, MainPath + "-wal") <= File.GetLastWriteTimeUtc(BackupPath))
-            {
-                return;
-            }
-
             DeleteDatabaseFiles(BackupTempPath);
-
-            // Pending writes go into the main file first, so it is not newer
-            // than the backup taken right after.
-            Execute(connection, null, "PRAGMA wal_checkpoint(TRUNCATE);");
             using (var command = connection.CreateCommand())
             {
                 command.CommandText = "VACUUM INTO $path;";
                 command.Parameters.AddWithValue("$path", BackupTempPath);
                 command.ExecuteNonQuery();
-            }
-
-            bool sound;
-            using (var check = Connect(BackupTempPath, SqliteOpenMode.ReadWrite))
-            {
-                sound = QuickCheck(check);
-            }
-
-            DeleteJournalFiles(BackupTempPath);
-            if (!sound)
-            {
-                _logger.LogWarning("Usage history: a new backup of the Claude request store failed its check and was discarded");
-                DeleteDatabaseFiles(BackupTempPath);
-                return;
             }
 
             File.Move(BackupTempPath, BackupPath, overwrite: true);
@@ -529,8 +317,6 @@ internal sealed class ClaudeRequestStore
             DeleteDatabaseFiles(BackupTempPath);
         }
     }
-
-    // -- Opening and restoring ------------------------------------------------
 
     private enum Check
     {
@@ -602,9 +388,7 @@ internal sealed class ClaudeRequestStore
             meta = new ClaudeStoreMeta(
                 freeze,
                 values.GetValueOrDefault("deletion_id"),
-                ParseLong(values.GetValueOrDefault("deleted_before_ms")),
-                ParseLong(values.GetValueOrDefault("write_seq")) ?? 0,
-                ClaudePruneFloor.Parse(values.GetValueOrDefault("prune_floors")));
+                ParseLong(values.GetValueOrDefault("deleted_before_ms")));
             return Check.Ok;
         }
         catch (SqliteException exception) when (exception.SqliteErrorCode is SqliteCorrupt or SqliteNotADatabase)
@@ -618,7 +402,7 @@ internal sealed class ClaudeRequestStore
         }
     }
 
-    private ClaudeStoreSession Restore(Func<ClaudeStoreMeta?, ClaudeStoreBarrier> barrierOf)
+    private ClaudeStoreSession Restore()
     {
         if (!File.Exists(BackupPath))
         {
@@ -631,7 +415,7 @@ internal sealed class ClaudeRequestStore
             File.Copy(BackupPath, RestoreTempPath, overwrite: true);
             using (var connection = Connect(RestoreTempPath, SqliteOpenMode.ReadWrite))
             {
-                var check = Validate(connection, out var meta);
+                var check = Validate(connection, out _);
                 if (check != Check.Ok)
                 {
                     connection.Dispose();
@@ -648,7 +432,6 @@ internal sealed class ClaudeRequestStore
                     return ClaudeStoreSession.Unavailable;
                 }
 
-                ApplyBarrier(connection, meta!, barrierOf(meta));
                 Execute(connection, null, "PRAGMA journal_mode=WAL;");
             }
 
@@ -687,90 +470,31 @@ internal sealed class ClaudeRequestStore
     }
 
     /// <summary>
-    /// Brings a backup up to the history's current deletion and prune points.
-    /// The current retention setting is never applied here; only what a
-    /// delete or a prune committed.
+    /// Marks go by the start of their bucket, not their timestamp: the same
+    /// rule a month-file prune uses for the bucket the mark is counted in.
     /// </summary>
-    /// <remarks>
-    /// <list type="bullet">
-    /// <item>A backup with another deletion id than the state's known one
-    /// predates a delete and is emptied. Only a delete makes a deletion id,
-    /// so this holds even when the deletion point did not move (a second
-    /// delete after the clock went back). A state that does not know its
-    /// deletion id empties nothing.</item>
-    /// <item>A committed prune removes only rows saved up to its write
-    /// sequence, so a record saved again after the retention was extended
-    /// survives a restore.</item>
-    /// <item>No row stays below a deletion point the state is sure of (a
-    /// rebuilt state's guess is not applied).</item>
-    /// </list>
-    /// </remarks>
-    private static void ApplyBarrier(SqliteConnection connection, ClaudeStoreMeta meta, ClaudeStoreBarrier barrier)
-    {
-        using var transaction = connection.BeginTransaction();
-        if (barrier.DeletionKnown && !string.Equals(barrier.DeletionId, meta.DeletionId, StringComparison.Ordinal))
-        {
-            Execute(connection, transaction, "DELETE FROM request; DELETE FROM account;");
-            SetMeta(connection, transaction, "deletion_id", barrier.DeletionId);
-            SetMeta(connection, transaction, "deleted_before_ms", Text(Max(barrier.DeletedBeforeMs, meta.DeletedBeforeMs)));
-        }
-
-        if (Max(barrier.DeletedBeforeMs, meta.DeletedBeforeMs) is { } deletedBeforeMs)
-        {
-            DeleteBelow(connection, transaction, deletedBeforeMs);
-        }
-
-        var floors = ClaudePruneFloor.Merge(barrier.PruneFloors, meta.Floors);
-        foreach (var floor in floors)
-        {
-            DeleteBelow(connection, transaction, floor.FloorSeconds * 1000, savedUpTo: floor.Seq);
-        }
-
-        SetMeta(connection, transaction, "prune_floors", ClaudePruneFloor.Format(floors));
-
-        // The backup's write sequence may be older than a prune the state
-        // recorded since; the next write must come after every one of them,
-        // or a prune would claim a row saved after it.
-        SetMeta(connection, transaction, "write_seq", Text(Math.Max(meta.WriteSeq, ClaudePruneFloor.HighestSeq(floors))));
-        transaction.Commit();
-    }
-
-    // -- Statements -----------------------------------------------------------
-
-    /// <summary>
-    /// Removes rows below a floor: records by their timestamp, marks by the
-    /// start of their bucket, the same rule a month-file prune uses for the
-    /// bucket the mark is counted in.
-    /// </summary>
-    /// <param name="savedUpTo">When set, only rows saved up to this write sequence.</param>
-    internal static int DeleteBelow(SqliteConnection connection, SqliteTransaction transaction, long floorMs, long? savedUpTo = null)
+    internal static int DeleteBelow(SqliteConnection connection, SqliteTransaction transaction, long floorMs)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText =
-            "DELETE FROM request WHERE ((kind = 0 AND ts_ms < $floor) OR (kind = 1 AND bucket < $floorSeconds))" +
-            (savedUpTo is null ? ";" : " AND saved <= $saved;");
+        command.CommandText = "DELETE FROM request WHERE (kind = 0 AND ts_ms < $floor) OR (kind = 1 AND bucket < $floorSeconds);";
         command.Parameters.AddWithValue("$floor", floorMs);
         command.Parameters.AddWithValue("$floorSeconds", CeilingSecondsOf(floorMs));
-        if (savedUpTo is { } saved)
-        {
-            command.Parameters.AddWithValue("$saved", saved);
-        }
-
         return command.ExecuteNonQuery();
     }
 
-    /// <summary>Unix milliseconds rounded up to whole seconds.</summary>
     internal static long CeilingSecondsOf(long milliseconds) =>
         FloorDiv(milliseconds, 1000) + (milliseconds % 1000 == 0 ? 0 : 1);
 
-    internal static void InsertRows(SqliteConnection connection, SqliteTransaction transaction, IEnumerable<ClaudeRequestRow> rows, long saved, Action<int>? added = null)
+    // The saved column is no longer read; it stays so the schema needs no
+    // migration and stores of earlier versions keep opening.
+    internal static void InsertRows(SqliteConnection connection, SqliteTransaction transaction, IEnumerable<ClaudeRequestRow> rows, Action<int>? added = null)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText =
             "INSERT OR IGNORE INTO request(key, kind, ts_ms, bucket, account, model, uncached, cache_read, write_5m, write_1h, output, reasoning, saved) " +
-            "VALUES($key, $kind, $ts, $bucket, $account, $model, $uncached, $read, $w5, $w1, $output, $reasoning, $saved);";
+            "VALUES($key, $kind, $ts, $bucket, $account, $model, $uncached, $read, $w5, $w1, $output, $reasoning, 0);";
         var key = command.Parameters.Add("$key", SqliteType.Integer);
         var kind = command.Parameters.Add("$kind", SqliteType.Integer);
         var ts = command.Parameters.Add("$ts", SqliteType.Integer);
@@ -783,7 +507,6 @@ internal sealed class ClaudeRequestStore
         var w1 = command.Parameters.Add("$w1", SqliteType.Integer);
         var output = command.Parameters.Add("$output", SqliteType.Integer);
         var reasoning = command.Parameters.Add("$reasoning", SqliteType.Integer);
-        command.Parameters.AddWithValue("$saved", saved);
 
         foreach (var row in rows)
         {
@@ -872,8 +595,6 @@ internal sealed class ClaudeRequestStore
         }
     }
 
-    // -- Files and helpers ----------------------------------------------------
-
     private void WarnFormatOnce()
     {
         if (!_formatWarned)
@@ -895,11 +616,6 @@ internal sealed class ClaudeRequestStore
                 "and new ones are not saved until the damaged files are removed");
         }
     }
-
-    private static DateTime LastWrite(string path, string journal) =>
-        File.Exists(journal) && File.GetLastWriteTimeUtc(journal) > File.GetLastWriteTimeUtc(path)
-            ? File.GetLastWriteTimeUtc(journal)
-            : File.GetLastWriteTimeUtc(path);
 
     private static void DeleteJournalFiles(string path)
     {
@@ -937,17 +653,11 @@ internal sealed class ClaudeRequestStore
 
     internal static string? Text(long? value) => value?.ToString(CultureInfo.InvariantCulture);
 
-    internal static long? Max(long? left, long? right) =>
-        left is null ? right : right is null ? left : Math.Max(left.Value, right.Value);
-
     private static long FloorDiv(long value, long divisor) =>
         value >= 0 ? value / divisor : -((-value + divisor - 1) / divisor);
 }
 
-/// <summary>
-/// One use of the request store inside a hold of the history lock. Disposing
-/// it closes the file.
-/// </summary>
+/// <summary>Must be disposed inside the hold of the history lock it was opened in.</summary>
 internal sealed class ClaudeStoreSession : IDisposable
 {
     public static readonly ClaudeStoreSession Absent = new(ClaudeStoreStatus.Absent);
@@ -971,16 +681,12 @@ internal sealed class ClaudeStoreSession : IDisposable
 
     public ClaudeStoreStatus Status { get; }
 
-    /// <summary>The store's meta, when <see cref="Status"/> is available.</summary>
-    public ClaudeStoreMeta? Meta { get; private set; }
-
-    /// <summary>True once a write was committed in this session.</summary>
-    public bool Changed { get; private set; }
+    /// <summary>Null unless <see cref="Status"/> is available.</summary>
+    public ClaudeStoreMeta? Meta { get; }
 
     private SqliteConnection Connection =>
         _connection ?? throw new InvalidOperationException("The Claude request store is not open.");
 
-    /// <summary>Every row, by identity. Rows with impossible values are skipped.</summary>
     public Dictionary<long, ClaudeRequestRow> ReadRequests()
     {
         var rows = new Dictionary<long, ClaudeRequestRow>();
@@ -1034,7 +740,6 @@ internal sealed class ClaudeStoreSession : IDisposable
         return rows;
     }
 
-    /// <summary>The stored name of every account with rows, by history key.</summary>
     public Dictionary<string, UsageHistoryAccount> ReadAccounts()
     {
         var accounts = new Dictionary<string, UsageHistoryAccount>(StringComparer.Ordinal);
@@ -1063,11 +768,7 @@ internal sealed class ClaudeStoreSession : IDisposable
         return accounts;
     }
 
-    /// <summary>
-    /// Adds records (an identity already stored is left as it is: the first
-    /// recorded copy wins) and updates account names, in one transaction.
-    /// </summary>
-    /// <returns>How many records were added.</returns>
+    /// <summary>An identity already stored is left as it is: the first recorded copy wins.</summary>
     public int AddRecords(IReadOnlyCollection<ClaudeRequestRow> records, IReadOnlyCollection<UsageHistoryAccount> names)
     {
         if (records.Count == 0 && names.Count == 0)
@@ -1076,76 +777,22 @@ internal sealed class ClaudeStoreSession : IDisposable
         }
 
         var added = 0;
-        var saved = Meta!.WriteSeq + 1;
         using var transaction = Connection.BeginTransaction();
-        ClaudeRequestStore.InsertRows(Connection, transaction, records, saved, count => added += count);
+        ClaudeRequestStore.InsertRows(Connection, transaction, records, count => added += count);
         ClaudeRequestStore.UpsertNames(Connection, transaction, names);
-        ClaudeRequestStore.SetMeta(Connection, transaction, "write_seq", ClaudeRequestStore.Text(saved));
         transaction.Commit();
-        Meta = Meta with { WriteSeq = saved };
-        Changed = true;
         return added;
     }
 
-    /// <summary>How many rows a <see cref="Prune"/> at <paramref name="cutoffMs"/> would remove.</summary>
-    public long CountBelow(long cutoffMs)
-    {
-        using var command = Connection.CreateCommand();
-        command.CommandText =
-            "SELECT COUNT(*) FROM request WHERE (kind = 0 AND ts_ms < $floor) OR (kind = 1 AND bucket < $floorSeconds);";
-        command.Parameters.AddWithValue("$floor", cutoffMs);
-        command.Parameters.AddWithValue("$floorSeconds", ClaudeRequestStore.CeilingSecondsOf(cutoffMs));
-        return command.ExecuteScalar() is long count ? count : 0;
-    }
-
-    /// <summary>
-    /// Moves the write sequence up to at least <paramref name="seq"/>, so the
-    /// next write comes after every prune record that has seen it.
-    /// </summary>
-    public void AdvanceWriteSeq(long seq)
-    {
-        if (seq <= Meta!.WriteSeq)
-        {
-            return;
-        }
-
-        using var transaction = Connection.BeginTransaction();
-        ClaudeRequestStore.SetMeta(Connection, transaction, "write_seq", ClaudeRequestStore.Text(seq));
-        transaction.Commit();
-        Meta = Meta with { WriteSeq = seq };
-        Changed = true;
-    }
-
-    /// <summary>The prune entry a prune at <paramref name="floorSeconds"/> commits now: it covers every row saved so far.</summary>
-    public ClaudePruneFloor PruneFloorAt(long floorSeconds) => new(Meta!.WriteSeq, floorSeconds);
-
-    /// <summary>
-    /// Removes the rows below <paramref name="floor"/> and records the prune
-    /// in the same transaction, so a backup restored later can be trimmed to
-    /// exactly what this prune removed.
-    /// </summary>
-    /// <returns>How many rows were removed.</returns>
-    public int Prune(ClaudePruneFloor floor)
+    public int Prune(long floorMs)
     {
         using var transaction = Connection.BeginTransaction();
-        var removed = ClaudeRequestStore.DeleteBelow(Connection, transaction, floor.FloorSeconds * 1000);
-        if (removed == 0)
-        {
-            transaction.Rollback();
-            return 0;
-        }
-
-        var floors = ClaudePruneFloor.Merge(Meta!.Floors, [floor]);
-        ClaudeRequestStore.SetMeta(Connection, transaction, "prune_floors", ClaudePruneFloor.Format(floors));
+        var removed = ClaudeRequestStore.DeleteBelow(Connection, transaction, floorMs);
         transaction.Commit();
-        Meta = Meta with { PruneFloors = floors };
-        Changed = true;
         return removed;
     }
 
-
-    /// <summary>Timestamp of the earliest record (not mark), or null when there is none.</summary>
-    public long? EarliestRecordMs()
+    public long? EarliestRecordMs(long? notBeforeMs)
     {
         if (_connection is null)
         {
@@ -1153,17 +800,17 @@ internal sealed class ClaudeStoreSession : IDisposable
         }
 
         using var command = _connection.CreateCommand();
-        command.CommandText = "SELECT MIN(ts_ms) FROM request WHERE kind = 0;";
+        command.CommandText = "SELECT MIN(ts_ms) FROM request WHERE kind = 0 AND ts_ms >= $notBefore;";
+        command.Parameters.AddWithValue("$notBefore", notBeforeMs ?? long.MinValue);
         var value = command.ExecuteScalar();
         return value is long ms && ms >= MinMs && ms <= MaxMs ? ms : null;
     }
 
-    /// <summary>Backs the store up when it changed or is newer than its backup.</summary>
     public void Backup()
     {
         if (_connection is not null)
         {
-            _store!.Backup(_connection, Changed);
+            _store!.Backup(_connection);
         }
     }
 
