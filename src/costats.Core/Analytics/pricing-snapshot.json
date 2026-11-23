@@ -24,6 +24,15 @@
     "cache_creation_input_token_cost": 0.0000125,
     "cache_creation_input_token_cost_above_1hr": 0.00002
   },
+  "claude-fable-5-2": {
+    "litellm_provider": "anthropic",
+    "mode": "chat",
+    "input_cost_per_token": 0.000008,
+    "output_cost_per_token": 0.00004,
+    "cache_read_input_token_cost": 2e-7,
+    "cache_creation_input_token_cost": 0.00001,
+    "cache_creation_input_token_cost_above_1hr": 0.000016
+  },
   "claude-haiku-4-5": {
     "litellm_provider": "anthropic",
     "mode": "chat",
@@ -68,6 +77,15 @@
     "cache_read_input_token_cost": 2.5e-7,
     "cache_creation_input_token_cost": 0.0000125,
     "cache_creation_input_token_cost_above_1hr": 0.00002
+  },
+  "claude-mythos-5-2": {
+    "litellm_provider": "anthropic",
+    "mode": "chat",
+    "input_cost_per_token": 0.000008,
+    "output_cost_per_token": 0.00004,
+    "cache_read_input_token_cost": 2e-7,
+    "cache_creation_input_token_cost": 0.00001,
+    "cache_creation_input_token_cost_above_1hr": 0.000016
   },
   "claude-mythos-preview": {
     "litellm_provider": "anthropic",
@@ -1018,6 +1036,14 @@
     "output_cost_per_token": 0.00005,
     "cache_read_input_token_cost": 0.000001
   },
+  "gpt-6-cyber": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.00002,
+    "output_cost_per_token": 0.0001,
+    "cache_read_input_token_cost": 0.000002,
+    "cache_creation_input_token_cost": 0.000025
+  },
   "gpt-6-luna": {
     "litellm_provider": "openai",
     "mode": "chat",
@@ -1029,10 +1055,10 @@
   "gpt-6-rosalind": {
     "litellm_provider": "openai",
     "mode": "chat",
-    "input_cost_per_token": 0.000015,
-    "output_cost_per_token": 0.000075,
-    "cache_read_input_token_cost": 0.0000015,
-    "cache_creation_input_token_cost": 0.00001875
+    "input_cost_per_token": 0.00001,
+    "output_cost_per_token": 0.00005,
+    "cache_read_input_token_cost": 0.000001,
+    "cache_creation_input_token_cost": 0.0000125
   },
   "gpt-6-sol": {
     "litellm_provider": "openai",
@@ -1057,6 +1083,30 @@
     "output_cost_per_token": 0.000005,
     "cache_read_input_token_cost": 5e-8,
     "cache_creation_input_token_cost": 0.00000125
+  },
+  "gpt-6.2-astra": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000008,
+    "output_cost_per_token": 0.00004,
+    "cache_read_input_token_cost": 4e-7,
+    "cache_creation_input_token_cost": 0.00001
+  },
+  "gpt-6.2-astra-law": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000008,
+    "output_cost_per_token": 0.00004,
+    "cache_read_input_token_cost": 4e-7,
+    "cache_creation_input_token_cost": 0.00001
+  },
+  "gpt-6.2-sol": {
+    "litellm_provider": "openai",
+    "mode": "chat",
+    "input_cost_per_token": 0.000002,
+    "output_cost_per_token": 0.00001,
+    "cache_read_input_token_cost": 1e-7,
+    "cache_creation_input_token_cost": 0.0000025
   },
   "gpt-audio": {
     "litellm_provider": "openai",
