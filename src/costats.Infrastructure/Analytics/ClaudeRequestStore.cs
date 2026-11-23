@@ -193,7 +193,7 @@ internal sealed class ClaudeRequestStore
     /// backup, is replaced by the backup. A backup a delete could not remove
     /// may hold rows from before that delete; the deletion point hides them.
     /// </summary>
-    /// <param name="restore">False to never touch the files, for read-only callers.</param>
+    /// <param name="restore">False to skip the restore and the cleanup of leftovers, for callers that only read.</param>
     public ClaudeStoreSession Open(bool restore = true)
     {
         if (restore)
@@ -488,8 +488,10 @@ internal sealed class ClaudeRequestStore
 
     // The saved column is no longer read; it stays so the schema needs no
     // migration and stores of earlier versions keep opening.
-    internal static void InsertRows(SqliteConnection connection, SqliteTransaction transaction, IEnumerable<ClaudeRequestRow> rows, Action<int>? added = null)
+    /// <returns>How many rows were new.</returns>
+    internal static int InsertRows(SqliteConnection connection, SqliteTransaction transaction, IEnumerable<ClaudeRequestRow> rows)
     {
+        var added = 0;
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText =
@@ -522,9 +524,10 @@ internal sealed class ClaudeRequestStore
             w1.Value = row.Tokens.CacheWrite1hInputTokens;
             output.Value = row.Tokens.OutputTokens;
             reasoning.Value = row.Tokens.ReasoningOutputTokens;
-            var inserted = command.ExecuteNonQuery();
-            added?.Invoke(inserted);
+            added += command.ExecuteNonQuery();
         }
+
+        return added;
     }
 
     internal static void UpsertNames(SqliteConnection connection, SqliteTransaction transaction, IEnumerable<UsageHistoryAccount> names)
@@ -776,9 +779,8 @@ internal sealed class ClaudeStoreSession : IDisposable
             return 0;
         }
 
-        var added = 0;
         using var transaction = Connection.BeginTransaction();
-        ClaudeRequestStore.InsertRows(Connection, transaction, records, count => added += count);
+        var added = ClaudeRequestStore.InsertRows(Connection, transaction, records);
         ClaudeRequestStore.UpsertNames(Connection, transaction, names);
         transaction.Commit();
         return added;

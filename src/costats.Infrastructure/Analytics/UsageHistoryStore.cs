@@ -956,8 +956,8 @@ public sealed class UsageHistoryStore
     }
 
     /// <summary>
-    /// The two state copies differ only if the app stops between these
-    /// writes; the next locked open makes them equal before reading anything.
+    /// When the second write does not happen, the next locked open makes the
+    /// two state copies equal before reading anything.
     /// </summary>
     private void WriteState(HistoryState state)
     {
@@ -1037,22 +1037,19 @@ public sealed class UsageHistoryStore
     /// writer skips the month rather than rebuilding it from an older copy.
     /// </summary>
     /// <param name="state">
-    /// A month copy not stamped with the latest delete's id is a leftover the
-    /// delete could not remove, so every bucket starting before the deletion
-    /// point is dropped from it, including the one the point falls in. A copy
-    /// written after the delete carries its id and keeps that bucket, which
-    /// then holds usage saved after the delete.
+    /// A month copy not stamped with the latest delete's id was written before
+    /// that delete, a leftover it could not remove, so none of its usage
+    /// counts. One written by a state that did not know its deletion id is
+    /// kept whole.
     /// </param>
     private MonthFile? ReadMonth(string month, out bool damaged, out bool busy, HistoryState? state = null)
     {
         var file = ReadMonthCopy(month, out damaged, out busy);
-
-        // One written by a state that did not know its deletion id is kept whole.
         return file is not null &&
-            state is { DeletedBefore: { } point } &&
+            state is { DeletedBefore: not null } &&
             file.Stamp != MonthStampUnknown &&
             !string.Equals(file.DeletionId, state.DeletionId, StringComparison.Ordinal)
-            ? file with { Rows = file.Rows.Where(row => row is { Length: RowWidth } && row[0] >= point).ToArray() }
+            ? file with { Rows = [] }
             : file;
     }
 
