@@ -473,7 +473,7 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
             var outcome = history.Store.Save(
                 start,
                 view => PlanHistoryWrite(view, live, recoveredSamples, map, notBefore, scanStart, recoveryDone, claudeComplete));
-            if (outcome is null || outcome.Skipped)
+            if (outcome is null)
             {
                 return;
             }
@@ -832,8 +832,9 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            _logger.LogWarning("Usage history could not be read; reporting from the logs alone: {Error}", exception.GetType().Name);
-            return LogsAfterPendingDelete(live, history.Store);
+            // Without the deletion point, any log could be usage the user deleted.
+            _logger.LogWarning("Usage history could not be read; reporting nothing: {Error}", exception.GetType().Name);
+            return live with { Samples = [] };
         }
 
         var map = HistoryAccountMap.Build(scope ?? history.Scope());
@@ -934,29 +935,6 @@ public sealed class UsageAnalyticsService : IUsageAnalyticsService
         });
 
         return live with { Samples = samples, Accounts = accounts, ArchivedAccountNames = archivedNames };
-    }
-
-    /// <summary>
-    /// The logs alone, without what a delete that is not finished yet removes:
-    /// nothing before its point is shown.
-    /// </summary>
-    private static UsageScanResult LogsAfterPendingDelete(UsageScanResult live, UsageHistoryStore store)
-    {
-        DateTimeOffset? point;
-        try
-        {
-            point = store.PendingDeletionPoint();
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // The journal cannot be read either: show nothing rather than
-            // usage that may have been deleted.
-            return live with { Samples = [] };
-        }
-
-        return point is { } floor
-            ? live with { Samples = [.. live.Samples.Where(sample => sample.Timestamp >= floor)] }
-            : live;
     }
 
     public async Task<UsageCacheInfo> ClearCacheAsync(CancellationToken cancellationToken = default)

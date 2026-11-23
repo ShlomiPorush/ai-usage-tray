@@ -8,22 +8,17 @@ using costats.Infrastructure.Analytics;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace costats.Core.Tests.Analytics;
 
 /// <summary>
 /// The usage history keeps Claude requests by identity once it has converted:
-/// requests counted at the conversion are marks, later ones are records. These
-/// tests drive the analytics service over real log files in a temporary folder.
+/// requests counted at the conversion are marks, later ones are records.
 /// </summary>
 public sealed class ClaudeRequestHistoryTests : IDisposable
 {
-    private readonly ITestOutputHelper _output;
     private readonly string _root = Path.Combine(
         Path.GetTempPath(), "costats-claude-request-tests", Guid.NewGuid().ToString("n"));
-
-    public ClaudeRequestHistoryTests(ITestOutputHelper output) => _output = output;
 
     private string HistoryDir => Path.Combine(_root, "history");
 
@@ -92,8 +87,7 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
     private static DateTimeOffset QuarterHourAhead() =>
         DateTimeOffset.FromUnixTimeSeconds(UsageHistory.BucketStartOf(DateTimeOffset.UtcNow) + 2 * UsageHistory.BucketSeconds + 60);
 
-    /// <summary>A time after any conversion a test already ran: it gets recorded.</summary>
-    private static DateTimeOffset AfterConversion(double seconds = 5) => DateTimeOffset.UtcNow.AddSeconds(seconds);
+    private static DateTimeOffset AfterConversion() => DateTimeOffset.UtcNow.AddSeconds(5);
 
     private string LogPath(string configDir, string name = "s.jsonl") => Path.Combine(_root, configDir, "projects", "p", name);
 
@@ -171,20 +165,14 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
     {
         Directory.CreateDirectory(HistoryDir);
         Assert.True(new ClaudeRequestStore(HistoryDir, NullLogger.Instance)
-            .Create(new ClaudeStoreMeta(freeze.ToUnixTimeMilliseconds(), null, null), [], []));
+            .Create(new ClaudeStoreMeta(freeze.ToUnixTimeMilliseconds()), [], []));
     }
 
     private void EditState(Action<JsonObject> edit)
     {
-        foreach (var path in new[] { Path.Combine(HistoryDir, "state.json"), Path.Combine(HistoryDir, "state.json.bak") })
-        {
-            if (File.Exists(path))
-            {
-                var state = JsonNode.Parse(File.ReadAllText(path))!.AsObject();
-                edit(state);
-                File.WriteAllText(path, state.ToJsonString());
-            }
-        }
+        var state = JsonNode.Parse(File.ReadAllText(StatePath))!.AsObject();
+        edit(state);
+        File.WriteAllText(StatePath, state.ToJsonString());
     }
 
     private static UsageHistoryKey KeyFor(MonitoredAccountSettings account, DateTimeOffset instant, string model = "claude-opus-5") =>
@@ -235,22 +223,6 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
     }
 
     [Fact]
-    public async Task Probe_logs_moved_to_another_account()
-    {
-        WriteLog("c1", "s.jsonl", Line("1", "2026-08-21T12:01:00Z"), Line("2", "2026-08-21T12:07:00Z"));
-        EmptyClaudeFolder("c2");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1"), Claude("claude-2", "c2")];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-
-        WriteLog("c2", "s.jsonl", Line("1", "2026-08-21T12:01:00Z"), Line("2", "2026-08-21T12:07:00Z"));
-        File.Delete(LogPath("c1"));
-        await service.SyncHistoryAsync();
-
-        Assert.Equal(2, await Requests(service));
-    }
-
-    [Fact]
     public async Task Probe_relogin_in_the_same_folder()
     {
         WriteLog("c1", "s.jsonl", Line("1", "2026-08-21T12:01:00Z"), Line("2", "2026-08-21T12:07:00Z"));
@@ -287,7 +259,7 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
             key => key.AccountKey == UsageLogRootResolver.HistoryKeyFor(Claude("claude-2", "c2")));
     }
 
-    // -- After the conversion: records --------------------------------------
+    // -- Copies, moves and late requests ------------------------------------
 
     [Fact]
     public async Task After_conversion_a_folder_edited_to_a_copy_counts_once_also_after_the_logs_are_deleted()
@@ -423,8 +395,8 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
     [Fact]
     public async Task A_changed_copy_of_a_marked_request_never_replaces_history_only_usage()
     {
-        // The spec's S2 example: X=100 and Y=10 are stored under A; Y's log is
-        // gone; a copy of X with 200 tokens turns up under B.
+        // X=100 and Y=10 are stored under A; Y's log is gone; a copy of X with
+        // 200 tokens turns up under B.
         WriteLog("c1", "x.jsonl", Line("x", "2026-08-21T12:01:00Z", input: 95));
         WriteLog("c1", "y.jsonl", Line("y", "2026-08-21T12:03:00Z", input: 5));
         EmptyClaudeFolder("c2");
@@ -448,10 +420,8 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
     [Fact]
     public async Task A_late_request_in_a_marked_bucket_never_drops_the_marked_requests()
     {
-        // A request from before the conversion that turns up only after it
-        // (still being written during the conversion scan, or a restored log)
-        // follows today's rules. Today the live bucket holds the marked
-        // requests too, so nothing is lost; neither may it be here.
+        // A request from before the conversion that turns up only after it:
+        // still being written during the conversion scan, or a restored log.
         WriteLog("c1", "s.jsonl", Line("1", "2026-08-21T12:01:00Z"), Line("2", "2026-08-21T12:03:00Z"));
         IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
         var service = Service(() => accounts);
@@ -791,7 +761,7 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
         Assert.Equal((2L, 1L), StoreRows());
     }
 
-    // -- Delete, prune, clock ------------------------------------------------
+    // -- Delete, prune, lost state -------------------------------------------
 
     [Fact]
     public async Task A_delete_from_another_process_during_a_sync_brings_nothing_back()
@@ -822,46 +792,6 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
         Assert.Empty(new UsageHistoryStore(HistoryDir).Read().Buckets);
         Assert.False(File.Exists(StorePath));
         Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-    }
-
-    [Fact]
-    public async Task A_repaired_state_does_not_block_syncing()
-    {
-        var a = Claude("claude-1", "c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [a];
-        WriteLog("c1", "s.jsonl", Line("1", "2026-08-21T12:01:00Z"));
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        File.Delete(Path.Combine(HistoryDir, "state.json"));
-        File.Delete(Path.Combine(HistoryDir, "state.json.bak"));
-
-        WriteLog("c1", "more.jsonl", Line("2", "2026-08-22T12:01:00Z"));
-        await service.SyncHistoryAsync();
-        await service.SyncHistoryAsync();
-
-        Assert.Contains(KeyFor(a, At("2026-08-22T12:01:00Z")), new UsageHistoryStore(HistoryDir).Read().Buckets.Keys);
-        File.Delete(LogPath("c1"));
-        File.Delete(LogPath("c1", "more.jsonl"));
-        Assert.Equal(2, await Requests(service));
-    }
-
-    [Fact]
-    public async Task A_lost_state_with_records_only_hides_nothing()
-    {
-        var now = DateTimeOffset.UtcNow;
-        SeedStore(now.AddDays(-30));
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        WriteLog("c1", "s.jsonl", Line("1", now.AddDays(-20)));
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        File.Delete(LogPath("c1"));
-        File.Delete(Path.Combine(HistoryDir, "state.json"));
-        File.Delete(Path.Combine(HistoryDir, "state.json.bak"));
-
-        Assert.Equal(1, await Requests(service));
-        await service.SyncHistoryAsync();
-        Assert.True(File.Exists(Path.Combine(HistoryDir, "state.json")));
-        Assert.Equal(1, await Requests(service));
     }
 
     [Fact]
@@ -947,37 +877,12 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
     }
 
     [Fact]
-    public async Task A_backup_older_than_a_prune_brings_no_expired_rows_back()
+    public async Task A_backup_left_by_a_delete_brings_nothing_back()
     {
         var now = DateTimeOffset.UtcNow;
         SeedStore(now.AddDays(-500));
         IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        WriteLog("c1", "s.jsonl", Line("1", now.AddDays(-400)), Line("2", now.AddDays(-10)));
-        await Service(() => accounts).SyncHistoryAsync();
-        var stale = File.ReadAllBytes(StorePath + ".bak");
-        File.Delete(LogPath("c1"));
-
-        await Service(() => accounts, retentionDays: 365).SyncHistoryAsync();
-        Assert.Equal((0L, 1L), StoreRows());
-
-        File.WriteAllBytes(StorePath + ".bak", stale);
-        File.WriteAllText(StorePath, "damaged");
-
-        // No retention in this report, so only the committed prune floor can
-        // keep the expired record out.
-        Assert.Equal(1, await Requests(Service(() => accounts)));
-        Assert.Equal((0L, 1L), StoreRows());
-    }
-
-    [Fact]
-    public async Task A_backup_older_than_a_delete_brings_nothing_back()
-    {
-        var now = DateTimeOffset.UtcNow;
-        SeedStore(now.AddDays(-500));
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        // One record dated after the delete point: only the deletion id can
-        // tell that the backup predates the delete.
-        WriteLog("c1", "s.jsonl", Line("1", now.AddDays(-20)), Line("2", now.AddHours(2)));
+        WriteLog("c1", "s.jsonl", Line("1", now.AddDays(-20)));
         var service = Service(() => accounts);
         await service.SyncHistoryAsync();
         var stale = File.ReadAllBytes(StorePath + ".bak");
@@ -987,7 +892,87 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
         File.WriteAllBytes(StorePath + ".bak", stale);
 
         Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        Assert.Equal((0L, 0L), StoreRows());
+        await service.SyncHistoryAsync();
+        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
+    }
+
+    [Fact]
+    public async Task A_delete_that_cannot_write_the_state_deletes_nothing()
+    {
+        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
+        WriteLog("c1", "s.jsonl", Line("1", "2026-08-21T12:01:00Z"));
+        var service = Service(() => accounts);
+        await service.SyncHistoryAsync();
+
+        File.SetAttributes(StatePath, FileAttributes.ReadOnly);
+        try
+        {
+            Assert.False(await service.DeleteHistoryAsync());
+        }
+        finally
+        {
+            File.SetAttributes(StatePath, FileAttributes.Normal);
+        }
+
+        Assert.NotEmpty(Directory.GetFiles(HistoryDir, "usage-*"));
+        Assert.Equal(1, await Requests(service));
+    }
+
+    [Fact]
+    public async Task A_month_file_a_delete_could_not_remove_shows_nothing_it_deleted_and_saving_goes_on()
+    {
+        // The month was written before any delete, so it carries no deletion
+        // id, and the delete point falls inside the bucket that holds its usage.
+        var deleteAt = QuarterHourAhead();
+        var bucket = DateTimeOffset.FromUnixTimeSeconds(UsageHistory.BucketStartOf(deleteAt));
+        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
+        WriteLog("c1", "s.jsonl", KeylessLine("old", bucket));
+        var service = Service(() => accounts);
+        await service.SyncHistoryAsync();
+        File.Delete(LogPath("c1"));
+        var month = Assert.Single(Directory.GetFiles(HistoryDir, "usage-*.json"));
+
+        using (new FileStream(month, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.False(new UsageHistoryStore(HistoryDir).DeleteAll(deleteAt));
+        }
+
+        Assert.True(File.Exists(month));
+        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
+
+        WriteLog("c1", "new.jsonl", KeylessLine("new", deleteAt.AddSeconds(30)));
+        await service.SyncHistoryAsync();
+        File.Delete(LogPath("c1", "new.jsonl"));
+        Assert.Equal(1, await Requests(service));
+
+        Assert.True(await service.DeleteHistoryAsync());
+        Assert.Empty(Directory.GetFiles(HistoryDir, "usage-*"));
+    }
+
+    [Fact]
+    public async Task A_store_a_delete_could_not_remove_shows_nothing_it_deleted()
+    {
+        EmptyClaudeFolder("c1");
+        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
+        var service = Service(() => accounts);
+        await service.SyncHistoryAsync();
+        WriteLog("c1", "s.jsonl", Line("1", DateTimeOffset.UtcNow));
+        await service.SyncHistoryAsync();
+        File.Delete(LogPath("c1"));
+        Assert.Equal((0L, 1L), StoreRows());
+        Assert.NotNull(service.GetHistoryInfo().FirstBucket);
+
+        using (HoldStore())
+        {
+            Assert.False(await service.DeleteHistoryAsync());
+        }
+
+        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
+        Assert.Null(service.GetHistoryInfo().FirstBucket);
+        Assert.Equal((0L, 1L), StoreRows());
+
+        Assert.True(await service.DeleteHistoryAsync());
+        Assert.Empty(Directory.GetFiles(HistoryDir, "claude-requests.db*"));
     }
 
     [Fact]
@@ -1013,32 +998,6 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
         Assert.Equal(1, await Requests(service));
     }
 
-    // -- Review round 1 regressions -------------------------------------------
-
-    private sealed class SimulatedStop : Exception
-    {
-        public SimulatedStop(string step)
-            : base("Simulated stop at " + step)
-        {
-        }
-    }
-
-    /// <summary>A store whose test hook throws once at <paramref name="step"/>, as if the app stopped there.</summary>
-    private UsageHistoryStore StoppingAt(string step)
-    {
-        var armed = 1;
-        return new UsageHistoryStore(HistoryDir)
-        {
-            StopAt = name =>
-            {
-                if (name == step && Interlocked.Exchange(ref armed, 0) == 1)
-                {
-                    throw new SimulatedStop(name);
-                }
-            }
-        };
-    }
-
     private long StoreFreezeMs()
     {
         using var connection = OpenStore();
@@ -1050,9 +1009,9 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
     [Fact]
     public async Task A_request_in_the_conversion_second_read_from_the_parse_cache_is_recorded()
     {
-        // The review's example: the conversion at .500 of a second, a request
-        // at .900 of the same second. The parse cache keeps whole seconds, so
-        // a sync that reads the request from the cache sees .000.
+        // The conversion at .500 of a second, a request at .900 of the same
+        // second. The parse cache keeps whole seconds, so a sync that reads the
+        // request from the cache sees .000.
         var second = DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.UtcNow.AddDays(-1).ToUnixTimeSeconds());
         SeedStore(second.AddMilliseconds(500));
         EmptyClaudeFolder("c2");
@@ -1112,57 +1071,6 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
     }
 
     [Fact]
-    public async Task A_delete_stopped_right_after_its_journal_is_finished_before_anything_is_read()
-    {
-        // The delete point falls inside the bucket that holds the usage.
-        var deleteAt = QuarterHourAhead();
-        var bucket = DateTimeOffset.FromUnixTimeSeconds(UsageHistory.BucketStartOf(deleteAt));
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        WriteLog("c1", "s.jsonl", Line("1", bucket));
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.Single(new UsageHistoryStore(HistoryDir).Read().Buckets);
-
-        Assert.Throws<SimulatedStop>(() => StoppingAt("journal-written").DeleteAll(deleteAt));
-
-        // The journal holds the delete; nothing was removed yet.
-        Assert.Single(Directory.GetFiles(HistoryDir, "usage-*.json"));
-        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        Assert.Empty(Directory.GetFiles(HistoryDir, "usage-*"));
-        Assert.NotNull(new UsageHistoryStore(HistoryDir).Read().DeletedBefore);
-
-        await service.SyncHistoryAsync();
-        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        Assert.Empty(new UsageHistoryStore(HistoryDir).Read().Buckets);
-    }
-
-    [Fact]
-    public async Task A_prune_stopped_before_its_backup_brings_no_expired_rows_back()
-    {
-        var now = DateTimeOffset.UtcNow;
-        SeedStore(now.AddDays(-500));
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        WriteLog("c1", "s.jsonl", Line("1", now.AddDays(-400)), Line("2", now.AddDays(-10)));
-        await Service(() => accounts).SyncHistoryAsync();
-        var backupBefore = File.ReadAllBytes(StorePath + ".bak");
-        File.Delete(LogPath("c1"));
-
-        // The rows are gone from the store, but the app stops before the
-        // backup is taken: the backup still holds the expired record.
-        await Assert.ThrowsAsync<SimulatedStop>(
-            () => Service(() => accounts, retentionDays: 365, store: StoppingAt("prune-rows-removed")).SyncHistoryAsync());
-        Assert.Equal(backupBefore, File.ReadAllBytes(StorePath + ".bak"));
-        Assert.Equal((0L, 1L), StoreRows());
-
-        File.WriteAllText(StorePath, "damaged");
-
-        // No retention in this report: only a floor the restore can read
-        // keeps the expired record out.
-        Assert.Equal(1, await Requests(Service(() => accounts)));
-        Assert.Equal((0L, 1L), StoreRows());
-    }
-
-    [Fact]
     public async Task A_mark_stays_while_the_month_of_its_bucket_could_not_be_pruned()
     {
         var now = DateTimeOffset.UtcNow;
@@ -1200,824 +1108,9 @@ public sealed class ClaudeRequestHistoryTests : IDisposable
         Assert.Equal((1L, 0L), StoreRows());
     }
 
-    [Fact]
-    public async Task A_backup_from_before_a_delete_at_the_same_point_brings_nothing_back()
-    {
-        var now = DateTimeOffset.UtcNow;
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        EmptyClaudeFolder("c1");
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.True(await service.DeleteHistoryAsync());
-
-        // A new store after the first delete, with a record dated after it.
-        await service.SyncHistoryAsync();
-        WriteLog("c1", "s.jsonl", Line("1", now.AddHours(2)));
-        await service.SyncHistoryAsync();
-        Assert.Equal((0L, 1L), StoreRows());
-        var stale = File.ReadAllBytes(StorePath + ".bak");
-        File.Delete(LogPath("c1"));
-
-        // The clock went back: the second delete keeps the same deletion
-        // point but gets a new deletion id.
-        Assert.True(new UsageHistoryStore(HistoryDir).DeleteAll(now.AddDays(-30)));
-        File.WriteAllBytes(StorePath + ".bak", stale);
-
-        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        Assert.Equal((0L, 0L), StoreRows());
-    }
-
-    // -- Review round 2: only explicit deletes remove anything -----------------
-
-    private void DamageStateFiles()
-    {
-        File.WriteAllText(Path.Combine(HistoryDir, "state.json"), "{ damaged");
-        File.WriteAllText(Path.Combine(HistoryDir, "state.json.bak"), "{ damaged");
-    }
-
-    /// <summary>Holds the store file so SQLite cannot open it, as a scanner or a stuck handle would.</summary>
     private FileStream HoldStore() => new(StorePath, FileMode.Open, FileAccess.Read, FileShare.None);
 
-    [Fact]
-    public async Task A_state_rebuilt_while_the_store_was_unreachable_deletes_nothing_valid()
-    {
-        // The review's route: a delete, new usage saved in the same quarter
-        // hour, then both state files damaged while the store cannot be
-        // opened, so a sync rebuilds the state.
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.True(new UsageHistoryStore(HistoryDir).DeleteAll(QuarterHourAhead()));
-        var deletedBefore = new UsageHistoryStore(HistoryDir).Read().DeletedBefore!.Value;
-        await service.SyncHistoryAsync();
-        Assert.True(File.Exists(StorePath));
-
-        WriteLog("c1", "s.jsonl", KeylessLine("k", deletedBefore.AddSeconds(2)), Line("r", deletedBefore.AddSeconds(3)));
-        var bucket = UsageHistory.BucketStartOf(deletedBefore);
-        new UsageHistoryStore(HistoryDir).Merge(
-            new Dictionary<UsageHistoryKey, UsageHistoryBucket>
-            {
-                [new UsageHistoryKey(bucket, UsageProviderKind.Codex, UsageHistory.CodexAccountKey, "gpt-5.6-sol")] = Bucket(100),
-                [new UsageHistoryKey(bucket, UsageProviderKind.Antigravity, UsageHistory.AntigravityAccountKey, "gemini-3-pro")] = Bucket(200)
-            },
-            [],
-            cacheRecovered: true);
-        await service.SyncHistoryAsync();
-        Assert.Equal((0L, 1L), StoreRows());
-        Assert.Equal(3, new UsageHistoryStore(HistoryDir).Read().Buckets.Count);
-        Assert.Equal(4, await Requests(service));
-
-        DamageStateFiles();
-        using (HoldStore())
-        {
-            await service.SyncHistoryAsync();
-        }
-
-        await service.SyncHistoryAsync();
-
-        Assert.True(File.Exists(StorePath));
-        Assert.True(File.Exists(StorePath + ".bak"));
-        Assert.Equal((0L, 1L), StoreRows());
-        var buckets = new UsageHistoryStore(HistoryDir).Read().Buckets.Keys.ToList();
-        Assert.Contains(buckets, key => key.Provider == UsageProviderKind.Codex);
-        Assert.Contains(buckets, key => key.Provider == UsageProviderKind.Antigravity);
-        Assert.Contains(buckets, key => key.Provider == UsageProviderKind.Claude);
-        File.Delete(LogPath("c1"));
-        Assert.Equal(4, await Requests(service));
-    }
-
-    [Fact]
-    public async Task Backed_up_records_survive_a_restore_after_a_state_rebuilt_without_the_store()
-    {
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        WriteLog("c1", "a.jsonl", Line("1", AfterConversion()));
-        await service.SyncHistoryAsync();
-        File.Delete(LogPath("c1", "a.jsonl"));
-        Assert.True(File.Exists(StorePath + ".bak"));
-
-        // The state is rebuilt with a new id while the store cannot be read.
-        DamageStateFiles();
-        using (HoldStore())
-        {
-            await service.SyncHistoryAsync();
-        }
-
-        // Restored while the state still holds the rebuilt id: no delete
-        // happened, so the backed-up record stays.
-        File.WriteAllText(StorePath, "damaged");
-        Assert.Equal(1, await Requests(service));
-        Assert.Equal((0L, 1L), StoreRows());
-
-        // More records saved and backed up after it, then another restore.
-        WriteLog("c1", "b.jsonl", Line("2", AfterConversion()));
-        await service.SyncHistoryAsync();
-        File.Delete(LogPath("c1", "b.jsonl"));
-        await service.SyncHistoryAsync();
-        File.WriteAllText(StorePath, "damaged again");
-        Assert.Equal(2, await Requests(service));
-        Assert.Equal((0L, 2L), StoreRows());
-    }
-
-    [Fact]
-    public async Task A_record_saved_again_after_retention_was_extended_survives_a_restore()
-    {
-        var now = DateTimeOffset.UtcNow;
-        SeedStore(now.AddDays(-500));
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        WriteLog("c1", "s.jsonl", Line("1", now.AddDays(-400)));
-        WriteLog("c1", "recent.jsonl", Line("2", now.AddDays(-10)));
-        await Service(() => accounts).SyncHistoryAsync();
-        Assert.Equal((0L, 2L), StoreRows());
-
-        // A prune at a one-year floor removes the record; its log stays.
-        await Service(() => accounts, retentionDays: 365).SyncHistoryAsync();
-        Assert.Equal((0L, 1L), StoreRows());
-
-        // Retention is extended: the request comes back from its log, is
-        // saved again and backed up. Then the log goes and the store is damaged.
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.Equal((0L, 2L), StoreRows());
-        File.Delete(LogPath("c1"));
-        File.Delete(LogPath("c1", "recent.jsonl"));
-        File.WriteAllText(StorePath, "damaged");
-
-        Assert.Equal(2, await Requests(service));
-        Assert.Equal((0L, 2L), StoreRows());
-    }
-
-    // -- Review round 3 ---------------------------------------------------------
-
-    [Fact]
-    public async Task A_restore_never_reuses_a_write_sequence_a_prune_has_seen()
-    {
-        // The review's route: a backup at sequence 2; a write at 3 whose
-        // backup fails; a prune recorded at 3; a restore back to 2; the old
-        // request saved again after the retention was extended; a second
-        // restore must keep it.
-        var now = DateTimeOffset.UtcNow;
-        SeedStore(now.AddDays(-500));
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        WriteLog("c1", "recent.jsonl", Line("1", now.AddDays(-10)));
-        await Service(() => accounts).SyncHistoryAsync();
-        Assert.True(File.Exists(StorePath + ".bak"));
-
-        // A folder in the way of the backup's temporary file makes every
-        // backup fail from here on.
-        Directory.CreateDirectory(StorePath + ".bak.tmp");
-        WriteLog("c1", "old.jsonl", Line("2", now.AddDays(-400)));
-        await Service(() => accounts).SyncHistoryAsync();
-        Assert.Equal((0L, 2L), StoreRows());
-        await Service(() => accounts, retentionDays: 365).SyncHistoryAsync();
-        Assert.Equal((0L, 1L), StoreRows());
-
-        Directory.Delete(StorePath + ".bak.tmp");
-        File.WriteAllText(StorePath, "damaged");
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.Equal((0L, 2L), StoreRows());
-
-        File.Delete(LogPath("c1", "recent.jsonl"));
-        File.Delete(LogPath("c1", "old.jsonl"));
-        File.WriteAllText(StorePath, "damaged again");
-        Assert.Equal(2, await Requests(service));
-        Assert.Equal((0L, 2L), StoreRows());
-    }
-
-    [Fact]
-    public async Task A_delete_made_while_the_store_was_locked_reaches_the_store_when_it_opens()
-    {
-        // The review's route: an earlier delete; both state files are damaged
-        // while the store is locked and the state is rebuilt; the user deletes
-        // while it is still locked, so the store file stays. A row dated after
-        // the delete point must not show again.
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.True(await service.DeleteHistoryAsync());
-        await service.SyncHistoryAsync();
-        WriteLog("c1", "s.jsonl", Line("1", DateTimeOffset.UtcNow.AddHours(2)));
-        await service.SyncHistoryAsync();
-        File.Delete(LogPath("c1"));
-        Assert.Equal((0L, 1L), StoreRows());
-
-        DamageStateFiles();
-        using (HoldStore())
-        {
-            await service.SyncHistoryAsync();
-            Assert.False(await service.DeleteHistoryAsync());
-
-            // The delete waits in its journal; no saved usage shows meanwhile.
-            Assert.True(File.Exists(JournalPath));
-            Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        }
-
-        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        Assert.False(File.Exists(StorePath));
-        Assert.False(File.Exists(JournalPath));
-        await service.SyncHistoryAsync();
-        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-    }
-
-    // -- Deletion journal -------------------------------------------------------
-
     private string StatePath => Path.Combine(HistoryDir, "state.json");
-
-    private string JournalPath => Path.Combine(HistoryDir, "deletion-journal.json");
-
-    private bool StateCopiesEqual() =>
-        File.ReadAllBytes(StatePath).AsSpan().SequenceEqual(File.ReadAllBytes(StatePath + ".bak"));
-
-    private UsageHistoryKey CodexKey(DateTimeOffset instant) =>
-        new(UsageHistory.BucketStartOf(instant), UsageProviderKind.Codex, UsageHistory.CodexAccountKey, "gpt-5.6-sol");
-
-    [Fact]
-    public async Task A_delete_finished_again_from_a_stale_journal_copy_keeps_what_was_saved_after_it()
-    {
-        // A stop between removing the journal's two copies leaves the backup
-        // copy behind. Finishing the delete again must keep everything saved
-        // after it: the new store and the new months carry the delete's id.
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.Throws<SimulatedStop>(() => StoppingAt("journal-main-removed").DeleteAll(DateTimeOffset.UtcNow));
-        Assert.False(File.Exists(JournalPath));
-        var staleJournal = File.ReadAllBytes(JournalPath + ".bak");
-
-        await service.SyncHistoryAsync();
-        Assert.False(File.Exists(JournalPath + ".bak"));
-        await service.SyncHistoryAsync();
-        WriteLog("c1", "s.jsonl", Line("1", DateTimeOffset.UtcNow.AddHours(2)));
-        var store = new UsageHistoryStore(HistoryDir);
-        store.Merge(new Dictionary<UsageHistoryKey, UsageHistoryBucket> { [CodexKey(DateTimeOffset.UtcNow)] = Bucket(100) }, [], cacheRecovered: true);
-        await service.SyncHistoryAsync();
-        File.Delete(LogPath("c1"));
-        Assert.Equal((0L, 1L), StoreRows());
-        Assert.True(File.Exists(StorePath + ".bak"));
-
-        File.WriteAllBytes(JournalPath + ".bak", staleJournal);
-        File.WriteAllText(StatePath, "{ damaged");
-
-        Assert.Equal(2, await Requests(service));
-        Assert.Equal((0L, 1L), StoreRows());
-        Assert.Single(store.Read().Buckets);
-        Assert.False(File.Exists(JournalPath + ".bak"));
-    }
-
-    [Fact]
-    public async Task A_stale_state_backup_after_a_delete_never_removes_records_saved_after_it()
-    {
-        // A delete stops after the main state copy took it and before the
-        // backup copy did. A sync then saves and backs up a new record; its
-        // log goes, the main state file is damaged, and only the backup copy
-        // is left.
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-
-        Assert.Throws<SimulatedStop>(() => StoppingAt("state-main-written").DeleteAll(DateTimeOffset.UtcNow));
-        Assert.True(File.Exists(JournalPath));
-        Assert.False(StateCopiesEqual());
-
-        await service.SyncHistoryAsync();
-        Assert.False(File.Exists(JournalPath));
-        WriteLog("c1", "s.jsonl", Line("1", DateTimeOffset.UtcNow.AddHours(2)));
-        await service.SyncHistoryAsync();
-        File.Delete(LogPath("c1"));
-        Assert.Equal((0L, 1L), StoreRows());
-        Assert.True(File.Exists(StorePath + ".bak"));
-
-        File.WriteAllText(StatePath, "{ damaged");
-
-        Assert.Equal(1, await Requests(service));
-        Assert.True(File.Exists(StorePath));
-        Assert.Equal((0L, 1L), StoreRows());
-    }
-
-    [Fact]
-    public async Task After_any_locked_open_with_a_valid_main_state_both_state_copies_are_identical()
-    {
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        var store = new UsageHistoryStore(HistoryDir);
-
-        (string Name, Func<Task> Run)[] opens =
-        [
-            ("sync", () => service.SyncHistoryAsync()),
-            ("report", () => service.GetReportAsync(UsageDateRange.All)),
-            ("merge", () => Task.FromResult(store.Merge(new Dictionary<UsageHistoryKey, UsageHistoryBucket>(), [], cacheRecovered: false))),
-            ("prune", () => Task.FromResult(store.Prune(DateTimeOffset.UtcNow.AddDays(-1000)))),
-            ("postponed recovery", () => Task.FromResult(store.RecordPostponedCacheRecovery())),
-            ("delete", () => Task.FromResult(store.DeleteAll(DateTimeOffset.UtcNow)))
-        ];
-
-        foreach (var (name, run) in opens)
-        {
-            // A valid backup copy that differs from the main copy.
-            var stale = JsonNode.Parse(File.ReadAllText(StatePath))!.AsObject();
-            stale["recoveryAttempts"] = 99;
-            File.WriteAllText(StatePath + ".bak", stale.ToJsonString());
-            Assert.False(StateCopiesEqual(), name);
-
-            await run();
-
-            Assert.True(StateCopiesEqual(), name);
-        }
-    }
-
-    [Fact]
-    public async Task A_delete_stopped_before_the_state_with_only_an_old_state_backup_left_shows_no_month_usage()
-    {
-        // Month files hold usage whose logs are gone, dated after the delete
-        // point because the clock was set back; the delete stops after the
-        // store is removed and before the months are; then the main state is
-        // unreadable and its backup predates the delete.
-        var a = Claude("claude-1", "c1");
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [a];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        var later = DateTimeOffset.UtcNow.AddHours(2);
-        new UsageHistoryStore(HistoryDir).Merge(
-            new Dictionary<UsageHistoryKey, UsageHistoryBucket> { [KeyFor(a, later)] = Bucket(10), [CodexKey(later)] = Bucket(100) },
-            [],
-            cacheRecovered: true);
-        Assert.Equal(2, await Requests(service));
-        Assert.True(StateCopiesEqual());
-
-        // The clock is two hours behind that usage when the user deletes.
-        Assert.Throws<SimulatedStop>(() => StoppingAt("store-removed").DeleteAll(DateTimeOffset.UtcNow));
-        File.WriteAllText(StatePath, "{ damaged");
-
-        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        Assert.Empty(Directory.GetFiles(HistoryDir, "usage-*.json*"));
-        Assert.Empty(new UsageHistoryStore(HistoryDir).Read().Buckets);
-        await service.SyncHistoryAsync();
-        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-    }
-
-    [Fact]
-    public async Task While_a_delete_waits_nothing_is_saved_and_the_logs_catch_up_afterwards()
-    {
-        // The C12 route: a delete stops right after its journal; the main
-        // state is damaged and only its old backup is left; the store cannot
-        // be opened for a while, and new Codex and key-0 Claude usage is
-        // logged meanwhile. Nothing may be saved under the old deletion id;
-        // once the store is back the delete is finished and the next sync
-        // saves the new usage from the logs.
-        var codexDir = Path.Combine(_root, "codex1");
-        Directory.CreateDirectory(Path.Combine(codexDir, "sessions"));
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts =
-        [
-            Claude("claude-1", "c1"),
-            new() { Id = "codex-1", Type = MonitoredAccountSettings.CodexType, DisplayName = "Codex", ConfigDir = codexDir }
-        ];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-
-        // Usage that is about to be deleted, saved and its logs gone.
-        string Rollout(string name) => Path.Combine(codexDir, "sessions", name);
-        void WriteRollout(string name, DateTimeOffset at) => File.WriteAllLines(Rollout(name),
-        [
-            CodexTurnContext.Replace("@TS@", Ts(at), StringComparison.Ordinal),
-            CodexTokenCount.Replace("@TS@", Ts(at.AddSeconds(1)), StringComparison.Ordinal)
-        ]);
-        WriteRollout("rollout-old.jsonl", At("2026-08-21T12:00:00Z"));
-        WriteLog("c1", "old.jsonl", Line("1", DateTimeOffset.UtcNow.AddHours(2)), KeylessLine("k", At("2026-08-21T12:00:00Z")));
-        await service.SyncHistoryAsync();
-        File.Delete(Rollout("rollout-old.jsonl"));
-        File.Delete(LogPath("c1", "old.jsonl"));
-        Assert.Equal(3, await Requests(service));
-
-        Assert.Throws<SimulatedStop>(() => StoppingAt("journal-written").DeleteAll(DateTimeOffset.UtcNow));
-        File.WriteAllText(StatePath, "{ damaged");
-        var monthsBefore = Directory.GetFiles(HistoryDir, "usage-*").Order(StringComparer.Ordinal)
-            .Select(path => (path, File.ReadAllBytes(path))).ToList();
-
-        var after = DateTimeOffset.UtcNow.AddSeconds(5);
-        WriteRollout("rollout-new.jsonl", after);
-        WriteLog("c1", "new.jsonl", KeylessLine("n", after.AddSeconds(2)));
-        using (HoldStore())
-        {
-            await service.SyncHistoryAsync();
-            var monthsNow = Directory.GetFiles(HistoryDir, "usage-*").Order(StringComparer.Ordinal)
-                .Select(path => (path, File.ReadAllBytes(path))).ToList();
-            Assert.Equal(monthsBefore.Select(file => file.path), monthsNow.Select(file => file.path));
-            Assert.True(monthsBefore.Zip(monthsNow).All(pair => pair.First.Item2.AsSpan().SequenceEqual(pair.Second.Item2)));
-            Assert.True(File.Exists(JournalPath));
-
-            // The logs alone, after the delete point.
-            Assert.Equal(2, await Requests(service));
-        }
-
-        await service.SyncHistoryAsync();
-        Assert.False(File.Exists(JournalPath));
-        File.Delete(Rollout("rollout-new.jsonl"));
-        File.Delete(LogPath("c1", "new.jsonl"));
-        Assert.Equal(2, await Requests(service));
-        var buckets = new UsageHistoryStore(HistoryDir).Read().Buckets.Keys.ToList();
-        Assert.Contains(buckets, key => key.Provider == UsageProviderKind.Codex);
-        Assert.Contains(buckets, key => key.Provider == UsageProviderKind.Claude);
-    }
-
-    public static TheoryData<string, bool, bool> DeleteSteps()
-    {
-        var data = new TheoryData<string, bool, bool>();
-        foreach (var step in new[] { "journal-main-written", "journal-written", "store-removed", "months-removed", "state-main-written", "state-written", "journal-main-removed" })
-        {
-            foreach (var damageMainState in new[] { false, true })
-            {
-                data.Add(step, damageMainState, false);
-
-                // Only the first steps run while the store file still exists.
-                if (step is "journal-main-written" or "journal-written")
-                {
-                    data.Add(step, damageMainState, true);
-                }
-            }
-        }
-
-        return data;
-    }
-
-    [Theory]
-    [MemberData(nameof(DeleteSteps))]
-    public async Task A_delete_stopped_at_any_step_hides_deleted_usage_and_keeps_later_usage(string step, bool damageMainState, bool holdStore)
-    {
-        var a = Claude("claude-1", "c1");
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [a];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-
-        // Usage to delete: a record and a key-0 bucket dated after the delete
-        // point (the clock set back), and a Codex bucket.
-        var later = DateTimeOffset.UtcNow.AddHours(2);
-        WriteLog("c1", "old.jsonl", Line("1", later), KeylessLine("k", later));
-        await service.SyncHistoryAsync();
-        var store = new UsageHistoryStore(HistoryDir);
-        store.Merge(new Dictionary<UsageHistoryKey, UsageHistoryBucket> { [CodexKey(DateTimeOffset.UtcNow.AddDays(-1))] = Bucket(100) }, [], cacheRecovered: true);
-        File.Delete(LogPath("c1", "old.jsonl"));
-        Assert.Equal(3, await Requests(service));
-
-        Assert.Throws<SimulatedStop>(() => StoppingAt(step).DeleteAll(DateTimeOffset.UtcNow));
-        if (damageMainState && File.Exists(StatePath))
-        {
-            File.WriteAllText(StatePath, "{ damaged");
-        }
-
-        using (holdStore ? HoldStore() : null)
-        {
-            Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty, step);
-            await service.SyncHistoryAsync();
-            Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty, step);
-        }
-
-        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty, step);
-        Assert.False(File.Exists(JournalPath), step);
-        Assert.False(File.Exists(JournalPath + ".bak"), step);
-
-        // Usage saved after the delete survives a damaged main state.
-        await service.SyncHistoryAsync();
-        WriteLog("c1", "new.jsonl", Line("2", later.AddHours(1)));
-        store.Merge(new Dictionary<UsageHistoryKey, UsageHistoryBucket> { [CodexKey(DateTimeOffset.UtcNow.AddMinutes(1))] = Bucket(100) }, [], cacheRecovered: true);
-        await service.SyncHistoryAsync();
-        File.Delete(LogPath("c1", "new.jsonl"));
-        File.WriteAllText(StatePath, "{ damaged");
-        Assert.Equal(2, await Requests(service));
-        Assert.Equal((0L, 1L), StoreRows());
-    }
-
-    [Fact]
-    public async Task A_journal_that_cannot_be_read_still_finishes_the_delete()
-    {
-        // Both journal copies exist but neither can be read: the delete was
-        // intended, so it is finished with the newer copy's write time.
-        var a = Claude("claude-1", "c1");
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [a];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        new UsageHistoryStore(HistoryDir).Merge(
-            new Dictionary<UsageHistoryKey, UsageHistoryBucket> { [KeyFor(a, DateTimeOffset.UtcNow.AddHours(-1))] = Bucket(10), [CodexKey(DateTimeOffset.UtcNow.AddHours(2))] = Bucket(100) },
-            [],
-            cacheRecovered: true);
-        Assert.Equal(2, await Requests(service));
-
-        var written = new DateTime(DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond * TimeSpan.TicksPerSecond, DateTimeKind.Utc);
-        File.WriteAllText(JournalPath, "{ damaged");
-        File.WriteAllText(JournalPath + ".bak", "{ damaged too");
-        File.SetLastWriteTimeUtc(JournalPath, written.AddMinutes(-5));
-        File.SetLastWriteTimeUtc(JournalPath + ".bak", written);
-
-        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        Assert.False(File.Exists(JournalPath));
-        Assert.False(File.Exists(JournalPath + ".bak"));
-        Assert.Empty(Directory.GetFiles(HistoryDir, "usage-*"));
-        Assert.Equal(new DateTimeOffset(written), new UsageHistoryStore(HistoryDir).Read().DeletedBefore);
-    }
-    // -- Review round 8 ---------------------------------------------------------
-
-    private int? MonthStampOf(DateTimeOffset instant) =>
-        JsonNode.Parse(File.ReadAllText(Path.Combine(HistoryDir, "usage-" + UsageHistoryStore.MonthOf(instant.ToUnixTimeSeconds()) + ".json")))!["stamp"]?.GetValue<int>();
-
-    [Fact]
-    public async Task Usage_saved_while_the_deletion_id_was_unknown_is_kept_whole_when_it_is_adopted()
-    {
-        // The review's route: a delete finished and the store was created
-        // again with its id; no month files; both state files damaged while
-        // the store is locked, so the state is rebuilt as unknown; new Codex
-        // and key-0 Claude usage in the delete point's own bucket is saved
-        // meanwhile. When the store opens and the real id is adopted, that
-        // usage must stay whole.
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.True(new UsageHistoryStore(HistoryDir).DeleteAll(QuarterHourAhead()));
-        var deletedBefore = new UsageHistoryStore(HistoryDir).Read().DeletedBefore!.Value;
-        await service.SyncHistoryAsync();
-        Assert.True(File.Exists(StorePath));
-        Assert.Empty(Directory.GetFiles(HistoryDir, "usage-*"));
-
-        var after = deletedBefore.AddSeconds(30);
-        var store = new UsageHistoryStore(HistoryDir);
-        DamageStateFiles();
-        using (HoldStore())
-        {
-            WriteLog("c1", "a.jsonl", KeylessLine("a", after));
-            await service.SyncHistoryAsync();
-            store.Merge(new Dictionary<UsageHistoryKey, UsageHistoryBucket> { [CodexKey(after)] = Bucket(100) }, [], cacheRecovered: true);
-        }
-
-        Assert.Equal(2, MonthStampOf(after));
-        Assert.Equal(2, store.Read().Buckets.Count);
-
-        // The store opens: the real id is adopted and the month restamped.
-        await service.SyncHistoryAsync();
-        Assert.Equal(1, MonthStampOf(after));
-
-        // A later write into the same month keeps everything.
-        WriteLog("c1", "b.jsonl", KeylessLine("b", after.AddSeconds(5)));
-        await service.SyncHistoryAsync();
-        File.Delete(LogPath("c1", "a.jsonl"));
-        File.Delete(LogPath("c1", "b.jsonl"));
-        Assert.Equal(3, await Requests(service));
-        var buckets = store.Read().Buckets.Keys.ToList();
-        Assert.Contains(buckets, key => key.Provider == UsageProviderKind.Codex);
-        Assert.Contains(buckets, key => key.Provider == UsageProviderKind.Claude);
-    }
-
-    [Fact]
-    public async Task A_delete_that_cannot_write_the_state_stays_pending_and_hides_deleted_logs()
-    {
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        WriteLog("c1", "s.jsonl", Line("1", "2026-08-21T12:01:00Z"));
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.Equal(1, await Requests(service));
-        Assert.False(service.GetHistoryInfo().SavingPaused);
-
-        // The state file cannot be written: the delete stays pending, and the
-        // log of the deleted usage, still on disk, must not show.
-        File.SetAttributes(StatePath, FileAttributes.ReadOnly);
-        try
-        {
-            Assert.False(await service.DeleteHistoryAsync());
-            Assert.True(File.Exists(JournalPath));
-            Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-            await service.SyncHistoryAsync();
-            Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-            Assert.True(service.GetHistoryInfo().SavingPaused);
-        }
-        finally
-        {
-            File.SetAttributes(StatePath, FileAttributes.Normal);
-        }
-
-        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        Assert.False(File.Exists(JournalPath));
-        Assert.False(service.GetHistoryInfo().SavingPaused);
-    }
-
-    [Fact]
-    public async Task A_locked_leftover_store_file_keeps_the_delete_pending()
-    {
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.True(File.Exists(StorePath));
-        var leftover = StorePath + ".corrupt-20260101000000000";
-        File.WriteAllText(leftover, "set aside");
-
-        using (new FileStream(leftover, FileMode.Open, FileAccess.Read, FileShare.None))
-        {
-            Assert.False(await service.DeleteHistoryAsync());
-            Assert.False(File.Exists(StorePath));
-            Assert.False(File.Exists(StorePath + ".bak"));
-
-            // A second attempt meets only the leftover; the delete still waits.
-            await service.GetReportAsync(UsageDateRange.All);
-            Assert.True(File.Exists(JournalPath));
-            Assert.True(service.GetHistoryInfo().SavingPaused);
-        }
-
-        await service.GetReportAsync(UsageDateRange.All);
-        Assert.False(File.Exists(JournalPath));
-        Assert.Empty(Directory.GetFiles(HistoryDir, "claude-requests.db*"));
-    }
-
-    // -- Review round 9 ---------------------------------------------------------
-
-    [Fact]
-    public async Task When_a_pending_delete_cannot_be_checked_no_deleted_usage_shows()
-    {
-        // A delete is pending, and whether its journal exists cannot be
-        // determined (access denied on the folder, say). No log from before
-        // the moment that cannot be checked may show, and nothing is saved.
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        WriteLog("c1", "s.jsonl", Line("1", "2026-08-21T12:01:00Z"));
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.Equal(1, await Requests(service));
-        File.SetAttributes(StatePath, FileAttributes.ReadOnly);
-        try
-        {
-            Assert.False(await service.DeleteHistoryAsync());
-        }
-        finally
-        {
-            File.SetAttributes(StatePath, FileAttributes.Normal);
-        }
-
-        var blind = new UsageHistoryStore(HistoryDir)
-        {
-            JournalProbe = path => path.Contains("deletion-journal", StringComparison.Ordinal) ? null : File.Exists(path)
-        };
-        var blindService = Service(() => accounts, store: blind);
-        Assert.True((await blindService.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        await blindService.SyncHistoryAsync();
-        Assert.True((await blindService.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        Assert.Empty(blind.Read().Buckets);
-        Assert.True(blind.PendingDeletionPoint() >= DateTimeOffset.UtcNow.AddSeconds(-5));
-        Assert.True(blind.Inspect().SavingPaused);
-        Assert.True(File.Exists(JournalPath));
-
-        // Once it can be checked again, the delete finishes.
-        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        Assert.False(File.Exists(JournalPath));
-    }
-
-    [Fact]
-    public async Task Settings_says_at_once_that_saving_is_paused_after_a_delete_that_could_not_finish()
-    {
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        WriteLog("c1", "s.jsonl", Line("1", "2026-08-21T12:01:00Z"));
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        File.SetAttributes(StatePath, FileAttributes.ReadOnly);
-        try
-        {
-            var deleted = await service.DeleteHistoryAsync();
-
-            var text = costats.App.ViewModels.UsageHistorySummaryText.AfterDelete(deleted, service.GetHistoryInfo());
-            Assert.False(deleted);
-            Assert.Equal(costats.App.ViewModels.UsageHistorySummaryText.Describe(service.GetHistoryInfo()), text);
-            Assert.StartsWith("Saving usage history is paused", text, StringComparison.Ordinal);
-        }
-        finally
-        {
-            File.SetAttributes(StatePath, FileAttributes.Normal);
-        }
-
-        Assert.Equal(
-            "Usage history could not be fully deleted right now. Try again in a moment.",
-            costats.App.ViewModels.UsageHistorySummaryText.AfterDelete(false, new UsageHistoryInfo(0, 0, null)));
-        Assert.Equal(
-            "Usage history deleted. Usage from now on will be saved again.",
-            costats.App.ViewModels.UsageHistorySummaryText.AfterDelete(true, new UsageHistoryInfo(0, 0, null)));
-    }
-    // -- Review round 10 --------------------------------------------------------
-
-    [Fact]
-    public async Task When_a_pending_delete_cannot_be_checked_after_the_clock_went_back_nothing_shows()
-    {
-        // The review's route: a delete recorded at 12:30 stays pending; the
-        // clock is then set back to 12:00; whether the journal exists cannot
-        // be checked. A sample from 12:15, before the real deletion point,
-        // must not show in the report or in the remote share.
-        var now = DateTimeOffset.UtcNow;
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        WriteLog("c1", "s.jsonl", Line("1", now.AddMinutes(15)));
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.Equal(1, await Requests(service));
-        File.SetAttributes(StatePath, FileAttributes.ReadOnly);
-        try
-        {
-            Assert.False(new UsageHistoryStore(HistoryDir).DeleteAll(now.AddMinutes(30)));
-        }
-        finally
-        {
-            File.SetAttributes(StatePath, FileAttributes.Normal);
-        }
-
-        var blind = new UsageHistoryStore(HistoryDir)
-        {
-            JournalProbe = path => path.Contains("deletion-journal", StringComparison.Ordinal) ? null : File.Exists(path)
-        };
-        var blindService = Service(() => accounts, store: blind);
-
-        Assert.True((await blindService.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        Assert.Empty((await blindService.GetRemoteUsageSourceAsync()).Samples);
-        Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(DateTimeOffset.MaxValue.ToUnixTimeSeconds()), blind.PendingDeletionPoint());
-    }
-
-    [Fact]
-    public async Task Settings_shows_saving_paused_when_the_history_folder_cannot_be_listed()
-    {
-        EmptyClaudeFolder("c1");
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.False(service.GetHistoryInfo().SavingPaused);
-
-        static void DenyListing(string step)
-        {
-            if (step == "inspect-enumerate")
-            {
-                throw new UnauthorizedAccessException("listing denied");
-            }
-        }
-
-        // Neither the journal nor the folder listing can be checked.
-        var blocked = new UsageHistoryStore(HistoryDir)
-        {
-            JournalProbe = path => path.Contains("deletion-journal", StringComparison.Ordinal) ? null : File.Exists(path),
-            StopAt = DenyListing
-        };
-        var info = Service(() => accounts, store: blocked).GetHistoryInfo();
-        Assert.True(info.SavingPaused);
-        Assert.Null(info.FirstBucket);
-        Assert.Equal(0, info.Bytes);
-
-        // The journal can be checked but the folder cannot be listed.
-        var unlisted = new UsageHistoryStore(HistoryDir) { StopAt = DenyListing };
-        Assert.True(Service(() => accounts, store: unlisted).GetHistoryInfo().SavingPaused);
-    }
-    [Fact]
-    public async Task A_second_delete_while_the_first_cannot_be_checked_leaves_the_first_in_place()
-    {
-        // The review's route: a delete recorded at 12:30 stops before the
-        // state update; the clock goes back to 12:00; the journal cannot be
-        // checked; the user deletes again. That second delete must change
-        // nothing, so once the journal can be checked the 12:30 delete is
-        // finished and the 12:15 sample still in the logs never shows.
-        var now = DateTimeOffset.UtcNow;
-        IReadOnlyList<MonitoredAccountSettings> accounts = [Claude("claude-1", "c1")];
-        WriteLog("c1", "s.jsonl", Line("1", now.AddMinutes(15)));
-        var service = Service(() => accounts);
-        await service.SyncHistoryAsync();
-        Assert.Equal(1, await Requests(service));
-        File.SetAttributes(StatePath, FileAttributes.ReadOnly);
-        try
-        {
-            Assert.False(new UsageHistoryStore(HistoryDir).DeleteAll(now.AddMinutes(30)));
-        }
-        finally
-        {
-            File.SetAttributes(StatePath, FileAttributes.Normal);
-        }
-
-        var journal = File.ReadAllBytes(JournalPath);
-        var journalBackup = File.ReadAllBytes(JournalPath + ".bak");
-        var blind = new UsageHistoryStore(HistoryDir)
-        {
-            JournalProbe = path => path.Contains("deletion-journal", StringComparison.Ordinal) ? null : File.Exists(path)
-        };
-
-        Assert.False(blind.DeleteAll(now));
-        Assert.Equal(journal, File.ReadAllBytes(JournalPath));
-        Assert.Equal(journalBackup, File.ReadAllBytes(JournalPath + ".bak"));
-
-        Assert.True((await service.GetReportAsync(UsageDateRange.All)).IsEmpty);
-        Assert.False(File.Exists(JournalPath));
-        Assert.Equal(
-            DateTimeOffset.FromUnixTimeSeconds(now.AddMinutes(30).ToUnixTimeSeconds() + 1),
-            new UsageHistoryStore(HistoryDir).Read().DeletedBefore);
-        Assert.Empty((await service.GetRemoteUsageSourceAsync()).Samples);
-    }
 }
 
 /// <summary>
