@@ -100,13 +100,38 @@ jobs:
       - name: Test server
         run: docker run --rm -v "$PWD:/work" -w /work/remote/server node:24-alpine node --test
 
+      - name: Rollout labels
+        run: |
+          set -euo pipefail
+          bash remote/server/rollout-labels.sh > "${RUNNER_TEMP:?}/rollout-labels.txt"
+          cat "$RUNNER_TEMP/rollout-labels.txt"
+
       - name: Build container
         run: |
+          set -euo pipefail
+          label_args=()
+          while IFS= read -r label; do
+            label_args+=(--label "$label")
+          done < "${RUNNER_TEMP:?}/rollout-labels.txt"
           docker build \
             --build-arg VERSION=${{ steps.version.outputs.value }} \
+            "${label_args[@]}" \
             -f remote/server/Dockerfile \
             -t ai-usage-tray-remote-view:ci \
             .
+
+      - name: Verify rollout labels and health check
+        run: |
+          set -euo pipefail
+          for key in ai-usage-tray.compose-sha256 ai-usage-tray.rollout-from; do
+            expected="$(grep "^$key=" "${RUNNER_TEMP:?}/rollout-labels.txt" | cut -d = -f 2-)"
+            actual="$(docker image inspect --format "{{ index .Config.Labels \"$key\" }}" ai-usage-tray-remote-view:ci)"
+            test -n "$expected"
+            test "$actual" = "$expected"
+          done
+          test "$(grep -c . "$RUNNER_TEMP/rollout-labels.txt")" = 2
+          test "$(docker image inspect --format '{{ index .Config.Labels "ai-usage-tray.rollout-from" }}' ai-usage-tray-remote-view:ci)" = "${{ steps.version.outputs.value }}"
+          test "$(docker image inspect --format '{{ if .Config.Healthcheck }}{{ index .Config.Healthcheck.Test 0 }}{{ end }}' ai-usage-tray-remote-view:ci)" = "CMD"
 
       - name: Verify container version
         run: |

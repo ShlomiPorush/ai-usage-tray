@@ -20,6 +20,10 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
+concurrency:
+  group: container-publish
+  cancel-in-progress: false
+
 jobs:
   publish:
     name: Publish Remote View
@@ -46,6 +50,44 @@ jobs:
           fi
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Refuse to push a published version again
+        if: github.event_name == 'push'
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          repository="${GITHUB_REPOSITORY,,}"
+          accept='application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json'
+          if ! token="$(curl -fsS "https://ghcr.io/token?scope=repository:$repository:pull" | jq -er .token)"; then
+            echo "::error::Could not get a read token for ghcr.io/$repository"
+            exit 1
+          fi
+          manifest_status() {
+            curl -sS -o /dev/null -w '%{http_code}' -I \
+              -H "Authorization: Bearer $token" -H "Accept: $accept" \
+              "https://ghcr.io/v2/$repository/manifests/$1"
+          }
+          if [ "$(manifest_status latest)" != 200 ]; then
+            echo "::error::Could not read ghcr.io/$repository:latest, so whether $VERSION is published is unknown"
+            exit 1
+          fi
+          case "$(manifest_status "$VERSION")" in
+            404) echo "ghcr.io/$repository:$VERSION is not published yet" ;;
+            200) echo "::error::ghcr.io/$repository:$VERSION is already published. Raise remote/server/VERSION; a published version is never pushed again"; exit 1 ;;
+            *) echo "::error::Could not check whether ghcr.io/$repository:$VERSION is published"; exit 1 ;;
+          esac
+
+      - name: Rollout labels
+        id: rollout
+        run: |
+          set -euo pipefail
+          labels="$(bash remote/server/rollout-labels.sh)"
+          {
+            echo "labels<<ROLLOUT_LABELS"
+            echo "$labels"
+            echo "ROLLOUT_LABELS"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
 
@@ -65,9 +107,11 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=${{ steps.version.outputs.value }}
+            type=raw,value=${{ steps.version.outputs.value }},enable=${{ github.event_name == 'push' }}
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
+          labels: |
+            ${{ steps.rollout.outputs.labels }}
 
       - name: Build and publish image
         uses: docker/build-push-action@v7

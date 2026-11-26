@@ -11,8 +11,10 @@ ghcr.io/shlomiporush/ai-usage-tray:1.10.5
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
-The container version is maintained in `VERSION`. Each published image receives that version tag
-and OCI version label. `latest` points to the image most recently published from `main`.
+The container version is maintained in `VERSION`. Each image published by a push to `main` receives
+that version tag and OCI version label; a manual workflow run never pushes the version tag. `latest`
+points to the image most recently published from `main`. Tags, rollout labels and updates with
+`docker rollout` are described in [docs/REMOTE-VIEW-DEPLOY.md](../../docs/REMOTE-VIEW-DEPLOY.md).
 
 The production server pulls this image. It does not clone the repository or build the container.
 

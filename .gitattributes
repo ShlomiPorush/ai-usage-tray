@@ -9,3 +9,4 @@
 /remote/shared/*.mjs text eol=lf
 remote/server/docker-entrypoint.sh text eol=lf
 remote/server/healthcheck.sh text eol=lf
+remote/server/rollout-labels.sh text eol=lf
