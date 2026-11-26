@@ -1,47 +1,44 @@
-// AI Usage Tray - remote view service worker.
-//
-// Its only job is to make the page installable and to survive a flaky
-// connection: the static shell is cached, the usage snapshot never is.
-// Bump CACHE whenever a shell file changes: a new cache name is what makes
-// the update land.
+var SHELL_ID = self.SHELL_ID || "";
+var CACHE = "ai-usage-tray-shell-" + (SHELL_ID || "v37");
+var SHELL_INDEX = new URL("./shell/" + SHELL_ID + "/index.html", self.location.href).href;
 
-// v36: the view manifest is named while the head is parsed (Safari).
-var CACHE = "ai-usage-tray-shell-v36";
+var SHELL = SHELL_ID
+  ? ["index.html", "styles.css", "usage.js", "app.js", "config.js", "icon-192.png", "icon-512.png"].map(function (file) {
+    return "./shell/" + SHELL_ID + "/" + file;
+  })
+  : [
+    "./",
+    "./index.html",
+    "./styles.css",
+    "./usage.js",
+    "./app.js",
+    "./config.js",
+    "./manifest.webmanifest",
+    "./icon-192.png",
+    "./icon-512.png"
+  ];
 
-var SHELL = [
-  "./",
-  "./index.html",
-  "./styles.css",
-  "./usage.js",
-  "./app.js",
-  "./config.js",
-  "./manifest.webmanifest",
-  "./icon-192.png",
-  "./icon-512.png"
-];
+function pathnameOf(entry) {
+  return new URL(entry, self.location.href).pathname;
+}
 
-// The absolute pathnames of SHELL: the only requests ever answered from the
-// cache. Everything else must reflect the running relay, not the first visit.
 var SHELL_PATHS = SHELL.reduce(function (paths, entry) {
-  paths[new URL(entry, self.location.href).pathname] = true;
+  paths[pathnameOf(entry)] = true;
   return paths;
 }, {});
+
+var PAGE_PATHS = {};
+PAGE_PATHS[pathnameOf("./")] = true;
+PAGE_PATHS[pathnameOf("./index.html")] = true;
 
 self.addEventListener("install", function (event) {
   event.waitUntil(
     caches.open(CACHE)
-      // cache: "reload" skips the browser's HTTP cache. The shell is served
-      // with max-age, so a visit shortly before an update would otherwise
-      // fill the new cache with the old files and pin them until the next
-      // cache name.
       .then(function (cache) {
         return cache.addAll(SHELL.map(function (entry) {
           return new Request(entry, { cache: "reload" });
         }));
       })
-      // Only a complete shell takes over. If a file fails (offline, a
-      // dropped connection), installation fails, the current worker and its
-      // cache stay in place, and the browser tries again on a later visit.
       .then(function () { return self.skipWaiting(); })
   );
 });
@@ -69,27 +66,21 @@ self.addEventListener("fetch", function (event) {
     return;
   }
 
-  // Only the static shell is served from the cache. Usage snapshots (/u/...),
-  // /version, /health, the push key and anything cross-origin go straight to
-  // the network: this worker used to cache whatever it fetched, which pinned
-  // /version to the first visit's value until the site data was cleared.
   if (url.origin !== self.location.origin) return;
-  if (!SHELL_PATHS[url.pathname]) return;
-  // A view's own manifest (?id=…) is per view, so it never comes from the
-  // cache, which holds the static one.
-  if (url.search && url.pathname === new URL("./manifest.webmanifest", self.location.href).pathname) return;
+  var page = SHELL_ID !== "" && PAGE_PATHS[url.pathname] === true;
+  if (!page && !SHELL_PATHS[url.pathname]) return;
+  if (url.search && url.pathname === pathnameOf("./manifest.webmanifest")) return;
 
-  // ignoreSearch so a shared link (/?id=…) still matches the cached shell.
   event.respondWith(
-    caches.match(request, { ignoreSearch: true }).then(function (hit) {
+    caches.match(page ? SHELL_INDEX : request, { ignoreSearch: true }).then(function (hit) {
       if (hit) return hit;
 
       return fetch(request).then(function (response) {
-        if (response && response.ok && response.type === "basic") {
+        if (!page && response && response.ok && response.type === "basic") {
           var copy = response.clone();
           caches.open(CACHE).then(function (cache) {
             cache.put(request, copy);
-          }).catch(function () { /* quota or private mode */ });
+          }).catch(function () {});
         }
         return response;
       });

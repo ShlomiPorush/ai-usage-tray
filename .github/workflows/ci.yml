@@ -100,6 +100,32 @@ jobs:
       - name: Test server
         run: docker run --rm -v "$PWD:/work" -w /work/remote/server node:24-alpine node --test
 
+      - name: Check the rollout compatibility rule
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          version="$(< remote/server/VERSION)"
+          rollout_from="$(< remote/server/ROLLOUT_FROM)"
+          base_rollout_from=""
+          if git cat-file -e FETCH_HEAD:remote/server/ROLLOUT_FROM 2>/dev/null; then
+            base_rollout_from="$(git show FETCH_HEAD:remote/server/ROLLOUT_FROM)"
+          fi
+          if [ -n "$base_rollout_from" ] && [ "$rollout_from" != "$base_rollout_from" ] && [ "$rollout_from" != "$version" ]; then
+            echo "::error::remote/server/ROLLOUT_FROM may only stay at $base_rollout_from or move to VERSION ($version)"
+            exit 1
+          fi
+          changes="$(git diff --no-renames --name-status FETCH_HEAD HEAD -- remote/server/rollout-schema/)"
+          while IFS=$'\t' read -r status path; do
+            [ -n "$status" ] || continue
+            if [ "$status" != A ] || [ "$path" != "remote/server/rollout-schema/$version.json" ]; then
+              echo "::error::$path: a schema snapshot is never changed or removed, and a new one is named after VERSION ($version.json)"
+              exit 1
+            fi
+          done <<< "$changes"
+
       - name: Rollout labels
         run: |
           set -euo pipefail
@@ -130,7 +156,7 @@ jobs:
             test "$actual" = "$expected"
           done
           test "$(grep -c . "$RUNNER_TEMP/rollout-labels.txt")" = 2
-          test "$(docker image inspect --format '{{ index .Config.Labels "ai-usage-tray.rollout-from" }}' ai-usage-tray-remote-view:ci)" = "${{ steps.version.outputs.value }}"
+          test "$(docker image inspect --format '{{ index .Config.Labels "ai-usage-tray.rollout-from" }}' ai-usage-tray-remote-view:ci)" = "$(< remote/server/ROLLOUT_FROM)"
 
       - name: Verify container version
         run: |
@@ -214,7 +240,15 @@ jobs:
             if [ "$health" = "healthy" ]; then
               test "$(docker exec --user 0:0 remote-view-ci awk '/^Uid:/ { print $2 }' /proc/1/status)" = "10001"
               test "$(docker exec --user 0:0 remote-view-ci awk '/^CapEff:/ { print $2 }' /proc/1/status)" = "0000000000000000"
-              exit 0
+              docker exec remote-view-ci touch /tmp/drain
+              for _ in $(seq 1 25); do
+                if [ "$(docker inspect --format '{{.State.Health.Status}}' remote-view-ci)" = "unhealthy" ]; then
+                  exit 0
+                fi
+                sleep 1
+              done
+              echo "The container did not turn unhealthy while draining" >&2
+              exit 1
             fi
             sleep 1
           done

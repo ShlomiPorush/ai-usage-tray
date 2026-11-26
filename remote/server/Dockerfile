@@ -29,7 +29,9 @@ USER 0:0
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+LABEL docker-rollout.pre-stop-hook="touch /tmp/drain && sleep 30"
+
+HEALTHCHECK --interval=5s --timeout=3s --start-period=30s --start-interval=2s --retries=3 \
   CMD ["/app/server/healthcheck.sh"]
 
 ENTRYPOINT ["/app/server/docker-entrypoint.sh"]

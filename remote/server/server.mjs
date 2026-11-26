@@ -1,5 +1,13 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -74,9 +82,6 @@ export const JOURNAL_SIZE_LIMIT_BYTES = 8 * 1024 * 1024;
 export const VACUUM_MIN_DATABASE_BYTES = 32 * 1024 * 1024;
 export const VACUUM_MIN_FREELIST_RATIO = 0.5;
 
-// /health is public and its probe writes, so reuse a recent result instead of
-// letting a flood of requests turn into a flood of transactions. The container
-// health check runs every 30 seconds, well outside this window.
 export const HEALTH_WRITE_PROBE_INTERVAL_MS = 5_000;
 
 const STATIC_CACHE = "public, max-age=300";
@@ -94,8 +99,20 @@ const SECURITY = {
   "Referrer-Policy": "no-referrer",
 };
 
+const SHELL_CACHE = "public, max-age=31536000, immutable";
+const SHELL_FILES = ["index.html", "styles.css", "usage.js", "app.js", "config.js", "icon-192.png", "icon-512.png"];
+const SHELL_PATH_RE = /^\/shell\/([0-9a-f]{16})\/([a-z0-9][a-z0-9-]*\.(?:html|css|js|png))$/;
+const SHELL_REFERENCE_PATTERN = /\b(src|href)="(styles\.css|config\.js|usage\.js|app\.js|icon-192\.png)"/g;
+const SHELL_ID_PLACEHOLDER = "{shell-id}";
+const SHELL_TYPES = {
+  html: "text/html; charset=utf-8",
+  css: "text/css; charset=utf-8",
+  js: "text/javascript; charset=utf-8",
+  png: "image/png",
+};
+
 const ASSET_DEFINITIONS = [
-  { path: "/index.html", file: "index.html", type: "text/html; charset=utf-8", html: true },
+  { path: "/index.html", file: "index.html", type: "text/html; charset=utf-8", html: true, cache: "no-cache" },
   { path: "/styles.css", file: "styles.css", type: "text/css; charset=utf-8" },
   { path: "/usage.js", file: "usage.js", type: "text/javascript; charset=utf-8" },
   { path: "/app.js", file: "app.js", type: "text/javascript; charset=utf-8" },
@@ -1059,6 +1076,17 @@ export class SnapshotStore {
     return result;
   }
 
+  schema() {
+    return this.database.prepare(
+      "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
+    ).all().map((row) => ({
+      type: row.type,
+      name: row.name,
+      table: row.tbl_name,
+      sql: row.sql === null ? null : row.sql.replace(/\s+/g, " ").trim(),
+    }));
+  }
+
   close() {
     this.database.close();
   }
@@ -1394,11 +1422,34 @@ function loadAssets(webRoot) {
     "frame-ancestors 'none'",
   ].join("; ");
 
+  const indexTemplate = indexHtml.replace(SHELL_REFERENCE_PATTERN, `$1="shell/${SHELL_ID_PLACEHOLDER}/$2"`);
+  const templateBodies = new Map(SHELL_FILES.map((name) => [
+    name,
+    name === "index.html"
+      ? Buffer.from(indexTemplate, "utf8")
+      : name === "config.js"
+        ? Buffer.from(CONFIG_BODY, "utf8")
+        : readFileSync(join(webRoot, name)),
+  ]));
+  const shellHash = createHash("sha256").update(csp);
+  for (const [name, body] of templateBodies) {
+    shellHash.update(`\0${name}\0${shellContentType(name)}\0${body.length}\0`).update(body);
+  }
+  const shellId = shellHash.digest("hex").slice(0, 16);
+  const indexBody = Buffer.from(indexTemplate.replaceAll(SHELL_ID_PLACEHOLDER, shellId), "utf8");
+  const shellFiles = new Map(templateBodies);
+  shellFiles.set("index.html", indexBody);
+
   const assets = new Map();
   for (const definition of ASSET_DEFINITIONS) {
-    const body = definition.path === "/index.html"
-      ? Buffer.from(indexHtml, "utf8")
-      : readFileSync(join(webRoot, definition.file));
+    let body;
+    if (definition.path === "/index.html") body = indexBody;
+    else if (definition.path === "/sw.js") {
+      body = Buffer.concat([
+        Buffer.from(`self.SHELL_ID = "${shellId}";\n`, "utf8"),
+        readFileSync(join(webRoot, definition.file)),
+      ]);
+    } else body = readFileSync(join(webRoot, definition.file));
     assets.set(definition.path, { ...definition, body });
   }
   assets.set("/config.js", {
@@ -1407,7 +1458,47 @@ function loadAssets(webRoot) {
     body: Buffer.from(CONFIG_BODY, "utf8"),
   });
 
-  return { assets, csp };
+  return { assets, csp, shell: { id: shellId, files: shellFiles, csp } };
+}
+
+function shellContentType(name) {
+  return SHELL_TYPES[name.slice(name.lastIndexOf(".") + 1)];
+}
+
+function publishShell(shellRoot, shell) {
+  const target = join(shellRoot, shell.id);
+  if (existsSync(join(target, "shell.json"))) return;
+  mkdirSync(shellRoot, { recursive: true });
+  const staging = mkdtempSync(join(shellRoot, ".publish-"));
+  try {
+    for (const [name, body] of shell.files) writeFileSync(join(staging, name), body);
+    writeFileSync(join(staging, "shell.json"), JSON.stringify({ csp: shell.csp }));
+    renameSync(staging, target);
+  } catch (error) {
+    rmSync(staging, { recursive: true, force: true });
+    if (!existsSync(join(target, "shell.json"))) throw error;
+  }
+}
+
+function readShellEntry(shellRoot, shell, path) {
+  const match = SHELL_PATH_RE.exec(path);
+  if (!match) return null;
+  const [, id, name] = match;
+  const type = shellContentType(name);
+  const html = name.endsWith(".html");
+  if (id === shell.id) {
+    const body = shell.files.get(name);
+    return body ? { type, html, body, csp: shell.csp, cache: SHELL_CACHE } : null;
+  }
+  if (shellRoot === null) return null;
+  try {
+    const body = readFileSync(join(shellRoot, id, name));
+    const csp = html ? JSON.parse(readFileSync(join(shellRoot, id, "shell.json"), "utf8")).csp : null;
+    if (html && typeof csp !== "string") return null;
+    return { type, html, body, csp, cache: SHELL_CACHE };
+  } catch {
+    return null;
+  }
 }
 
 function writeHead(response, status, headers = {}) {
@@ -1476,7 +1567,6 @@ function sendAsset(response, entry, csp) {
     "Cache-Control": entry.cache ?? STATIC_CACHE,
   };
   if (entry.html) {
-    // Keep proxies from injecting third-party scripts into the self-contained viewer.
     headers["Cache-Control"] += ", no-transform";
     headers["Content-Security-Policy"] = csp;
     headers["X-Frame-Options"] = "DENY";
@@ -1516,8 +1606,10 @@ export function createRemoteViewServer({
     throw new Error(`Web root is missing index.html: ${webRoot ?? "<unset>"}`);
   }
 
+  const { assets, csp, shell } = loadAssets(webRoot);
+  const shellRoot = databasePath === ":memory:" ? null : join(dirname(databasePath), "shell");
+  if (shellRoot !== null) publishShell(shellRoot, shell);
   const store = new SnapshotStore(databasePath, { usageTombstoneTtlMs });
-  const { assets, csp } = loadAssets(webRoot);
   const baseManifest = JSON.parse(assets.get("/manifest.webmanifest").body.toString("utf8"));
   store.deleteExpired(now());
 
@@ -1787,6 +1879,13 @@ export function createRemoteViewServer({
           });
           return response.end(JSON.stringify(manifest));
         }
+      }
+
+      if (request.method === "GET" && path.startsWith("/shell/")) {
+        const entry = readShellEntry(shellRoot, shell, path);
+        return entry === null
+          ? sendJson(response, 404, { error: "not_found" })
+          : sendAsset(response, entry, entry.csp);
       }
 
       if (request.method === "GET") {

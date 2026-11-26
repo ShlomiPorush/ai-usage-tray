@@ -34,7 +34,7 @@ one, and refuses the rollout when they do not allow it.
 | Label | Value |
 |---|---|
 | `ai-usage-tray.compose-sha256` | The sha256 of the committed `remote/server/compose.yaml`. |
-| `ai-usage-tray.rollout-from` | The oldest running release this image may run beside. |
+| `ai-usage-tray.rollout-from` | `remote/server/ROLLOUT_FROM`: the oldest running release this image may run beside. |
 
 `remote/server/rollout-labels.sh` computes both values. The Container workflow puts them on the
 published image, and CI checks them on every pull request.
@@ -42,25 +42,91 @@ published image, and CI checks them on every pull request.
 Any change to `remote/server/compose.yaml`, even a comment, changes `compose-sha256`, so the next
 release is updated by hand.
 
-### Why every release is updated by hand
+### When `rollout-from` moves
 
-`rollout-from` is the version being published, so no release rolls out beside an older one. A
-rollout tool still accepts a move to an older release, because the running one is not older than
-`rollout-from`. Go back to an older release with the update with downtime below.
+1.11.0 is the first release that can run beside another one, so `ROLLOUT_FROM` is 1.11.0. Update to
+1.11.0 by hand, with the update with downtime below. Later releases roll out beside it.
 
-The server itself can run as two containers on one data directory: SQLite runs in WAL mode, every
-check and the write that depends on it share one transaction, schema changes only add, and the
-only background work is an hourly expiry sweep that is safe to repeat. Write limits are counted
-per container, so they allow up to twice the budget while both run. The viewer files are the
-problem. The same container serves the viewer, and every recent server release changed it. While
-two releases run side by side, a browser can load some viewer files from the old container and
-some from the new one, and the Cloudflare purge, when it is configured, runs at startup while the
-old container still serves.
-A service worker that installs in that time can keep a mix of old and new files until the next
-viewer release.
+`ROLLOUT_FROM` stays where it is unless a release cannot run beside the releases before it. Then it
+moves to that release's `VERSION`, and that release is updated by hand:
 
-A release can roll out once the viewer refuses a mixed set of files and the purge runs after the
-old container is gone. `rollout-from` then becomes the oldest release the new one can run beside.
+- **Any database schema change.** `remote/server/rollout-schema/<version>.json` holds the schema of
+  the release named in `ROLLOUT_FROM`, and a test fails when the code creates any other schema. A
+  pull request that changes the schema adds `rollout-schema/<VERSION>.json` and sets `ROLLOUT_FROM`
+  to `VERSION`. CI refuses a change to an existing snapshot, a new snapshot under another name, and a
+  `ROLLOUT_FROM` that is neither the one on `main` nor `VERSION`. Every release in one `ROLLOUT_FROM`
+  range therefore uses the same schema.
+- **A changed meaning of stored data**, or a request that the previous release must understand.
+  Nothing checks these two, so the change itself must raise `ROLLOUT_FROM`.
+
+A rollout tool also accepts a move to an older release, because the running release is not older
+than the target's `rollout-from`. Go back to a release below the running release's `ROLLOUT_FROM`
+with the update with downtime.
+
+## Two releases side by side
+
+During a rollout the new container starts beside the old one on the same data volume, and the
+reverse proxy sends requests to both until the old one stops.
+
+### The viewer
+
+The same container serves the viewer, and almost every release changes it. Each release publishes
+its viewer files to `data/shell/<id>/` before it starts serving. The id is a hash of the files as the
+release serves them, together with the page's content security policy. The page at `/` refers only to
+`shell/<id>/...` files of its own release, and either container serves the files of any release in
+`data/shell/`, with that release's headers. So a page never mixes two releases, whichever container
+answers each request.
+
+The service worker at `/sw.js` names the release that served it and installs that release's files
+in one step, or not at all. A page that stays open across the switch keeps its release until it is
+reloaded.
+
+`/` and `/index.html` are sent with `Cache-Control: no-cache`, and `/sw.js` with `no-store`, so a new
+release is visible at once. The `shell/<id>/...` files never change and may be cached for a year. If
+Cloudflare or another cache is in front of the server, it must honour these headers: do not set an
+edge cache time for `/`, `/index.html` or `/sw.js`.
+
+`data/shell/` keeps every release's files, because pages and service workers of a release keep using
+them after its container is gone. It grows by about 400 KB per release that changes the viewer. To
+reclaim the space, delete directories of releases that are a few releases old while nothing still
+shows them.
+
+### The server
+
+- SQLite runs in WAL mode on the shared volume. A check and the write that depends on it share one
+  transaction where it matters (usage report order and storage limit).
+- Under the schema rule, two releases in one range have the same schema, so the new container's
+  startup changes nothing in the database.
+- The hourly expiry sweep is safe to repeat in both containers.
+
+Accepted behaviour while both containers run:
+
+- Write limits and the usage write budget are counted per container, so they allow up to twice the
+  configured budget for that time.
+- If two desktop apps share one write id and their uploads reach the two containers in the same
+  instant, a browser alert can be sent twice.
+- If two browsers subscribe to alerts for one view through the two containers in the same instant,
+  the view can hold one subscription above its limit of eight.
+- When the old container's hourly sweep compacts the database during the switch (only when at least
+  half of the file is free space), writes to the new container wait for it and can fail after five
+  seconds. The desktop app sends again on its next refresh.
+
+### Draining the old container
+
+The image carries the `docker-rollout.pre-stop-hook` label. docker rollout runs that hook in the old
+container after the new one is healthy and before it stops the old one. The hook creates
+`/tmp/drain` and waits 30 seconds. While the marker exists, the image's health check fails, so the
+container turns unhealthy within about 18 seconds and Traefik's Docker provider stops sending it
+requests. The server then finishes its open requests when docker rollout stops it. A container
+removes the marker when it starts.
+
+The health check runs every 5 seconds, and every 2 seconds while the container starts, which needs
+Docker Engine 25 or later.
+
+If a rollout stops after the hook started, the old container stays unhealthy. Finish with exactly
+one healthy container: when the new container serves, stop and remove the old one; to keep the old
+release instead, run `docker exec <old container> rm -f /tmp/drain`, check that it is healthy and
+receives requests, then stop and remove the new one.
 
 ## The host's Compose file and `.env`
 
@@ -72,11 +138,14 @@ from the example `remote/server/compose.yaml`:
 - No `ports:`. The reverse proxy reaches the service over a shared Docker network, for example by
   Docker labels, instead of the example's `127.0.0.1:8080`. Keep `TRUST_PROXY=1` and the proxy rules
   in the README.
+- No `healthcheck:`. The example's health check runs every 30 seconds, which is too slow for the
+  drain; without it, the image's health check applies.
+- A writable `/tmp`, such as the example's `tmpfs`, for the drain marker.
 - No `container_name`, no `build`, no `network_mode: host`, one replica.
 - No `pull_policy: always`, so the rollout does not pull again half way.
 
-Keep the rest of the example: the data volume, the read-only root file system, the capabilities,
-the health check and the environment.
+Keep the rest of the example: the data volume, the read-only root file system, the capabilities and
+the environment.
 
 The `.env` file next to it has exactly one `VERSION=X.Y.Z` line. Its other lines, such as the
 `VAPID_*` or Cloudflare values, stay as they are. Do not set `VERSION` in the shell, because it
@@ -87,8 +156,11 @@ another name before, such as its directory name. When you switch an existing dep
 `docker compose down` with the old file first. Then rename `compose.yaml` to `docker-compose.yml`
 instead of keeping both: Compose prefers `compose.yaml` when both are in the directory.
 
-The image has a health check on `/health`, which reads and writes the database. It runs every 30
-seconds, so a new container needs about 30 seconds to become healthy.
+## Going back to the Cloudflare Worker
+
+The Worker serves the viewer from the root and has no `shell/` files. A browser whose service worker
+came from the server keeps using its cached files until its service worker updates from the Worker,
+and a file it has not cached yet fails to load until then.
 
 ## Update with downtime
 

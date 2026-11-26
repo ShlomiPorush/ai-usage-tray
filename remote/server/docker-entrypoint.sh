@@ -19,6 +19,8 @@ if [ "${1:-}" = "--write-probe" ]; then
   exit 0
 fi
 
+rm -f /tmp/drain 2>/dev/null || true
+
 # Dropping to the remoteview user needs CAP_SETUID/CAP_SETGID. Under
 # cap_drop: ALL those are gone and su-exec fails; then we keep running as
 # the started user, which still owns the files it created.

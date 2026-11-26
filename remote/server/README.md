@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.10.5
+ghcr.io/shlomiporush/ai-usage-tray:1.11.0
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -96,8 +96,10 @@ docker compose up -d
 Compose uses `pull_policy: always`, so `up` also checks the registry. The explicit `pull` keeps the
 operation and any registry error visible before the running container is replaced.
 
-The image and Compose service define the same health check. Compose reports the container as
-`healthy` or `unhealthy` in `docker compose ps`.
+The image and the Compose service both run `healthcheck.sh`; the Compose file runs it less often.
+Compose reports the container as `healthy` or `unhealthy` in `docker compose ps`. The image also
+reports a container as unhealthy while it drains before a zero-downtime update; see
+[docs/REMOTE-VIEW-DEPLOY.md](../../docs/REMOTE-VIEW-DEPLOY.md).
 
 `GET /health` both reads and writes SQLite, because a full or read-only data volume leaves reads
 working while every upload fails. A failing read answers `503 {"status":"unhealthy"}` and a failing
