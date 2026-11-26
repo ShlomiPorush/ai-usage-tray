@@ -72,6 +72,7 @@ self.addEventListener("fetch", function (event) {
   if (url.search && url.pathname === pathnameOf("./manifest.webmanifest")) return;
 
   event.respondWith(
+    // ignoreSearch so a shared link (/?id=…) still matches the cached shell.
     caches.match(page ? SHELL_INDEX : request, { ignoreSearch: true }).then(function (hit) {
       if (hit) return hit;
 

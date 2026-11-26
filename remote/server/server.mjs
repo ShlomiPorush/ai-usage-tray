@@ -1423,7 +1423,7 @@ function loadAssets(webRoot) {
   ].join("; ");
 
   const indexTemplate = indexHtml.replace(SHELL_REFERENCE_PATTERN, `$1=$2shell/${SHELL_ID_PLACEHOLDER}/$3$2`);
-  const templateBodies = new Map(SHELL_FILES.map((name) => [
+  const shellFiles = new Map(SHELL_FILES.map((name) => [
     name,
     name === "index.html"
       ? Buffer.from(indexTemplate, "utf8")
@@ -1432,12 +1432,11 @@ function loadAssets(webRoot) {
         : readFileSync(join(webRoot, name)),
   ]));
   const shellHash = createHash("sha256").update(csp);
-  for (const [name, body] of templateBodies) {
+  for (const [name, body] of shellFiles) {
     shellHash.update(`\0${name}\0${shellContentType(name)}\0${body.length}\0`).update(body);
   }
   const shellId = shellHash.digest("hex").slice(0, 16);
   const indexBody = Buffer.from(indexTemplate.replaceAll(SHELL_ID_PLACEHOLDER, shellId), "utf8");
-  const shellFiles = new Map(templateBodies);
   shellFiles.set("index.html", indexBody);
 
   const assets = new Map();

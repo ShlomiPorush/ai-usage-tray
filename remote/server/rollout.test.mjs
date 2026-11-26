@@ -157,7 +157,6 @@ function serviceWorkerSandbox(origin, upstreams, { failPath = null } = {}) {
     Promise,
     clients: self.clients,
   });
-  context.self = Object.assign(self, { caches });
 
   return {
     cacheStorage,

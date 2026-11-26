@@ -56,7 +56,9 @@ moves to that release's `VERSION`, and that release is updated by hand:
   to `VERSION`. `remote/server/rollout-check.sh` refuses a change to an existing snapshot, a new
   snapshot under another name, and a `ROLLOUT_FROM` that is neither the previous one nor `VERSION`.
   CI runs it on every pull request, and the Container workflow runs it before it publishes a push to
-  `main`. Every release in one `ROLLOUT_FROM` range therefore uses the same schema.
+  `main`. Every release in one `ROLLOUT_FROM` range therefore uses the same schema. The push check
+  compares only with the previous commit, so two direct pushes to `main` can still slip an edited
+  snapshot past it; require pull requests and the "Remote View Server" check on `main`.
 - **A changed meaning of stored data**, or a request that the previous release must understand.
   Nothing checks these two, so the change itself must raise `ROLLOUT_FROM`.
 
