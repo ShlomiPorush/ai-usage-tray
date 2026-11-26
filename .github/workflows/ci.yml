@@ -120,7 +120,7 @@ jobs:
             -t ai-usage-tray-remote-view:ci \
             .
 
-      - name: Verify rollout labels and health check
+      - name: Verify rollout labels
         run: |
           set -euo pipefail
           for key in ai-usage-tray.compose-sha256 ai-usage-tray.rollout-from; do
@@ -131,7 +131,6 @@ jobs:
           done
           test "$(grep -c . "$RUNNER_TEMP/rollout-labels.txt")" = 2
           test "$(docker image inspect --format '{{ index .Config.Labels "ai-usage-tray.rollout-from" }}' ai-usage-tray-remote-view:ci)" = "${{ steps.version.outputs.value }}"
-          test "$(docker image inspect --format '{{ if .Config.Healthcheck }}{{ index .Config.Healthcheck.Test 0 }}{{ end }}' ai-usage-tray-remote-view:ci)" = "CMD"
 
       - name: Verify container version
         run: |

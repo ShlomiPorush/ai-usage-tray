@@ -21,8 +21,8 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 concurrency:
-  group: container-publish-${{ github.event_name }}
-  cancel-in-progress: false
+  group: container-publish
+  queue: max
 
 jobs:
   publish:

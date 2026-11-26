@@ -83,8 +83,9 @@ The `.env` file next to it has exactly one `VERSION=X.Y.Z` line. Its other lines
 overrides `.env`.
 
 `name: ai-usage-tray` makes Compose treat the service as a new project when the deployment used
-another name before, such as its directory name. When you switch an existing deployment to this
-file, run `docker compose down` with the old file first, then start with the new one.
+another name before, such as its directory name. When you switch an existing deployment, run
+`docker compose down` with the old file first. Then rename `compose.yaml` to `docker-compose.yml`
+instead of keeping both: Compose prefers `compose.yaml` when both are in the directory.
 
 The image has a health check on `/health`, which reads and writes the database. It runs every 30
 seconds, so a new container needs about 30 seconds to become healthy.
