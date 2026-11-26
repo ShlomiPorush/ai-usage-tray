@@ -27,6 +27,8 @@ function releaseWebRoot(name, { inlineScript = "" } = {}) {
     appendFileSync(join(root, file), Buffer.from(`release ${name}`));
   }
   const index = readFileSync(join(root, "index.html"), "utf8")
+    .replace('<script src="app.js">', `<script src='app.js'>`)
+    .replace('href="styles.css"', 'href="./styles.css"')
     .replace("<title>AI Usage Tray</title>", `<title>AI Usage Tray ${name}</title>`)
     .replace("<script>\n  // Applied before first paint", `<script>${inlineScript}\n  // Applied before first paint`);
   writeFileSync(join(root, "index.html"), index);
@@ -53,7 +55,7 @@ async function body(response) {
 function localReferences(html) {
   const references = [];
   for (const tag of html.matchAll(/<(?:script|link)\b[^>]*>/gi)) {
-    const reference = tag[0].match(/(?:src|href)="([^"]+)"/i)?.[1];
+    const reference = tag[0].match(/(?:src|href)=["']([^"']+)["']/i)?.[1];
     if (reference) references.push(reference);
   }
   return references;
@@ -201,6 +203,8 @@ test("a page from one release loads only that release's files from either contai
   const index = await fetch(`${releaseA.baseUrl}/`);
   assert.equal(index.status, 200);
   const html = await index.text();
+  assert.match(html, /<script src='shell\/[0-9a-f]{16}\/app\.js'>/);
+  assert.doesNotMatch(html, /\b(?:src|href)\s*=\s*["']?(?:\.\/)?(?:styles\.css|config\.js|usage\.js|app\.js|icon-192\.png)/);
   const references = localReferences(html).filter((reference) => !reference.startsWith("manifest.webmanifest"));
   assert.ok(references.length >= 4);
 

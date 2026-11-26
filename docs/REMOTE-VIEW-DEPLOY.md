@@ -53,9 +53,10 @@ moves to that release's `VERSION`, and that release is updated by hand:
 - **Any database schema change.** `remote/server/rollout-schema/<version>.json` holds the schema of
   the release named in `ROLLOUT_FROM`, and a test fails when the code creates any other schema. A
   pull request that changes the schema adds `rollout-schema/<VERSION>.json` and sets `ROLLOUT_FROM`
-  to `VERSION`. CI refuses a change to an existing snapshot, a new snapshot under another name, and a
-  `ROLLOUT_FROM` that is neither the one on `main` nor `VERSION`. Every release in one `ROLLOUT_FROM`
-  range therefore uses the same schema.
+  to `VERSION`. `remote/server/rollout-check.sh` refuses a change to an existing snapshot, a new
+  snapshot under another name, and a `ROLLOUT_FROM` that is neither the previous one nor `VERSION`.
+  CI runs it on every pull request, and the Container workflow runs it before it publishes a push to
+  `main`. Every release in one `ROLLOUT_FROM` range therefore uses the same schema.
 - **A changed meaning of stored data**, or a request that the previous release must understand.
   Nothing checks these two, so the change itself must raise `ROLLOUT_FROM`.
 
@@ -89,7 +90,8 @@ edge cache time for `/`, `/index.html` or `/sw.js`.
 `data/shell/` keeps every release's files, because pages and service workers of a release keep using
 them after its container is gone. It grows by about 400 KB per release that changes the viewer. To
 reclaim the space, delete directories of releases that are a few releases old while nothing still
-shows them.
+shows them. A container that stopped while it published its files can leave a `.publish-*`
+directory; delete it while no container is starting.
 
 ### The server
 
@@ -125,8 +127,9 @@ Docker Engine 25 or later.
 
 If a rollout stops after the hook started, the old container stays unhealthy. Finish with exactly
 one healthy container: when the new container serves, stop and remove the old one; to keep the old
-release instead, run `docker exec <old container> rm -f /tmp/drain`, check that it is healthy and
-receives requests, then stop and remove the new one.
+release instead, set `VERSION` in `.env` back to the old release, run
+`docker exec <old container> rm -f /tmp/drain`, check that it is healthy and receives requests, then
+stop and remove the new one.
 
 ## The host's Compose file and `.env`
 

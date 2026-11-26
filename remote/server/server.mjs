@@ -102,7 +102,7 @@ const SECURITY = {
 const SHELL_CACHE = "public, max-age=31536000, immutable";
 const SHELL_FILES = ["index.html", "styles.css", "usage.js", "app.js", "config.js", "icon-192.png", "icon-512.png"];
 const SHELL_PATH_RE = /^\/shell\/([0-9a-f]{16})\/([a-z0-9][a-z0-9-]*\.(?:html|css|js|png))$/;
-const SHELL_REFERENCE_PATTERN = /\b(src|href)="(styles\.css|config\.js|usage\.js|app\.js|icon-192\.png)"/g;
+const SHELL_REFERENCE_PATTERN = /\b(src|href)=(["'])(?:\.\/)?(styles\.css|config\.js|usage\.js|app\.js|icon-192\.png)\2/g;
 const SHELL_ID_PLACEHOLDER = "{shell-id}";
 const SHELL_TYPES = {
   html: "text/html; charset=utf-8",
@@ -1078,12 +1078,12 @@ export class SnapshotStore {
 
   schema() {
     return this.database.prepare(
-      "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
+      "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE substr(name, 1, 7) <> 'sqlite_' ORDER BY type, name",
     ).all().map((row) => ({
       type: row.type,
       name: row.name,
       table: row.tbl_name,
-      sql: row.sql === null ? null : row.sql.replace(/\s+/g, " ").trim(),
+      sql: row.sql === null ? null : row.sql.replaceAll("\r\n", "\n"),
     }));
   }
 
@@ -1422,7 +1422,7 @@ function loadAssets(webRoot) {
     "frame-ancestors 'none'",
   ].join("; ");
 
-  const indexTemplate = indexHtml.replace(SHELL_REFERENCE_PATTERN, `$1="shell/${SHELL_ID_PLACEHOLDER}/$2"`);
+  const indexTemplate = indexHtml.replace(SHELL_REFERENCE_PATTERN, `$1=$2shell/${SHELL_ID_PLACEHOLDER}/$3$2`);
   const templateBodies = new Map(SHELL_FILES.map((name) => [
     name,
     name === "index.html"

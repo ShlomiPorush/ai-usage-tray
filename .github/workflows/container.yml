@@ -39,6 +39,15 @@ jobs:
       - name: Test server
         run: docker run --rm -v "$PWD:/work" -w /work/remote/server node:24-alpine node --test
 
+      - name: Check the rollout compatibility rule
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BEFORE"
+          bash remote/server/rollout-check.sh FETCH_HEAD
+
       - name: Read container version
         id: version
         shell: bash

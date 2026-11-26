@@ -107,24 +107,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags --depth=1 origin "$BASE_REF"
-          version="$(< remote/server/VERSION)"
-          rollout_from="$(< remote/server/ROLLOUT_FROM)"
-          base_rollout_from=""
-          if git cat-file -e FETCH_HEAD:remote/server/ROLLOUT_FROM 2>/dev/null; then
-            base_rollout_from="$(git show FETCH_HEAD:remote/server/ROLLOUT_FROM)"
-          fi
-          if [ -n "$base_rollout_from" ] && [ "$rollout_from" != "$base_rollout_from" ] && [ "$rollout_from" != "$version" ]; then
-            echo "::error::remote/server/ROLLOUT_FROM may only stay at $base_rollout_from or move to VERSION ($version)"
-            exit 1
-          fi
-          changes="$(git diff --no-renames --name-status FETCH_HEAD HEAD -- remote/server/rollout-schema/)"
-          while IFS=$'\t' read -r status path; do
-            [ -n "$status" ] || continue
-            if [ "$status" != A ] || [ "$path" != "remote/server/rollout-schema/$version.json" ]; then
-              echo "::error::$path: a schema snapshot is never changed or removed, and a new one is named after VERSION ($version.json)"
-              exit 1
-            fi
-          done <<< "$changes"
+          bash remote/server/rollout-check.sh FETCH_HEAD
 
       - name: Rollout labels
         run: |
