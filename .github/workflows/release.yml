@@ -175,7 +175,7 @@ jobs:
             echo "iwr -useb https://raw.githubusercontent.com/${REPO}/main/scripts/install.ps1 | iex"
             echo '```'
             echo ""
-            echo "**winget:**"
+            echo "**winget** (the package \`AIUsageTray.AIUsageTray\` is awaiting approval in the winget community repository; until \`winget install\` finds it, use the PowerShell installer above):"
             echo ""
             echo '```powershell'
             echo "winget install AIUsageTray.AIUsageTray"
