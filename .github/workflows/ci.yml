@@ -100,13 +100,46 @@ jobs:
       - name: Test server
         run: docker run --rm -v "$PWD:/work" -w /work/remote/server node:24-alpine node --test
 
+      - name: Check the rollout compatibility rule
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin "$BASE_REF"
+          bash remote/server/rollout-check.sh FETCH_HEAD
+
+      - name: Rollout labels
+        run: |
+          set -euo pipefail
+          bash remote/server/rollout-labels.sh > "${RUNNER_TEMP:?}/rollout-labels.txt"
+          cat "$RUNNER_TEMP/rollout-labels.txt"
+
       - name: Build container
         run: |
+          set -euo pipefail
+          label_args=()
+          while IFS= read -r label; do
+            label_args+=(--label "$label")
+          done < "${RUNNER_TEMP:?}/rollout-labels.txt"
           docker build \
             --build-arg VERSION=${{ steps.version.outputs.value }} \
+            "${label_args[@]}" \
             -f remote/server/Dockerfile \
             -t ai-usage-tray-remote-view:ci \
             .
+
+      - name: Verify rollout labels
+        run: |
+          set -euo pipefail
+          for key in ai-usage-tray.compose-sha256 ai-usage-tray.rollout-from; do
+            expected="$(grep "^$key=" "${RUNNER_TEMP:?}/rollout-labels.txt" | cut -d = -f 2-)"
+            actual="$(docker image inspect --format "{{ index .Config.Labels \"$key\" }}" ai-usage-tray-remote-view:ci)"
+            test -n "$expected"
+            test "$actual" = "$expected"
+          done
+          test "$(grep -c . "$RUNNER_TEMP/rollout-labels.txt")" = 2
+          test "$(docker image inspect --format '{{ index .Config.Labels "ai-usage-tray.rollout-from" }}' ai-usage-tray-remote-view:ci)" = "$(< remote/server/ROLLOUT_FROM)"
 
       - name: Verify container version
         run: |
@@ -190,7 +223,15 @@ jobs:
             if [ "$health" = "healthy" ]; then
               test "$(docker exec --user 0:0 remote-view-ci awk '/^Uid:/ { print $2 }' /proc/1/status)" = "10001"
               test "$(docker exec --user 0:0 remote-view-ci awk '/^CapEff:/ { print $2 }' /proc/1/status)" = "0000000000000000"
-              exit 0
+              docker exec remote-view-ci touch /tmp/drain
+              for _ in $(seq 1 25); do
+                if [ "$(docker inspect --format '{{.State.Health.Status}}' remote-view-ci)" = "unhealthy" ]; then
+                  exit 0
+                fi
+                sleep 1
+              done
+              echo "The container did not turn unhealthy while draining" >&2
+              exit 1
             fi
             sleep 1
           done

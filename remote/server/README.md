@@ -7,12 +7,14 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.10.5
+ghcr.io/shlomiporush/ai-usage-tray:1.11.0
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
-The container version is maintained in `VERSION`. Each published image receives that version tag
-and OCI version label. `latest` points to the image most recently published from `main`.
+The container version is maintained in `VERSION`. Each image published by a push to `main` receives
+that version tag and OCI version label; a manual workflow run never pushes the version tag. `latest`
+points to the image most recently published from `main`. Tags, rollout labels and updates with
+`docker rollout` are described in [docs/REMOTE-VIEW-DEPLOY.md](../../docs/REMOTE-VIEW-DEPLOY.md).
 
 The production server pulls this image. It does not clone the repository or build the container.
 
@@ -94,8 +96,10 @@ docker compose up -d
 Compose uses `pull_policy: always`, so `up` also checks the registry. The explicit `pull` keeps the
 operation and any registry error visible before the running container is replaced.
 
-The image and Compose service define the same health check. Compose reports the container as
-`healthy` or `unhealthy` in `docker compose ps`.
+The image and the Compose service both run `healthcheck.sh`; the Compose file runs it less often.
+Compose reports the container as `healthy` or `unhealthy` in `docker compose ps`. The image also
+reports a container as unhealthy while it drains before a zero-downtime update; see
+[docs/REMOTE-VIEW-DEPLOY.md](../../docs/REMOTE-VIEW-DEPLOY.md).
 
 `GET /health` both reads and writes SQLite, because a full or read-only data volume leaves reads
 working while every upload fails. A failing read answers `503 {"status":"unhealthy"}` and a failing

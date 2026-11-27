@@ -1,0 +1,50 @@
+[
+  {
+    "type": "index",
+    "name": "push_subscriptions_read_id",
+    "table": "push_subscriptions",
+    "sql": "CREATE INDEX push_subscriptions_read_id ON push_subscriptions (read_id)"
+  },
+  {
+    "type": "index",
+    "name": "snapshots_expiry",
+    "table": "snapshots",
+    "sql": "CREATE INDEX snapshots_expiry ON snapshots (expires_at)"
+  },
+  {
+    "type": "index",
+    "name": "usage_reports_bytes",
+    "table": "usage_reports",
+    "sql": "CREATE INDEX usage_reports_bytes ON usage_reports (bytes)"
+  },
+  {
+    "type": "index",
+    "name": "usage_reports_expiry",
+    "table": "usage_reports",
+    "sql": "CREATE INDEX usage_reports_expiry ON usage_reports (expires_at)"
+  },
+  {
+    "type": "table",
+    "name": "health_probe",
+    "table": "health_probe",
+    "sql": "CREATE TABLE health_probe (\n        id INTEGER PRIMARY KEY,\n        checked_at INTEGER NOT NULL\n      ) STRICT"
+  },
+  {
+    "type": "table",
+    "name": "push_subscriptions",
+    "table": "push_subscriptions",
+    "sql": "CREATE TABLE push_subscriptions (\n        endpoint TEXT PRIMARY KEY,\n        read_id TEXT NOT NULL,\n        subscription TEXT NOT NULL\n      , preferences TEXT NULL, preferences_revision INTEGER NOT NULL DEFAULT 0) STRICT"
+  },
+  {
+    "type": "table",
+    "name": "snapshots",
+    "table": "snapshots",
+    "sql": "CREATE TABLE snapshots (\n        read_id TEXT PRIMARY KEY,\n        payload TEXT NOT NULL,\n        expires_at INTEGER NOT NULL\n      ) STRICT"
+  },
+  {
+    "type": "table",
+    "name": "usage_reports",
+    "table": "usage_reports",
+    "sql": "CREATE TABLE usage_reports (\n        read_id TEXT PRIMARY KEY,\n        seq INTEGER NOT NULL,\n        expires_at INTEGER NOT NULL,\n        bytes INTEGER NOT NULL,\n        payload TEXT NULL\n      ) STRICT"
+  }
+]
