@@ -33,19 +33,28 @@ one, and refuses the rollout when they do not allow it.
 
 | Label | Value |
 |---|---|
-| `ai-usage-tray.compose-sha256` | The sha256 of the committed `remote/server/compose.yaml`. |
+| `ai-usage-tray.compose-sha256` | The sha256 of the committed `remote/server/docker-compose.yml`. |
 | `ai-usage-tray.rollout-from` | `remote/server/ROLLOUT_FROM`: the oldest running release this image may run beside. |
 
 `remote/server/rollout-labels.sh` computes both values. The Container workflow puts them on the
 published image, and CI checks them on every pull request.
 
-Any change to `remote/server/compose.yaml`, even a comment, changes `compose-sha256`, so the next
-release is updated by hand.
+Any change to `remote/server/docker-compose.yml`, even a comment, changes `compose-sha256`, so the
+next release is updated by hand.
+
+### 1.11.1: a new Compose file
+
+1.11.1 changes nothing in the server. It ships the new `remote/server/docker-compose.yml`, which
+replaces the example `remote/server/compose.yaml` and is now the host's file as it is. Its
+`compose-sha256` differs from 1.11.0, so 1.11.1 is updated by hand: switch the host to the new file
+as described in [The host's Compose file and `.env`](#the-hosts-compose-file-and-env). Later
+releases roll out beside 1.11.1 until the Compose file changes again.
 
 ### When `rollout-from` moves
 
 1.11.0 is the first release that can run beside another one, so `ROLLOUT_FROM` is 1.11.0. Update to
-1.11.0 by hand, with the update with downtime below. Later releases roll out beside it.
+1.11.0 by hand, with the update with downtime below. Later releases with the same Compose file roll
+out beside it.
 
 `ROLLOUT_FROM` stays where it is unless a release cannot run beside the releases before it. Then it
 moves to that release's `VERSION`, and that release is updated by hand:
@@ -135,31 +144,24 @@ stop and remove the new one.
 
 ## The host's Compose file and `.env`
 
-A rollout runs two containers of the service at once, so the host's own `docker-compose.yml` differs
-from the example `remote/server/compose.yaml`:
+Copy `remote/server/docker-compose.yml` and `remote/server/.env.example` into the deployment
+directory as they are, copy `.env.example` to `.env`, and fill it:
 
-- `name: ai-usage-tray` at the top, the Compose project name.
-- `image: ghcr.io/shlomiporush/ai-usage-tray:${VERSION}`, not `latest`.
-- No `ports:`. The reverse proxy reaches the service over a shared Docker network, for example by
-  Docker labels, instead of the example's `127.0.0.1:8080`. Keep `TRUST_PROXY=1` and the proxy rules
-  in the README.
-- No `healthcheck:`. The example's health check runs every 30 seconds, which is too slow for the
-  drain; without it, the image's health check applies.
-- A writable `/tmp`, such as the example's `tmpfs`, for the drain marker.
-- No `container_name`, no `build`, no `network_mode: host`, one replica.
-- No `pull_policy: always`, so the rollout does not pull again half way.
+- `VERSION`: the release to run, such as `1.11.1`. Keep exactly one `VERSION=` line.
+- `DOMAIN`: the host name readers open. Traefik routes it to the service.
+- Any optional setting the deployment uses, such as the `VAPID_*` or Cloudflare values. Leave the
+  others commented out.
 
-Keep the rest of the example: the data volume, the read-only root file system, the capabilities and
-the environment.
+Do not set `VERSION` in the shell, because it overrides `.env`.
 
-The `.env` file next to it has exactly one `VERSION=X.Y.Z` line. Its other lines, such as the
-`VAPID_*` or Cloudflare values, stay as they are. Do not set `VERSION` in the shell, because it
-overrides `.env`.
+The file is written for Traefik with its Docker provider on the external Docker network `traefik`,
+with the entrypoint `https` and the middleware `default@file`. With another reverse proxy, adapt the
+file. Keep `TRUST_PROXY=1` and the proxy rules in the README.
 
 `name: ai-usage-tray` makes Compose treat the service as a new project when the deployment used
 another name before, such as its directory name. When you switch an existing deployment, run
-`docker compose down` with the old file first. Then rename `compose.yaml` to `docker-compose.yml`
-instead of keeping both: Compose prefers `compose.yaml` when both are in the directory.
+`docker compose down` with the old file first. Then delete the old `compose.yaml` instead of keeping
+both: Compose prefers `compose.yaml` when both are in the directory.
 
 ## Going back to the Cloudflare Worker
 

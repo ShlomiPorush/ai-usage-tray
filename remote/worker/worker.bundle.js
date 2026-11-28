@@ -976,7 +976,7 @@ const api = {
 
     const path = new URL(request.url).pathname;
     if (request.method === "GET" && path === "/version") {
-      return json(200, { version: env.REMOTE_VIEW_VERSION || "1.11.0" });
+      return json(200, { version: env.REMOTE_VIEW_VERSION || "1.11.1" });
     }
     if (request.method === "GET" && path === "/push/vapid-public-key") {
       const configuration = vapidConfiguration(env);

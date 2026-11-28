@@ -12,7 +12,7 @@ if [ "$(printf '%s\n%s\n' "$rollout_from" "$version" | sort -V | tail -n 1)" != 
   echo "remote/server/ROLLOUT_FROM ($rollout_from) must not be above VERSION ($version)" >&2
   exit 1
 fi
-compose_sha256="$(git -C "$repository_root" cat-file blob HEAD:remote/server/compose.yaml | sha256sum)"
+compose_sha256="$(git -C "$repository_root" cat-file blob HEAD:remote/server/docker-compose.yml | sha256sum)"
 
 echo "ai-usage-tray.compose-sha256=${compose_sha256%% *}"
 echo "ai-usage-tray.rollout-from=$rollout_from"
