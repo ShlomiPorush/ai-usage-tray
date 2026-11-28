@@ -144,11 +144,15 @@ stop and remove the new one.
 
 ## The host's Compose file and `.env`
 
-To switch an existing deployment, first run `docker compose down` with its old file and keep that
-file aside, because the new one replaces it (see the project name below). Then copy
-`remote/server/docker-compose.yml` and `remote/server/.env.example` into the deployment directory as
-they are. Create `.env` readable only by its owner, because it can hold secrets:
-`[ -e .env ] || install -m 600 .env.example .env`. Fill it:
+To switch an existing deployment, pull the new image first, so the downtime covers only the switch.
+Then run `docker compose down` with the old file and keep that file aside, because the new one
+replaces it (see the project name below). The new file maps only `./data`: a deployment that keeps
+the push signing key elsewhere with `VAPID_KEY_PATH` moves the key file to `data/vapid.json` and
+removes `VAPID_KEY_PATH` first, or the existing browser subscriptions stop working.
+
+Copy `remote/server/docker-compose.yml` and `remote/server/.env.example` into the deployment
+directory as they are. Keep `.env` readable only by its owner, because it can hold secrets:
+`[ -e .env ] || install -m 600 .env.example .env`, then `chmod 600 .env`. Fill it:
 
 - `VERSION`: the release to run, such as `1.11.1`. Keep exactly one `VERSION=` line.
 - `DOMAIN`: the host name readers open. Traefik routes it to the service.
@@ -160,7 +164,9 @@ Do not set `VERSION` in the shell, because it overrides `.env`. Start the servic
 
 The file is written for Traefik with its Docker provider on the external Docker network `traefik`,
 with the entrypoint `https` and the middleware `default@file`. With another reverse proxy, adapt the
-file. Keep `TRUST_PROXY=1` and the proxy rules in the README.
+file. Keep `TRUST_PROXY=1` and the proxy rules in the README. Any container on the `traefik` network
+can reach the service directly, and with `TRUST_PROXY=1` the relay takes the client address from
+`X-Forwarded-For`, so attach only trusted services to that network.
 
 `name: ai-usage-tray` makes Compose treat the service as a new project when the deployment used
 another name before, such as its directory name, so `docker compose down` with the new file would
