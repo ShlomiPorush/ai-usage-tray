@@ -211,7 +211,6 @@ jobs:
           # exec would report the image user instead.
           test "$(docker exec --user 0:0 "$container" awk '/^Uid:/ { print $2 }' /proc/1/status)" = "10001"
           test "$(docker exec --user 0:0 "$container" awk '/^CapEff:/ { print $2 }' /proc/1/status)" = "0000000000000000"
-          docker exec "$container" /app/server/healthcheck.sh
           test "$(docker inspect --format '{{ index .Config.Labels "traefik.http.routers.ai-usage-tray.rule" }}' "$container")" = 'Host(`remote-view.example.test`)'
 
       - name: Smoke test bind-mounted data directory

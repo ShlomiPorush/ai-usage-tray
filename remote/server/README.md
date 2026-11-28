@@ -29,7 +29,7 @@ curl -fsSLo docker-compose.yml \
   https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/remote/server/docker-compose.yml
 curl -fsSLo .env.example \
   https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/remote/server/.env.example
-cp -n .env.example .env
+[ -e .env ] || install -m 600 .env.example .env
 mkdir -p data
 ```
 
@@ -295,8 +295,8 @@ A Compose `user` override is also supported when the host `data` directory and a
 files are writable by that UID; otherwise the container exits with an error that names the exact
 `chown` to run on the host.
 
-Migration for an existing deployment: replace the local Compose file with the current
-`docker-compose.yml` and run `docker compose up -d`. No host change is needed, whoever owns `data` today, because the entrypoint
+Migration for an existing deployment: switch to the current `docker-compose.yml` as described in
+[docs/REMOTE-VIEW-DEPLOY.md](../../docs/REMOTE-VIEW-DEPLOY.md). No host change is needed, whoever owns `data` today, because the entrypoint
 now has `CHOWN`. Only a deployment that pins `user:` in its own Compose file has to keep the data
 directory writable by that UID (`chown -R <uid>:<gid> data`).
 

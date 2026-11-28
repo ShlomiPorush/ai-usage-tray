@@ -24,8 +24,9 @@ services:
       - DAC_OVERRIDE
       - SETGID
       - SETUID
-    # Longest request: 15 s to receive it, up to 5 s waiting for SQLite and
-    # 10 s for browser push delivery. Shutdown waits for open requests.
+    # Shutdown waits for open requests. Once its body has arrived, the longest
+    # request waits up to 5 s for SQLite and 10 s for browser push delivery;
+    # the rest is margin for a body still arriving.
     stop_grace_period: 30s
     networks:
       - traefik

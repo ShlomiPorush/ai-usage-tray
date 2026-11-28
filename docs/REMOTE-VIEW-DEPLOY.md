@@ -144,24 +144,28 @@ stop and remove the new one.
 
 ## The host's Compose file and `.env`
 
-Copy `remote/server/docker-compose.yml` and `remote/server/.env.example` into the deployment
-directory as they are, copy `.env.example` to `.env`, and fill it:
+To switch an existing deployment, first run `docker compose down` with its old file and keep that
+file aside, because the new one replaces it (see the project name below). Then copy
+`remote/server/docker-compose.yml` and `remote/server/.env.example` into the deployment directory as
+they are. Create `.env` readable only by its owner, because it can hold secrets:
+`[ -e .env ] || install -m 600 .env.example .env`. Fill it:
 
 - `VERSION`: the release to run, such as `1.11.1`. Keep exactly one `VERSION=` line.
 - `DOMAIN`: the host name readers open. Traefik routes it to the service.
 - Any optional setting the deployment uses, such as the `VAPID_*` or Cloudflare values. Leave the
   others commented out.
 
-Do not set `VERSION` in the shell, because it overrides `.env`.
+Do not set `VERSION` in the shell, because it overrides `.env`. Start the service with
+`docker compose up -d --wait`.
 
 The file is written for Traefik with its Docker provider on the external Docker network `traefik`,
 with the entrypoint `https` and the middleware `default@file`. With another reverse proxy, adapt the
 file. Keep `TRUST_PROXY=1` and the proxy rules in the README.
 
 `name: ai-usage-tray` makes Compose treat the service as a new project when the deployment used
-another name before, such as its directory name. When you switch an existing deployment, run
-`docker compose down` with the old file first. Then delete the old `compose.yaml` instead of keeping
-both: Compose prefers `compose.yaml` when both are in the directory.
+another name before, such as its directory name, so `docker compose down` with the new file would
+not stop the old container. Do not leave an old `compose.yaml` in the directory: Compose prefers it
+over `docker-compose.yml`.
 
 ## Going back to the Cloudflare Worker
 
