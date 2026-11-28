@@ -1,13 +1,16 @@
+# Runs the published image behind Traefik with its Docker provider, on the external "traefik"
+# network, so no port is published. Copy this file and .env.example next to each other, then copy
+# .env.example to .env and fill it. Another reverse proxy needs this file adapted.
+name: ai-usage-tray
+
 services:
   remote-view:
-    image: ghcr.io/shlomiporush/ai-usage-tray:latest
-    pull_policy: always
+    image: ghcr.io/shlomiporush/ai-usage-tray:${VERSION}
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:8080:8080"
     volumes:
       - ./data:/data
     read_only: true
+    # The drain marker of a zero-downtime update lives here.
     tmpfs:
       - /tmp:size=16m,mode=1777
     security_opt:
@@ -21,13 +24,21 @@ services:
       - DAC_OVERRIDE
       - SETGID
       - SETUID
-    stop_grace_period: 10s
-    healthcheck:
-      test: ["CMD", "/app/server/healthcheck.sh"]
-      interval: 30s
-      timeout: 3s
-      start_period: 5s
-      retries: 3
+    # Grace window for open requests, which shutdown waits for. Once its body
+    # has arrived, a request mostly waits for SQLite (up to 5 s per wait) and
+    # browser push delivery (up to 10 s).
+    stop_grace_period: 30s
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.http.services.ai-usage-tray.loadbalancer.server.port=8080"
+      - "traefik.http.routers.ai-usage-tray.entrypoints=https"
+      - "traefik.http.routers.ai-usage-tray.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.ai-usage-tray.tls=true"
+      - "traefik.http.routers.ai-usage-tray.service=ai-usage-tray"
+      - "traefik.http.routers.ai-usage-tray.middlewares=default@file"
     environment:
       - SNAPSHOT_TTL_SECONDS=604800
       - CLEANUP_INTERVAL_SECONDS=3600
@@ -47,10 +58,10 @@ services:
       - SNAPSHOT_SIGNING_KEY
       - UNSIGNED_PUT_PER_MINUTE
       - SIGNED_PUT_PER_MINUTE
-      # This service is published on loopback only and always runs behind a
-      # reverse proxy, so without this every request would be counted against
-      # the proxy's own address. Configure the proxy to REPLACE X-Forwarded-For
-      # (see README.md); set 0 when nothing is in front of the container.
+      # This service always runs behind a reverse proxy, so without this every
+      # request would be counted against the proxy's own address. The relay
+      # reads the last X-Forwarded-For entry, the one the proxy adds (see
+      # README.md); set 0 when nothing is in front of the container.
       - TRUST_PROXY=1
       # Optional: purge the Cloudflare cache once at startup so a deploy is
       # visible immediately. "files" purges only the viewer shell addresses
@@ -60,3 +71,7 @@ services:
       - CLOUDFLARE_ZONE_ID
       - CLOUDFLARE_API_TOKEN
       - PUBLIC_BASE_URL
+
+networks:
+  traefik:
+    external: true

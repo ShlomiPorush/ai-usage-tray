@@ -141,6 +141,22 @@ jobs:
           test "$(grep -c . "$RUNNER_TEMP/rollout-labels.txt")" = 2
           test "$(docker image inspect --format '{{ index .Config.Labels "ai-usage-tray.rollout-from" }}' ai-usage-tray-remote-view:ci)" = "$(< remote/server/ROLLOUT_FROM)"
 
+      - name: Verify health check and drain hook
+        run: |
+          set -euo pipefail
+          healthcheck="$(docker image inspect --format '{{ json .Config.Healthcheck }}' ai-usage-tray-remote-view:ci)"
+          test "$(jq -r '.Test | join(" ")' <<< "$healthcheck")" = "CMD /app/server/healthcheck.sh"
+          interval_seconds="$(jq -er '.Interval / 1000000000 | floor' <<< "$healthcheck")"
+          retries="$(jq -er '.Retries' <<< "$healthcheck")"
+          hook="$(docker image inspect --format '{{ index .Config.Labels "docker-rollout.pre-stop-hook" }}' ai-usage-tray-remote-view:ci)"
+          [[ "$hook" =~ ^touch\ /tmp/drain\ \&\&\ sleep\ ([0-9]+)$ ]]
+          drain_seconds="${BASH_REMATCH[1]}"
+          minimum=$(( interval_seconds * retries + 2 ))
+          if [ "$drain_seconds" -le "$minimum" ]; then
+            echo "The pre-stop hook sleeps ${drain_seconds}s; it must outlast ${minimum}s of failing health checks" >&2
+            exit 1
+          fi
+
       - name: Verify container version
         run: |
           test "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' ai-usage-tray-remote-view:ci)" = "${{ steps.version.outputs.value }}"
@@ -148,12 +164,18 @@ jobs:
           test "$(docker image inspect --format '{{ json .Config.Volumes }}' ai-usage-tray-remote-view:ci)" = "null"
 
       - name: Validate Compose configuration
-        run: docker compose -f remote/server/compose.yaml config --quiet
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          DOMAIN: remote-view.example.test
+        run: docker compose -f remote/server/docker-compose.yml config --quiet
 
       # Runs the Compose file operators actually download, so a missing
       # capability or a broken entrypoint fallback fails here and not in
       # production. Only the image reference is overridden.
       - name: Smoke test the shipped Compose file
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+          DOMAIN: remote-view.example.test
         run: |
           override="${RUNNER_TEMP:?}/remote-view-compose-override.yaml"
           data_dir="$PWD/remote/server/data"
@@ -163,7 +185,7 @@ jobs:
               image: ai-usage-tray-remote-view:ci
               pull_policy: never
           YAML
-          compose() { docker compose -f remote/server/compose.yaml -f "$override" "$@"; }
+          compose() { docker compose -f remote/server/docker-compose.yml -f "$override" "$@"; }
           as_root() {
             docker run --rm --user 0:0 --entrypoint sh \
               --mount "type=bind,src=$data_dir,dst=/data" \
@@ -176,6 +198,7 @@ jobs:
             rmdir "$data_dir" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
+          docker network inspect traefik >/dev/null 2>&1 || docker network create traefik
           mkdir -p "$data_dir"
           # The documented bootstrap leaves the mapped directory owned by root.
           as_root 'chown -R 0:0 /data && chmod 755 /data'
@@ -188,7 +211,7 @@ jobs:
           # exec would report the image user instead.
           test "$(docker exec --user 0:0 "$container" awk '/^Uid:/ { print $2 }' /proc/1/status)" = "10001"
           test "$(docker exec --user 0:0 "$container" awk '/^CapEff:/ { print $2 }' /proc/1/status)" = "0000000000000000"
-          test "$(curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/health)" = "200"
+          test "$(docker inspect --format '{{ index .Config.Labels "traefik.http.routers.ai-usage-tray.rule" }}' "$container")" = 'Host(`remote-view.example.test`)'
 
       - name: Smoke test bind-mounted data directory
         run: |

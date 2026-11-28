@@ -7,7 +7,7 @@ The server has no npm dependencies. It uses the SQLite module built into Node.js
 publishes ready-to-run `linux/amd64` and `linux/arm64` images to:
 
 ```text
-ghcr.io/shlomiporush/ai-usage-tray:1.11.0
+ghcr.io/shlomiporush/ai-usage-tray:1.11.1
 ghcr.io/shlomiporush/ai-usage-tray:latest
 ```
 
@@ -20,21 +20,30 @@ The production server pulls this image. It does not clone the repository or buil
 
 ## Run it
 
-Create a deployment directory and download only the Compose file:
+Create a deployment directory and download only the Compose file and its `.env` example:
 
 ```sh
 mkdir -p /opt/ai-usage-tray-remote-view
 cd /opt/ai-usage-tray-remote-view
-curl -fsSLo compose.yaml \
-  https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/remote/server/compose.yaml
+curl -fsSLo docker-compose.yml \
+  https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/remote/server/docker-compose.yml
+curl -fsSLo .env.example \
+  https://raw.githubusercontent.com/ShlomiPorush/ai-usage-tray/main/remote/server/.env.example
+[ -e .env ] || install -m 600 .env.example .env
 mkdir -p data
-docker compose pull
-docker compose up -d
-curl http://127.0.0.1:8080/health
 ```
 
-The Compose file binds only to `127.0.0.1:8080`. Put Caddy, nginx, Traefik, or another HTTPS reverse
-proxy in front of it.
+Set `VERSION` and `DOMAIN` in `.env`, then start it and wait until it is healthy:
+
+```sh
+docker compose pull
+docker compose up -d --wait
+```
+
+The Compose file publishes no port. It is written for Traefik with its Docker provider on the
+external Docker network `traefik`; for Caddy, nginx, or another HTTPS reverse proxy, adapt the file,
+for example by publishing `127.0.0.1:8080:8080` in place of the Traefik labels and network. See
+[docs/REMOTE-VIEW-DEPLOY.md](../../docs/REMOTE-VIEW-DEPLOY.md).
 
 Browser notifications use a persistent VAPID key pair. By default, the server creates
 `data/vapid.json` on first startup and reuses it across restarts and image updates. Keep this file
@@ -86,18 +95,18 @@ domain). IP addresses are never accepted. Any other endpoint is answered with
 list to replace that list, for example when running another push service or when narrowing it. The
 list replaces the built-in one, so include every service the viewer's browsers use.
 
-To update later:
+To update later, set `VERSION` in `.env` to the new release, then:
 
 ```sh
 docker compose pull
-docker compose up -d
+docker compose up -d --wait
 ```
 
-Compose uses `pull_policy: always`, so `up` also checks the registry. The explicit `pull` keeps the
-operation and any registry error visible before the running container is replaced.
+The explicit `pull` keeps the operation and any registry error visible before the running container
+is replaced. Updates without downtime are described in
+[docs/REMOTE-VIEW-DEPLOY.md](../../docs/REMOTE-VIEW-DEPLOY.md).
 
-The image and the Compose service both run `healthcheck.sh`; the Compose file runs it less often.
-Compose reports the container as `healthy` or `unhealthy` in `docker compose ps`. The image also
+The image runs `healthcheck.sh`. Compose reports the container as `healthy` or `unhealthy` in `docker compose ps`. The image also
 reports a container as unhealthy while it drains before a zero-downtime update; see
 [docs/REMOTE-VIEW-DEPLOY.md](../../docs/REMOTE-VIEW-DEPLOY.md).
 
@@ -286,13 +295,13 @@ A Compose `user` override is also supported when the host `data` directory and a
 files are writable by that UID; otherwise the container exits with an error that names the exact
 `chown` to run on the host.
 
-Migration for an existing deployment: replace the local `compose.yaml` with the current one and run
-`docker compose up -d`. No host change is needed, whoever owns `data` today, because the entrypoint
+Migration for an existing deployment: switch to the current `docker-compose.yml` as described in
+[docs/REMOTE-VIEW-DEPLOY.md](../../docs/REMOTE-VIEW-DEPLOY.md). No host change is needed, whoever owns `data` today, because the entrypoint
 now has `CHOWN`. Only a deployment that pins `user:` in its own Compose file has to keep the data
 directory writable by that UID (`chown -R <uid>:<gid> data`).
 
-Example Caddy configuration. Caddy's default forwarding is fine: the relay reads the last
-`X-Forwarded-For` entry, which is the one Caddy appends.
+Example Caddy configuration, for a Compose file adapted to publish `127.0.0.1:8080`. Caddy's default
+forwarding is fine: the relay reads the last `X-Forwarded-For` entry, which is the one Caddy appends.
 
 ```caddyfile
 ai.yaaps.net {
@@ -309,8 +318,9 @@ Cloudflare remains the proxied DNS provider,
 keep rate limiting for `/u/` enabled there and restrict direct access to the origin where practical.
 Cloudflare proxy traffic does not use Workers or KV.
 
-If the reverse proxy also runs in Docker, attach `remote-view` to the proxy's shared network and
-route to `remote-view:8080` instead of publishing the loopback port.
+The shipped Compose file attaches `remote-view` to Traefik's shared network, and Traefik routes to
+port 8080 of the container. The last `X-Forwarded-For` entry it forwards is the address Traefik
+sees.
 
 The server enables SQLite WAL mode. The schema is intentionally small:
 
